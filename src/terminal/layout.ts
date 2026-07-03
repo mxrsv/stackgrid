@@ -1,3 +1,4 @@
+import { ratioEntries } from "../lib/split-tree";
 import type { LeafNode, Path, SplitNode, TreeNode } from "../lib/split-tree";
 
 export interface LayoutContext {
@@ -117,4 +118,55 @@ function buildDivider(
   });
 
   return divider;
+}
+
+/**
+ * Write the tree's ratios into the existing DOM without rebuilding it, so
+ * the flex-grow CSS transition animates. The DOM must match the tree's
+ * structure at call time (every structural change renders synchronously).
+ * No-op when root is null (manager not initialized) or the container is empty.
+ *
+ * A `.split` element has three children: [child a, divider, child b] — the
+ * walk selects `:scope > .split__child` (indexes 0 and 1 of that query) to
+ * skip the divider, then descends through each child's firstElementChild.
+ */
+export function applyRatios(
+  container: HTMLElement,
+  root: TreeNode | null,
+): void {
+  if (!root) {
+    return;
+  }
+  const rootEl = container.firstElementChild;
+  if (!rootEl) {
+    return;
+  }
+  for (const entry of ratioEntries(root)) {
+    const splitEl = resolveSplitElement(rootEl, entry.path);
+    if (!splitEl) {
+      continue;
+    }
+    const children = splitEl.querySelectorAll<HTMLElement>(
+      ":scope > .split__child",
+    );
+    if (children.length !== 2) {
+      continue;
+    }
+    children[0].style.flexGrow = String(entry.ratio);
+    children[1].style.flexGrow = String(1 - entry.ratio);
+  }
+}
+
+/** Follow an a/b path from the tree root's element to a split element. */
+function resolveSplitElement(rootEl: Element, path: Path): Element | null {
+  let current: Element = rootEl;
+  for (const branch of path) {
+    const children = current.querySelectorAll(":scope > .split__child");
+    const next = children[branch === "a" ? 0 : 1]?.firstElementChild ?? null;
+    if (!next) {
+      return null;
+    }
+    current = next;
+  }
+  return current;
 }
