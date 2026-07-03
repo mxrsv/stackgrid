@@ -90,7 +90,7 @@ export function App() {
       />
       <main class="stage">
         <div class="stage__tabs" ref={stagesRef} />
-        {panelOpen.value && <SettingsPanel onClose={closePanel} />}
+        <SettingsPanel open={panelOpen.value} onClose={closePanel} />
       </main>
       <StatusBar />
     </div>
