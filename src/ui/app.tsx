@@ -1,33 +1,50 @@
 import { useEffect, useRef } from "preact/hooks";
 import { useSignal, useSignalEffect } from "@preact/signals";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { installQuitGuard } from "../lib/quit-guard";
 import { settings } from "../settings/settings-store";
 import { resolveTheme } from "../settings/themes";
 import {
-  createTerminalController,
-  type TerminalController,
-} from "../terminal/terminal";
+  createTerminalManager,
+  type TerminalManager,
+} from "../terminal/terminal-manager";
 import { Sidebar } from "./sidebar";
 import { SettingsPanel } from "./settings-panel";
 
 export function App() {
   const panelOpen = useSignal(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const controllerRef = useRef<TerminalController | null>(null);
+  const managerRef = useRef<TerminalManager | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) {
       return;
     }
-    const controller = createTerminalController(settings.value);
-    controllerRef.current = controller;
-    void controller.attach(container);
+    const manager = createTerminalManager();
+    managerRef.current = manager;
+    manager.init(container).catch((err: unknown) => {
+      console.error("Failed to initialize terminal:", err);
+    });
+    return () => manager.dispose();
   }, []);
 
-  // Áp settings vào terminal + CSS vars của app chrome mỗi khi settings đổi
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    installQuitGuard()
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch((err: unknown) => {
+        console.error("Failed to install quit guard:", err);
+      });
+    return () => unlisten?.();
+  }, []);
+
+  // Apply settings to terminals + app chrome CSS vars whenever settings change
   useSignalEffect(() => {
     const current = settings.value;
-    controllerRef.current?.applySettings(current);
+    managerRef.current?.applySettings(current);
     const theme = resolveTheme(current);
     const rootStyle = document.documentElement.style;
     rootStyle.setProperty("--app-bg", theme.background ?? "#16161e");
@@ -37,7 +54,7 @@ export function App() {
 
   const closePanel = (): void => {
     panelOpen.value = false;
-    controllerRef.current?.focus();
+    managerRef.current?.focusActive();
   };
 
   return (
@@ -52,6 +69,9 @@ export function App() {
             panelOpen.value = true;
           }
         }}
+        onSplitRow={() => void managerRef.current?.splitActive("row")}
+        onSplitColumn={() => void managerRef.current?.splitActive("column")}
+        onClosePane={() => void managerRef.current?.closeActive()}
       />
       <div class="app__main">
         {panelOpen.value && <SettingsPanel onClose={closePanel} />}
