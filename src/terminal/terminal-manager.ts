@@ -5,6 +5,7 @@ import {
   countLeaves,
   leaf,
   leafIds,
+  movePane,
   removeLeaf,
   replaceLeaf,
   serializeTree,
@@ -12,12 +13,14 @@ import {
   splitLeaf,
   treeFromLayout,
   type Direction,
+  type Edge,
   type SerializedNode,
   type TreeNode,
 } from "../lib/split-tree";
 import { paneHeaderInfo, type PaneProcessInfo } from "../lib/process-info";
 import { renderTree } from "./layout";
 import { createPane, type Pane, type PaneEvents } from "./pane";
+import { createPaneDragController, type PaneDragController } from "./pane-drag";
 
 // Placeholder size at spawn — fit() after mount resizes to the real dimensions
 const INITIAL_COLS = 80;
@@ -119,6 +122,7 @@ export function createTerminalManager(
     if (!tree) {
       return;
     }
+    container.classList.toggle("has-multiple-panes", panes.size > 1);
     renderTree(container, tree, {
       getPaneElement: (id) => panes.get(id)?.element,
       isActive: (id) => id === activeId,
@@ -312,6 +316,24 @@ export function createTerminalManager(
     spawned[0]?.focus();
   }
 
+  const paneDrag: PaneDragController = createPaneDragController(container, {
+    paneCount: () => panes.size,
+    onMove(sourceId: number, targetId: number, edge: Edge) {
+      if (!tree) {
+        return;
+      }
+      const next = movePane(tree, sourceId, targetId, edge);
+      if (next === tree) {
+        return; // no-op: invalid ids, or source/target closed mid-drag
+      }
+      tree = next;
+      render();
+      setActive(sourceId);
+      panes.get(sourceId)?.focus();
+      callbacks.onLayoutChange();
+    },
+  });
+
   return {
     initFresh,
     initFromLayout,
@@ -369,6 +391,7 @@ export function createTerminalManager(
       }
     },
     dispose() {
+      paneDrag.dispose();
       for (const pane of panes.values()) {
         invoke("kill_pty", { id: pane.id }).catch(() => {
           // Session already gone — ignore

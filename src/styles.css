@@ -834,3 +834,52 @@ body,
   color: var(--fg);
   border-color: var(--text-muted);
 }
+
+/* ── Pane drag-dock ──────────────────────────────────────── */
+
+.has-multiple-panes .pane__bar {
+  cursor: grab;
+}
+
+.is-pane-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* Block pointer events on terminals while dragging a pane — no text
+   selection, no hit-test noise (hit-testing uses rect math so it still works) */
+.is-pane-dragging .pane {
+  pointer-events: none;
+}
+
+.pane-drag-ghost {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  max-width: 240px;
+  padding: 6px 11px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--chrome-2);
+  border: 1px solid var(--hair-strong);
+  border-radius: 6px;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drop-overlay {
+  position: fixed;
+  z-index: 999;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: var(--radius);
+  transition:
+    left 0.08s ease,
+    top 0.08s ease,
+    width 0.08s ease,
+    height 0.08s ease;
+}
