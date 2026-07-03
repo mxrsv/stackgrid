@@ -1,0 +1,184 @@
+import { activeTabIndex, tabViews } from "../terminal/tabs-store";
+import { dotColor } from "../lib/process-info";
+
+interface TabBarProps {
+  settingsOpen: boolean;
+  onSelectTab(index: number): void;
+  onCloseTab(index: number): void;
+  onNewTab(): void;
+  onSplitRow(): void;
+  onSplitColumn(): void;
+  onClosePane(): void;
+  onCycleTheme(): void;
+  onToggleSettings(): void;
+}
+
+function SplitRowIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      aria-hidden="true"
+    >
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <line x1="12" y1="4.5" x2="12" y2="19.5" />
+    </svg>
+  );
+}
+
+function SplitColumnIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      aria-hidden="true"
+    >
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <line x1="3.5" y1="12" x2="20.5" y2="12" />
+    </svg>
+  );
+}
+
+function ClosePaneIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      aria-hidden="true"
+    >
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <path d="M9.5 9.5l5 5m0-5l-5 5" />
+    </svg>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.08a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56h.08a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.08a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03Z" />
+    </svg>
+  );
+}
+
+export function TabBar(props: TabBarProps) {
+  const tabs = tabViews.value;
+  const active = activeTabIndex.value;
+  return (
+    <header class="tabbar" data-tauri-drag-region>
+      {/* Reserved space under the native traffic lights (titleBarStyle: Overlay) */}
+      <div class="tabbar__traffic" data-tauri-drag-region aria-hidden="true" />
+      <div class="tabbar__tabs" role="tablist" aria-label="Terminal tabs">
+        {tabs.map((tab, index) => (
+          <div
+            key={tab.key}
+            role="tab"
+            aria-selected={index === active}
+            tabIndex={0}
+            class={`tab ${index === active ? "is-active" : ""}`}
+            onClick={() => props.onSelectTab(index)}
+          >
+            <span
+              class="tab__dot"
+              style={{ background: dotColor(tab.process) }}
+            />
+            <span class="tab__label">{tab.process ?? "shell"}</span>
+            <button
+              type="button"
+              class="tab__close"
+              aria-label="Close tab"
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onCloseTab(index);
+              }}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        class="tab-add"
+        title="New tab (⌘T)"
+        aria-label="New tab"
+        onClick={props.onNewTab}
+      >
+        +
+      </button>
+      <div class="tabbar__spacer" data-tauri-drag-region />
+      <div class="tabbar__actions">
+        <button
+          type="button"
+          class="iconbtn"
+          title="Split vertically (⌘D)"
+          aria-label="Split pane vertically"
+          onClick={props.onSplitRow}
+        >
+          <SplitRowIcon />
+        </button>
+        <button
+          type="button"
+          class="iconbtn"
+          title="Split horizontally (⌘⇧D)"
+          aria-label="Split pane horizontally"
+          onClick={props.onSplitColumn}
+        >
+          <SplitColumnIcon />
+        </button>
+        <button
+          type="button"
+          class="iconbtn"
+          title="Close pane (⌘⇧W)"
+          aria-label="Close current pane"
+          onClick={props.onClosePane}
+        >
+          <ClosePaneIcon />
+        </button>
+        <span class="tabbar__sep" aria-hidden="true" />
+        <button
+          type="button"
+          class="swatch"
+          title="Cycle theme"
+          aria-label="Cycle theme preset"
+          onClick={props.onCycleTheme}
+        />
+        <button
+          type="button"
+          class={`iconbtn iconbtn--gear ${props.settingsOpen ? "is-active" : ""}`}
+          title="Settings"
+          aria-label="Open settings"
+          aria-pressed={props.settingsOpen}
+          onClick={props.onToggleSettings}
+        >
+          <GearIcon />
+        </button>
+      </div>
+    </header>
+  );
+}

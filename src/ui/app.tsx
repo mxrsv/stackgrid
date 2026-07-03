@@ -2,10 +2,11 @@ import { useEffect, useRef } from "preact/hooks";
 import { useSignal, useSignalEffect } from "@preact/signals";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { installQuitGuard } from "../lib/quit-guard";
-import { settings } from "../settings/settings-store";
-import { resolveTheme } from "../settings/themes";
+import { settings, updateSettings } from "../settings/settings-store";
+import { resolveTheme, THEME_PRESETS } from "../settings/themes";
 import { createTabManager, type TabManager } from "../terminal/tab-manager";
-import { Sidebar } from "./sidebar";
+import { TabBar } from "./tab-bar";
+import { StatusBar } from "./status-bar";
 import { SettingsPanel } from "./settings-panel";
 
 export function App() {
@@ -38,15 +39,20 @@ export function App() {
     return () => unlisten?.();
   }, []);
 
-  // Apply settings to terminals + app chrome CSS vars whenever settings change
+  // Push theme colors into terminals and the chrome CSS vars
   useSignalEffect(() => {
     const current = settings.value;
     tabsRef.current?.applySettings(current);
     const theme = resolveTheme(current);
     const rootStyle = document.documentElement.style;
-    rootStyle.setProperty("--app-bg", theme.background ?? "#16161e");
-    rootStyle.setProperty("--app-fg", theme.foreground ?? "#c0caf5");
+    rootStyle.setProperty("--bg", theme.background ?? "#16161e");
+    rootStyle.setProperty("--fg", theme.foreground ?? "#c0caf5");
     rootStyle.setProperty("--accent", theme.blue ?? "#7aa2f7");
+    rootStyle.setProperty("--red", theme.red ?? "#f7768e");
+    rootStyle.setProperty("--green", theme.green ?? "#9ece6a");
+    rootStyle.setProperty("--yellow", theme.yellow ?? "#e0af68");
+    rootStyle.setProperty("--magenta", theme.magenta ?? "#bb9af7");
+    rootStyle.setProperty("--cyan", theme.cyan ?? "#7dcfff");
   });
 
   const closePanel = (): void => {
@@ -54,11 +60,26 @@ export function App() {
     tabsRef.current?.focusActive();
   };
 
+  const cycleTheme = (): void => {
+    const index = THEME_PRESETS.findIndex(
+      (preset) => preset.id === settings.value.themeId,
+    );
+    const next = THEME_PRESETS[(index + 1) % THEME_PRESETS.length];
+    // Switching theme clears previous color overrides
+    updateSettings({ themeId: next.id, colorOverrides: {} });
+  };
+
   return (
-    <div class="app app--left">
-      <Sidebar
-        position="left"
+    <div class="window">
+      <TabBar
         settingsOpen={panelOpen.value}
+        onSelectTab={(index) => tabsRef.current?.selectTab(index)}
+        onCloseTab={(index) => void tabsRef.current?.closeTab(index)}
+        onNewTab={() => void tabsRef.current?.newTab()}
+        onSplitRow={() => void tabsRef.current?.splitActive("row")}
+        onSplitColumn={() => void tabsRef.current?.splitActive("column")}
+        onClosePane={() => void tabsRef.current?.closePane()}
+        onCycleTheme={cycleTheme}
         onToggleSettings={() => {
           if (panelOpen.value) {
             closePanel();
@@ -66,14 +87,12 @@ export function App() {
             panelOpen.value = true;
           }
         }}
-        onSplitRow={() => void tabsRef.current?.splitActive("row")}
-        onSplitColumn={() => void tabsRef.current?.splitActive("column")}
-        onClosePane={() => void tabsRef.current?.closePane()}
       />
-      <div class="app__main">
+      <main class="stage">
+        <div class="stage__tabs" ref={stagesRef} />
         {panelOpen.value && <SettingsPanel onClose={closePanel} />}
-        <div class="terminal-container" ref={stagesRef} />
-      </div>
+      </main>
+      <StatusBar />
     </div>
   );
 }
