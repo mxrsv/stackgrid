@@ -101,3 +101,72 @@ export function setRatio(node: TreeNode, path: Path, ratio: number): TreeNode {
     ? { ...node, a: setRatio(node.a, rest, ratio) }
     : { ...node, b: setRatio(node.b, rest, ratio) };
 }
+
+export interface SerializedLeaf {
+  readonly type: "leaf";
+}
+
+export interface SerializedSplit {
+  readonly type: "split";
+  readonly direction: Direction;
+  readonly ratio: number;
+  readonly first: SerializedNode;
+  readonly second: SerializedNode;
+}
+
+export type SerializedNode = SerializedLeaf | SerializedSplit;
+
+/** Structure-only snapshot for session persistence — pane ids are dropped. */
+export function serializeTree(node: TreeNode): SerializedNode {
+  if (node.kind === "leaf") {
+    return { type: "leaf" };
+  }
+  return {
+    type: "split",
+    direction: node.dir,
+    ratio: node.ratio,
+    first: serializeTree(node.a),
+    second: serializeTree(node.b),
+  };
+}
+
+export function countLeaves(layout: SerializedNode): number {
+  return layout.type === "leaf"
+    ? 1
+    : countLeaves(layout.first) + countLeaves(layout.second);
+}
+
+/**
+ * Rebuild a tree from a serialized layout, assigning `paneIds` to leaves
+ * left-to-right. `paneIds` must hold exactly `countLeaves(layout)` ids.
+ */
+export function treeFromLayout(
+  layout: SerializedNode,
+  paneIds: readonly number[],
+): TreeNode {
+  const [node, used] = buildFromLayout(layout, paneIds, 0);
+  if (used !== paneIds.length) {
+    throw new Error(`Layout has ${used} leaves but got ${paneIds.length} ids`);
+  }
+  return node;
+}
+
+function buildFromLayout(
+  layout: SerializedNode,
+  paneIds: readonly number[],
+  offset: number,
+): [TreeNode, number] {
+  if (layout.type === "leaf") {
+    const id = paneIds[offset];
+    if (id === undefined) {
+      throw new Error(`Layout needs more than ${paneIds.length} pane ids`);
+    }
+    return [leaf(id), offset + 1];
+  }
+  const [a, afterA] = buildFromLayout(layout.first, paneIds, offset);
+  const [b, afterB] = buildFromLayout(layout.second, paneIds, afterA);
+  return [
+    { kind: "split", dir: layout.direction, ratio: layout.ratio, a, b },
+    afterB,
+  ];
+}
