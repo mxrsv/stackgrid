@@ -1,6 +1,6 @@
 #[cfg(target_os = "macos")]
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{AboutMetadata, MenuBuilder, MenuItem, SubmenuBuilder},
     App, Emitter, Runtime,
 };
 
@@ -10,32 +10,52 @@ use tauri::{App, Runtime};
 #[cfg(target_os = "macos")]
 const QUIT_MENU_ID: &str = "quit-confirm";
 
-/// Trên macOS, item Quit mặc định (⌘Q) thoát thẳng process mà không đi qua
-/// RunEvent::ExitRequested (tauri-apps/tauri#3124), nên thay nó bằng item
-/// tuỳ chỉnh giữ nguyên phím ⌘Q nhưng phát "quit-requested" cho frontend hỏi.
+/// Explicit macOS menu, replacing the default one for two reasons:
+/// - The default Quit item (Cmd+Q) exits the process without going through
+///   RunEvent::ExitRequested (tauri-apps/tauri#3124), so a custom item keeps
+///   the shortcut but emits "quit-requested" for the frontend confirm dialog.
+/// - The default File > Close Window item owns Cmd+W, which must reach the
+///   webview instead (close-tab shortcut).
 #[cfg(target_os = "macos")]
 pub fn install<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
     let handle = app.handle();
-    let menu = Menu::default(handle)?;
+    let app_name = handle.package_info().name.clone();
     let quit = MenuItem::with_id(
         handle,
         QUIT_MENU_ID,
-        format!("Quit {}", handle.package_info().name),
+        format!("Quit {app_name}"),
         true,
         Some("CmdOrCtrl+Q"),
     )?;
-    let app_submenu = menu
-        .items()?
-        .into_iter()
-        .next()
-        .and_then(|item| item.as_submenu().cloned());
-    if let Some(app_submenu) = app_submenu {
-        let count = app_submenu.items()?.len();
-        if count > 0 {
-            app_submenu.remove_at(count - 1)?;
-        }
-        app_submenu.append(&quit)?;
-    }
+    let app_menu = SubmenuBuilder::new(handle, app_name)
+        .about(Some(AboutMetadata::default()))
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .item(&quit)
+        .build()?;
+    let edit_menu = SubmenuBuilder::new(handle, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+    let window_menu = SubmenuBuilder::new(handle, "Window")
+        .minimize()
+        .maximize()
+        .separator()
+        .fullscreen()
+        .build()?;
+    let menu = MenuBuilder::new(handle)
+        .items(&[&app_menu, &edit_menu, &window_menu])
+        .build()?;
     app.set_menu(menu)?;
     app.on_menu_event(|handle, event| {
         if event.id() == QUIT_MENU_ID {
