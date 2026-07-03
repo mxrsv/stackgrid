@@ -476,35 +476,72 @@ body,
   flex: 1;
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
-.pane .xterm {
+.pane__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.pane__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.pane__cwd {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pane__badge {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 5px;
+}
+
+.pane__term {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pane__term .xterm {
   height: 100%;
 }
 
 /* xterm's viewport defaults to a black background — make it transparent so the
    theme background shows through, avoiding a black strip in the leftover space
    at the bottom of a pane (height not divisible by the cell height) */
-.pane .xterm-viewport {
+.pane__term .xterm-viewport {
   background-color: transparent !important;
 }
 
 /* xterm scrollbar: thin, transparent, follows the theme */
-.pane .xterm-viewport::-webkit-scrollbar {
+.pane__term .xterm-viewport::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
-.pane .xterm-viewport::-webkit-scrollbar-track {
+.pane__term .xterm-viewport::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.pane .xterm-viewport::-webkit-scrollbar-thumb {
+.pane__term .xterm-viewport::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--app-fg) 25%, transparent);
   border-radius: 4px;
 }
 
-.pane .xterm-viewport::-webkit-scrollbar-corner {
+.pane__term .xterm-viewport::-webkit-scrollbar-corner {
   background: transparent;
 }

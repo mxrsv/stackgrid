@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { FONT_FALLBACK, type Settings } from "../settings/settings-schema";
 import { resolveTheme } from "../settings/themes";
+import type { PaneHeaderInfo } from "../lib/process-info";
 
 export interface PaneEvents {
   onData(id: number, data: string): void;
@@ -21,6 +22,8 @@ export interface Pane {
   fit(): void;
   focus(): void;
   applySettings(next: Settings): void;
+  /** Update the header bar (dot color, cwd, process badge). */
+  setHeaderInfo(info: PaneHeaderInfo): void;
   dispose(): void;
 }
 
@@ -39,6 +42,21 @@ export function createPane(
 ): Pane {
   const element = document.createElement("div");
   element.className = "pane";
+
+  const bar = document.createElement("div");
+  bar.className = "pane__bar";
+  const dot = document.createElement("span");
+  dot.className = "pane__dot";
+  const cwdEl = document.createElement("span");
+  cwdEl.className = "pane__cwd";
+  const badge = document.createElement("span");
+  badge.className = "pane__badge pane__badge--shell";
+  badge.textContent = "shell";
+  bar.append(dot, cwdEl, badge);
+
+  const termEl = document.createElement("div");
+  termEl.className = "pane__term";
+  element.append(bar, termEl);
 
   const term = new Terminal({
     cursorBlink: true,
@@ -64,8 +82,8 @@ export function createPane(
 
   function mount(): void {
     if (!opened) {
-      term.open(element);
-      observer.observe(element);
+      term.open(termEl);
+      observer.observe(termEl);
       opened = true;
     }
     fit();
@@ -86,6 +104,15 @@ export function createPane(
     fit();
   }
 
+  function setHeaderInfo(info: PaneHeaderInfo): void {
+    dot.style.background = info.dotColor;
+    cwdEl.textContent = info.cwd;
+    badge.textContent = info.badge;
+    badge.className = `pane__badge ${
+      info.agent ? "pane__badge--agent" : "pane__badge--shell"
+    }`;
+  }
+
   function dispose(): void {
     observer.disconnect();
     term.dispose();
@@ -101,6 +128,7 @@ export function createPane(
     fit,
     focus: () => term.focus(),
     applySettings,
+    setHeaderInfo,
     dispose,
   };
 }
