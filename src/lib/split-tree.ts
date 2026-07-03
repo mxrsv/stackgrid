@@ -46,6 +46,64 @@ export function splitLeaf(
   };
 }
 
+export type Edge = "top" | "bottom" | "left" | "right";
+
+/**
+ * Detach leaf `sourceId` from the tree and dock it onto the `edge` of leaf
+ * `targetId`. Returns a new tree; returns the old tree BY REFERENCE when the
+ * operation is invalid (source === target, or either id is not in the tree).
+ */
+export function movePane(
+  node: TreeNode,
+  sourceId: number,
+  targetId: number,
+  edge: Edge,
+): TreeNode {
+  if (sourceId === targetId) {
+    return node;
+  }
+  const ids = leafIds(node);
+  if (!ids.includes(sourceId) || !ids.includes(targetId)) {
+    return node;
+  }
+  const withoutSource = removeLeaf(node, sourceId);
+  if (withoutSource === null) {
+    // Cannot happen while target remains, but removeLeaf returns TreeNode | null.
+    return node;
+  }
+  const dir: Direction = edge === "left" || edge === "right" ? "row" : "column";
+  const sourceFirst = edge === "left" || edge === "top";
+  return dockIntoLeaf(withoutSource, targetId, sourceId, dir, sourceFirst);
+}
+
+/** Replace leaf `targetId` with a new split holding it and pane `sourceId` (source in branch a when `sourceFirst`). */
+function dockIntoLeaf(
+  node: TreeNode,
+  targetId: number,
+  sourceId: number,
+  dir: Direction,
+  sourceFirst: boolean,
+): TreeNode {
+  if (node.kind === "leaf") {
+    if (node.paneId !== targetId) {
+      return node;
+    }
+    const source = leaf(sourceId);
+    return {
+      kind: "split",
+      dir,
+      ratio: 0.5,
+      a: sourceFirst ? source : node,
+      b: sourceFirst ? node : source,
+    };
+  }
+  return {
+    ...node,
+    a: dockIntoLeaf(node.a, targetId, sourceId, dir, sourceFirst),
+    b: dockIntoLeaf(node.b, targetId, sourceId, dir, sourceFirst),
+  };
+}
+
 /** Remove a leaf — its parent split collapses into the remaining branch. Returns null when the tree becomes empty. */
 export function removeLeaf(node: TreeNode, paneId: number): TreeNode | null {
   if (node.kind === "leaf") {
