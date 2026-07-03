@@ -11,6 +11,7 @@ export interface Settings {
   themeId: string;
   colorOverrides: Partial<TerminalColors>;
   restoreTabs: boolean;
+  focusExpand: boolean;
 }
 
 export const FONT_SIZE_MIN = 10;
@@ -31,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   themeId: "tokyo-night",
   colorOverrides: {},
   restoreTabs: true,
+  focusExpand: false,
 };
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -82,5 +84,9 @@ export function validateSettings(raw: unknown): Settings {
       typeof source.restoreTabs === "boolean"
         ? source.restoreTabs
         : DEFAULT_SETTINGS.restoreTabs,
+    focusExpand:
+      typeof source.focusExpand === "boolean"
+        ? source.focusExpand
+        : DEFAULT_SETTINGS.focusExpand,
   };
 }
