@@ -77,7 +77,20 @@ export function createPane(
   element.addEventListener("focusin", () => events.onFocus(id));
   element.addEventListener("mousedown", () => events.onFocus(id));
 
-  const observer = new ResizeObserver(() => fit());
+  // The flex-grow transition fires ResizeObserver every frame for ~150ms;
+  // debouncing here keeps fit()/resize_pty to one call after the dust
+  // settles. Direct fit() calls (mount, show, applySettings) stay immediate.
+  const RESIZE_DEBOUNCE_MS = 90;
+  let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+  const observer = new ResizeObserver(() => {
+    if (resizeTimer !== null) {
+      clearTimeout(resizeTimer);
+    }
+    resizeTimer = setTimeout(() => {
+      resizeTimer = null;
+      fit();
+    }, RESIZE_DEBOUNCE_MS);
+  });
   let opened = false;
 
   function mount(): void {
@@ -114,6 +127,9 @@ export function createPane(
   }
 
   function dispose(): void {
+    if (resizeTimer !== null) {
+      clearTimeout(resizeTimer);
+    }
     observer.disconnect();
     term.dispose();
     element.remove();
