@@ -4,6 +4,7 @@ export type ShortcutAction =
   | "close-pane"
   | "focus-next"
   | "focus-prev"
+  | "toggle-expand"
   | "new-tab"
   | "close-tab"
   | "next-tab"
@@ -34,6 +35,7 @@ export const DEFAULT_KEYMAP: readonly KeyBinding[] = [
   { key: "w", meta: true, shift: true, action: "close-pane" },
   { key: "]", meta: true, action: "focus-next" },
   { key: "[", meta: true, action: "focus-prev" },
+  { key: "e", meta: true, action: "toggle-expand" },
   { key: "t", meta: true, action: "new-tab" },
   { key: "w", meta: true, action: "close-tab" },
   // On a US layout Shift+] produces "}" and Shift+[ produces "{",

@@ -30,6 +30,20 @@ describe("matchBinding", () => {
     expect(matchBinding(keyEvent("[", { metaKey: true }))).toBe("focus-prev");
   });
 
+  it("matches Cmd+E to toggle-expand", () => {
+    expect(matchBinding(keyEvent("e", { metaKey: true }))).toBe(
+      "toggle-expand",
+    );
+  });
+
+  it("does not match E with other modifiers to toggle-expand", () => {
+    expect(matchBinding(keyEvent("e"))).toBeNull();
+    expect(
+      matchBinding(keyEvent("e", { metaKey: true, shiftKey: true })),
+    ).toBeNull();
+    expect(matchBinding(keyEvent("e", { ctrlKey: true }))).toBeNull();
+  });
+
   it("matches the new tab bindings", () => {
     expect(matchBinding(keyEvent("t", { metaKey: true }))).toBe("new-tab");
     expect(matchBinding(keyEvent("w", { metaKey: true }))).toBe("close-tab");
