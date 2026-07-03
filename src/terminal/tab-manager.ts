@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { homeDir } from "@tauri-apps/api/path";
 import type { Settings } from "../settings/settings-schema";
@@ -15,6 +16,7 @@ import { activeTabIndex, statusInfo, tabViews } from "./tabs-store";
 
 const EVENT_OUTPUT = "pty:output";
 const EVENT_EXIT = "pty:exit";
+const POLL_INTERVAL_MS = 2000;
 
 interface OutputPayload {
   id: number;
@@ -52,6 +54,9 @@ export function createTabManager(host: HTMLElement): TabManager {
   let active = -1;
   let home = "";
   let branch: string | null = null;
+  let lastBranchCwd: string | null = null;
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let pollWarned = false;
 
   function activeManager(): TerminalManager | null {
     return active >= 0 && active < tabs.length ? tabs[active].manager : null;
@@ -178,6 +183,68 @@ export function createTabManager(host: HTMLElement): TabManager {
     persist();
   }
 
+  /** Active pane of every tab (tab dots) + all panes of the active tab (headers). */
+  function pollTargets(): number[] {
+    const ids = new Set<number>();
+    for (const tab of tabs) {
+      const paneId = tab.manager.activePaneId();
+      if (paneId !== null) {
+        ids.add(paneId);
+      }
+    }
+    for (const id of activeManager()?.paneIds() ?? []) {
+      ids.add(id);
+    }
+    return [...ids];
+  }
+
+  async function updateBranch(): Promise<void> {
+    const paneId = activeManager()?.activePaneId() ?? null;
+    const cwd = paneId === null ? null : (infoByPane.get(paneId)?.cwd ?? null);
+    if (cwd === lastBranchCwd) {
+      return; // unchanged since the last poll — skip the git call
+    }
+    if (cwd === null) {
+      lastBranchCwd = null;
+      branch = null;
+      return;
+    }
+    try {
+      branch = await invoke<string | null>("git_branch", { cwd });
+      lastBranchCwd = cwd;
+    } catch (err) {
+      if (!pollWarned) {
+        console.warn("git_branch failed:", err);
+        pollWarned = true;
+      }
+    }
+  }
+
+  async function poll(): Promise<void> {
+    const ids = pollTargets();
+    if (ids.length === 0) {
+      return;
+    }
+    let infos: PaneProcessInfo[];
+    try {
+      infos = await invoke<PaneProcessInfo[]>("pty_info", { ids });
+      pollWarned = false;
+    } catch (err) {
+      // Keep the last known values; warn once, never break the loop
+      if (!pollWarned) {
+        console.warn("pty_info failed:", err);
+        pollWarned = true;
+      }
+      return;
+    }
+    for (const info of infos) {
+      infoByPane.set(info.id, info);
+    }
+    activeManager()?.updatePaneInfo(infos, home);
+    await updateBranch();
+    syncViews();
+  }
+
   function cycleTab(step: 1 | -1): void {
     if (tabs.length < 2) {
       return;
@@ -275,6 +342,8 @@ export function createTabManager(host: HTMLElement): TabManager {
     selectTab(
       session === null ? 0 : Math.min(session.activeTab, tabs.length - 1),
     );
+    pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
+    void poll();
   }
 
   return {
@@ -294,6 +363,9 @@ export function createTabManager(host: HTMLElement): TabManager {
       activeManager()?.focusActive();
     },
     dispose() {
+      if (pollTimer !== null) {
+        clearInterval(pollTimer);
+      }
       window.removeEventListener("keydown", handleShortcut, true);
       for (const unlisten of unlisteners) {
         unlisten();
