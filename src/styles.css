@@ -313,6 +313,15 @@ body,
   min-height: 0;
 }
 
+.split__child {
+  transition: flex-grow 150ms ease;
+}
+
+/* No animation while dragging a divider — ratios must track the pointer */
+.split.is-resizing > .split__child {
+  transition: none;
+}
+
 .split__divider {
   flex: 0 0 6px;
   border-radius: 3px;
