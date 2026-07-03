@@ -11,6 +11,8 @@ interface TabBarProps {
   onClosePane(): void;
   onCycleTheme(): void;
   onToggleSettings(): void;
+  expandActive: boolean;
+  onToggleExpand(): void;
 }
 
 function SplitRowIcon() {
@@ -63,6 +65,27 @@ function ClosePaneIcon() {
     >
       <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
       <path d="M9.5 9.5l5 5m0-5l-5 5" />
+    </svg>
+  );
+}
+
+function ExpandIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 4.5H6a1.5 1.5 0 0 0-1.5 1.5v3" />
+      <path d="M15 4.5h3a1.5 1.5 0 0 1 1.5 1.5v3" />
+      <path d="M9 19.5H6A1.5 1.5 0 0 1 4.5 18v-3" />
+      <path d="M15 19.5h3a1.5 1.5 0 0 0 1.5-1.5v-3" />
     </svg>
   );
 }
@@ -159,6 +182,16 @@ export function TabBar(props: TabBarProps) {
           onClick={props.onClosePane}
         >
           <ClosePaneIcon />
+        </button>
+        <button
+          type="button"
+          class={`iconbtn ${props.expandActive ? "is-active" : ""}`}
+          title="Focus expand (⌘E)"
+          aria-label="Toggle focus expand"
+          aria-pressed={props.expandActive}
+          onClick={props.onToggleExpand}
+        >
+          <ExpandIcon />
         </button>
         <span class="tabbar__sep" aria-hidden="true" />
         <button

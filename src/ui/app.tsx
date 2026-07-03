@@ -79,6 +79,10 @@ export function App() {
         onSplitRow={() => void tabsRef.current?.splitActive("row")}
         onSplitColumn={() => void tabsRef.current?.splitActive("column")}
         onClosePane={() => void tabsRef.current?.closePane()}
+        expandActive={settings.value.focusExpand}
+        onToggleExpand={() =>
+          updateSettings({ focusExpand: !settings.value.focusExpand })
+        }
         onCycleTheme={cycleTheme}
         onToggleSettings={() => {
           if (panelOpen.value) {

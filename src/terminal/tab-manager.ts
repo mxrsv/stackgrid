@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { homeDir } from "@tauri-apps/api/path";
 import type { Settings } from "../settings/settings-schema";
-import { settings } from "../settings/settings-store";
+import { settings, updateSettings } from "../settings/settings-store";
 import type { Direction, SerializedNode } from "../lib/split-tree";
 import { SESSION_VERSION, type SessionData } from "../lib/session-schema";
 import { isAgent, type PaneProcessInfo } from "../lib/process-info";
@@ -285,6 +285,9 @@ export function createTabManager(host: HTMLElement): TabManager {
         break;
       case "focus-prev":
         activeManager()?.cycleFocus(-1);
+        break;
+      case "toggle-expand":
+        updateSettings({ focusExpand: !settings.value.focusExpand });
         break;
       case "new-tab":
         void newTab();
