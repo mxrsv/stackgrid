@@ -3,6 +3,7 @@ import type { Settings } from "../settings/settings-schema";
 import { settings } from "../settings/settings-store";
 import {
   countLeaves,
+  expandForPane,
   leaf,
   leafIds,
   movePane,
@@ -19,13 +20,16 @@ import {
 } from "../lib/split-tree";
 import { paneHeaderInfo, type PaneProcessInfo } from "../lib/process-info";
 import { shellEscapePaths } from "../lib/shell-escape";
-import { renderTree } from "./layout";
+import { applyRatios, renderTree } from "./layout";
 import { createPane, type Pane, type PaneEvents } from "./pane";
 import { createPaneDragController, type PaneDragController } from "./pane-drag";
 
 // Placeholder size at spawn — fit() after mount resizes to the real dimensions
 const INITIAL_COLS = 80;
 const INITIAL_ROWS = 24;
+
+// Minimum share the active pane gets on each split along its path (Focus Expand)
+const EXPAND_RATIO = 0.65;
 
 export interface ManagerCallbacks {
   /** Fired after any structural change (split, close, ratio commit). */
@@ -125,11 +129,24 @@ export function createTerminalManager(
     return tree !== null && panes.has(id) && leafIds(tree).includes(id);
   }
 
+  /** Tree used for display: expand overlay when the mode is on, else the original. */
+  function displayTree(): TreeNode | null {
+    if (!tree) {
+      return null;
+    }
+    if (!settings.value.focusExpand || panes.size <= 1 || activeId === null) {
+      return tree;
+    }
+    return expandForPane(tree, activeId, EXPAND_RATIO);
+  }
+
   function render(): void {
     if (!tree) {
       return;
     }
     container.classList.toggle("has-multiple-panes", panes.size > 1);
+    // Build from the ORIGINAL tree so dividers capture original ratios as
+    // their commit baseline (onUp fires even on a click without dragging).
     renderTree(container, tree, {
       getPaneElement: (id) => panes.get(id)?.element,
       isActive: (id) => id === activeId,
@@ -137,6 +154,8 @@ export function createTerminalManager(
       onRatioCommit(path, ratio) {
         if (tree) {
           tree = setRatio(tree, path, ratio);
+          // Re-apply the expand overlay on top of the new committed ratio
+          applyRatios(container, displayTree());
           callbacks.onLayoutChange();
         }
       },
@@ -144,6 +163,8 @@ export function createTerminalManager(
     for (const id of leafIds(tree)) {
       panes.get(id)?.mount();
     }
+    // Overlay the expand ratios without rebuilding (animates via CSS)
+    applyRatios(container, displayTree());
   }
 
   function setActive(id: number): void {
@@ -152,6 +173,7 @@ export function createTerminalManager(
     }
     activeId = id;
     updateActiveClasses();
+    applyRatios(container, displayTree());
   }
 
   function updateActiveClasses(): void {
@@ -271,8 +293,10 @@ export function createTerminalManager(
         return;
       }
       tree = splitLeaf(tree, targetId, pane.id, dir);
+      // Assign directly instead of setActive: setActive applies ratios to the
+      // DOM, which does not match the just-split tree until render() runs.
+      activeId = pane.id;
       render();
-      setActive(pane.id);
       pane.focus();
       callbacks.onLayoutChange();
     } catch (err) {
@@ -418,6 +442,9 @@ export function createTerminalManager(
       for (const pane of panes.values()) {
         pane.applySettings(next);
       }
+      // Idempotent: mode off → displayTree() is the original tree, so this
+      // also restores the original layout when the toggle turns off.
+      applyRatios(container, displayTree());
     },
     serializeLayout() {
       return tree === null ? null : serializeTree(tree);
