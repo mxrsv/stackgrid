@@ -28,6 +28,7 @@ struct Session {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     killer: Box<dyn ChildKiller + Send + Sync>,
+    child_pid: Option<u32>,
 }
 
 #[derive(Default)]
@@ -84,6 +85,7 @@ pub fn spawn_shell(
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     drop(pair.slave);
+    let child_pid = child.process_id();
 
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
@@ -97,6 +99,7 @@ pub fn spawn_shell(
                 master: pair.master,
                 writer,
                 killer: child.clone_killer(),
+                child_pid,
             },
         );
     }
@@ -167,4 +170,27 @@ pub fn kill_pty(state: State<PtyState>, id: u32) -> Result<(), String> {
         let _ = session.killer.kill();
     }
     Ok(())
+}
+
+impl PtyState {
+    /// Foreground process id per session: the PTY's foreground process
+    /// group leader, falling back to the spawned child pid.
+    pub fn foreground_pids(&self, ids: &[u32]) -> Vec<(u32, Option<i32>)> {
+        let sessions = match self.sessions.lock() {
+            Ok(sessions) => sessions,
+            Err(_) => return ids.iter().map(|&id| (id, None)).collect(),
+        };
+        ids.iter()
+            .map(|&id| {
+                let pid = sessions.get(&id).and_then(|session| {
+                    session
+                        .master
+                        .process_group_leader()
+                        .filter(|pid| *pid > 0)
+                        .or_else(|| session.child_pid.map(|pid| pid as i32))
+                });
+                (id, pid)
+            })
+            .collect()
+    }
 }

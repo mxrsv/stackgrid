@@ -1,3 +1,4 @@
+mod info;
 mod menu;
 mod pty;
 
@@ -32,6 +33,8 @@ pub fn run() {
             pty::write_pty,
             pty::resize_pty,
             pty::kill_pty,
+            info::pty_info,
+            info::git_branch,
             confirm_quit
         ])
         .build(tauri::generate_context!())
