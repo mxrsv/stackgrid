@@ -9,7 +9,6 @@ import {
   COLOR_KEYS,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
-  type SidebarPosition,
   type TerminalColors,
 } from "../settings/settings-schema";
 import { getPreset, THEME_PRESETS } from "../settings/themes";
@@ -22,11 +21,6 @@ const COLOR_LABELS: Record<keyof TerminalColors, string> = {
   cursor: "Cursor",
   selectionBackground: "Selection",
 };
-
-const POSITIONS: ReadonlyArray<{ value: SidebarPosition; label: string }> = [
-  { value: "left", label: "Left" },
-  { value: "top", label: "Top" },
-];
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -124,30 +118,32 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
       </section>
 
       <section class="settings-section">
-        <h3 class="settings-section__title">Sidebar</h3>
+        <h3 class="settings-section__title">Tabs</h3>
         <div class="field">
-          <span class="field__label">Position</span>
+          <span class="field__label">Restore on launch</span>
           <div
             class="segmented"
             role="radiogroup"
-            aria-label="Sidebar position"
+            aria-label="Restore tabs on launch"
           >
-            {POSITIONS.map((position) => (
-              <button
-                key={position.value}
-                type="button"
-                role="radio"
-                aria-checked={current.sidebarPosition === position.value}
-                class={`segmented__option ${
-                  current.sidebarPosition === position.value ? "is-active" : ""
-                }`}
-                onClick={() =>
-                  updateSettings({ sidebarPosition: position.value })
-                }
-              >
-                {position.label}
-              </button>
-            ))}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={current.restoreTabs}
+              class={`segmented__option ${current.restoreTabs ? "is-active" : ""}`}
+              onClick={() => updateSettings({ restoreTabs: true })}
+            >
+              On
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!current.restoreTabs}
+              class={`segmented__option ${current.restoreTabs ? "" : "is-active"}`}
+              onClick={() => updateSettings({ restoreTabs: false })}
+            >
+              Off
+            </button>
           </div>
         </div>
       </section>

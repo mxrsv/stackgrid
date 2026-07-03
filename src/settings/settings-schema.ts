@@ -5,14 +5,12 @@ export interface TerminalColors {
   selectionBackground: string;
 }
 
-export type SidebarPosition = "left" | "top";
-
 export interface Settings {
   fontFamily: string;
   fontSize: number;
   themeId: string;
   colorOverrides: Partial<TerminalColors>;
-  sidebarPosition: SidebarPosition;
+  restoreTabs: boolean;
 }
 
 export const FONT_SIZE_MIN = 10;
@@ -32,7 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fontSize: 13,
   themeId: "tokyo-night",
   colorOverrides: {},
-  sidebarPosition: "left",
+  restoreTabs: true,
 };
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -80,9 +78,9 @@ export function validateSettings(raw: unknown): Settings {
         ? source.themeId
         : DEFAULT_SETTINGS.themeId,
     colorOverrides: validateColorOverrides(source.colorOverrides),
-    sidebarPosition:
-      source.sidebarPosition === "left" || source.sidebarPosition === "top"
-        ? source.sidebarPosition
-        : DEFAULT_SETTINGS.sidebarPosition,
+    restoreTabs:
+      typeof source.restoreTabs === "boolean"
+        ? source.restoreTabs
+        : DEFAULT_SETTINGS.restoreTabs,
   };
 }

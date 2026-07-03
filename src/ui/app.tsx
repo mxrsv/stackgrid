@@ -58,9 +58,9 @@ export function App() {
   };
 
   return (
-    <div class={`app app--${settings.value.sidebarPosition}`}>
+    <div class="app app--left">
       <Sidebar
-        position={settings.value.sidebarPosition}
+        position="left"
         settingsOpen={panelOpen.value}
         onToggleSettings={() => {
           if (panelOpen.value) {

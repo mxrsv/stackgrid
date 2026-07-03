@@ -1,4 +1,4 @@
-import type { SidebarPosition } from "../settings/settings-schema";
+type SidebarPosition = "left" | "top";
 
 interface SidebarProps {
   position: SidebarPosition;
