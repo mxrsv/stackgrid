@@ -14,20 +14,41 @@ const FONT_CANDIDATES = [
 
 const CUSTOM_VALUE = "__custom__";
 
+// Compare rendered width against fallback fonts — document.fonts.check()
+// returns false positives for system fonts that are not installed
+function detectInstalledFonts(): string[] {
+  const context = document.createElement("canvas").getContext("2d");
+  if (!context) {
+    return FONT_CANDIDATES;
+  }
+  const sample = "mmmmmmmmmmlliWQ@#1470";
+  const measure = (font: string): number => {
+    context.font = font;
+    return context.measureText(sample).width;
+  };
+  const baselineMono = measure("16px monospace");
+  const baselineSerif = measure("16px serif");
+  return FONT_CANDIDATES.filter(
+    (family) =>
+      measure(`16px "${family}", monospace`) !== baselineMono ||
+      measure(`16px "${family}", serif`) !== baselineSerif,
+  );
+}
+
 interface FontSelectProps {
   value: string;
   onChange: (family: string) => void;
 }
 
 export function FontSelect({ value, onChange }: FontSelectProps) {
-  // Chỉ hiện các font thực sự có trên máy
-  const available = useMemo(
-    () =>
-      FONT_CANDIDATES.filter((family) =>
-        document.fonts.check(`12px "${family}"`),
-      ),
-    [],
-  );
+  // Only list fonts actually installed; keep the currently selected one
+  const available = useMemo(() => {
+    const detected = detectInstalledFonts();
+    if (!detected.includes(value) && FONT_CANDIDATES.includes(value)) {
+      return [value, ...detected];
+    }
+    return detected;
+  }, []);
   const [customMode, setCustomMode] = useState(
     () => !available.includes(value),
   );
@@ -65,9 +86,9 @@ export function FontSelect({ value, onChange }: FontSelectProps) {
         <input
           type="text"
           class="text-input"
-          placeholder='VD: "Iosevka", monospace'
+          placeholder='e.g. "Iosevka", monospace'
           value={value}
-          aria-label="Tên font tùy chỉnh"
+          aria-label="Custom font name"
           onChange={(event) => {
             const next = event.currentTarget.value.trim();
             if (next !== "") {

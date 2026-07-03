@@ -1,22 +1,39 @@
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use std::{
+    collections::HashMap,
     io::{Read, Write},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Mutex,
+    },
     thread,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 pub const EVENT_OUTPUT: &str = "pty:output";
 pub const EVENT_EXIT: &str = "pty:exit";
 
-#[derive(Default)]
-pub struct PtyState(Mutex<PtySession>);
+#[derive(Clone, serde::Serialize)]
+struct OutputPayload {
+    id: u32,
+    data: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ExitPayload {
+    id: u32,
+}
+
+struct Session {
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
+    killer: Box<dyn ChildKiller + Send + Sync>,
+}
 
 #[derive(Default)]
-struct PtySession {
-    master: Option<Box<dyn MasterPty + Send>>,
-    writer: Option<Box<dyn Write + Send>>,
-    killer: Option<Box<dyn ChildKiller + Send + Sync>>,
+pub struct PtyState {
+    sessions: Mutex<HashMap<u32, Session>>,
+    next_id: AtomicU32,
 }
 
 fn default_shell() -> String {
@@ -29,22 +46,20 @@ fn default_shell() -> String {
     })
 }
 
+fn remove_session(app: &AppHandle, id: u32) {
+    let state = app.state::<PtyState>();
+    if let Ok(mut sessions) = state.sessions.lock() {
+        sessions.remove(&id);
+    };
+}
+
 #[tauri::command]
 pub fn spawn_shell(
     app: AppHandle,
     state: State<PtyState>,
     cols: u16,
     rows: u16,
-) -> Result<(), String> {
-    let mut session = state.0.lock().map_err(|e| e.to_string())?;
-
-    // Kết thúc phiên cũ (nếu có) trước khi mở phiên mới
-    if let Some(mut killer) = session.killer.take() {
-        let _ = killer.kill();
-    }
-    session.writer = None;
-    session.master = None;
-
+) -> Result<u32, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -58,7 +73,7 @@ pub fn spawn_shell(
     let shell = default_shell();
     let mut cmd = CommandBuilder::new(&shell);
     if !cfg!(windows) {
-        // Login shell để nạp đủ PATH/rc — các CLI như claude/codex mới thấy được
+        // Login shell so PATH/rc files are loaded — CLIs like claude/codex stay visible
         cmd.arg("-l");
     }
     cmd.env("TERM", "xterm-256color");
@@ -73,10 +88,18 @@ pub fn spawn_shell(
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
-    session.killer = Some(child.clone_killer());
-    session.writer = Some(writer);
-    session.master = Some(pair.master);
-    drop(session);
+    let id = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+    {
+        let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+        sessions.insert(
+            id,
+            Session {
+                master: pair.master,
+                writer,
+                killer: child.clone_killer(),
+            },
+        );
+    }
 
     let output_app = app.clone();
     thread::spawn(move || {
@@ -85,14 +108,18 @@ pub fn spawn_shell(
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
-                    if output_app.emit(EVENT_OUTPUT, chunk).is_err() {
+                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    if output_app
+                        .emit(EVENT_OUTPUT, OutputPayload { id, data })
+                        .is_err()
+                    {
                         break;
                     }
                 }
             }
         }
-        let _ = output_app.emit(EVENT_EXIT, ());
+        remove_session(&output_app, id);
+        let _ = output_app.emit(EVENT_EXIT, ExitPayload { id });
     });
 
     thread::spawn(move || {
@@ -100,28 +127,30 @@ pub fn spawn_shell(
         let _ = child.wait();
     });
 
-    Ok(())
+    Ok(id)
 }
 
 #[tauri::command]
-pub fn write_pty(state: State<PtyState>, data: String) -> Result<(), String> {
-    let mut session = state.0.lock().map_err(|e| e.to_string())?;
-    let writer = session
+pub fn write_pty(state: State<PtyState>, id: u32, data: String) -> Result<(), String> {
+    let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+    let session = sessions
+        .get_mut(&id)
+        .ok_or_else(|| format!("Terminal session #{id} not found"))?;
+    session
         .writer
-        .as_mut()
-        .ok_or_else(|| "Chưa có phiên terminal nào đang chạy".to_string())?;
-    writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
-    writer.flush().map_err(|e| e.to_string())
+        .write_all(data.as_bytes())
+        .map_err(|e| e.to_string())?;
+    session.writer.flush().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn resize_pty(state: State<PtyState>, cols: u16, rows: u16) -> Result<(), String> {
-    let session = state.0.lock().map_err(|e| e.to_string())?;
-    let master = session
+pub fn resize_pty(state: State<PtyState>, id: u32, cols: u16, rows: u16) -> Result<(), String> {
+    let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+    let session = sessions
+        .get(&id)
+        .ok_or_else(|| format!("Terminal session #{id} not found"))?;
+    session
         .master
-        .as_ref()
-        .ok_or_else(|| "Chưa có phiên terminal nào đang chạy".to_string())?;
-    master
         .resize(PtySize {
             rows,
             cols,
@@ -129,4 +158,13 @@ pub fn resize_pty(state: State<PtyState>, cols: u16, rows: u16) -> Result<(), St
             pixel_height: 0,
         })
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn kill_pty(state: State<PtyState>, id: u32) -> Result<(), String> {
+    let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+    if let Some(mut session) = sessions.remove(&id) {
+        let _ = session.killer.kill();
+    }
+    Ok(())
 }

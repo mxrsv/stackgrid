@@ -60,7 +60,7 @@ function validateColorOverrides(raw: unknown): Partial<TerminalColors> {
   return result;
 }
 
-/** Validate dữ liệu đọc từ store — field nào hỏng thì rơi về default. */
+/** Validate data read from the store — invalid fields fall back to defaults. */
 export function validateSettings(raw: unknown): Settings {
   if (typeof raw !== "object" || raw === null) {
     return DEFAULT_SETTINGS;

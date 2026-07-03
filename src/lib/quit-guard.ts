@@ -11,11 +11,11 @@ async function promptQuit(): Promise<void> {
   }
   prompting = true;
   try {
-    const ok = await ask("Bạn có chắc muốn thoát Stackgrid?", {
-      title: "Thoát Stackgrid",
+    const ok = await ask("Are you sure you want to quit?", {
+      title: "Quit Stackgrid",
       kind: "warning",
-      okLabel: "Thoát",
-      cancelLabel: "Huỷ",
+      okLabel: "Quit",
+      cancelLabel: "Cancel",
     });
     if (ok) {
       await invoke("confirm_quit");

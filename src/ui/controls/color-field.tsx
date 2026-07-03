@@ -21,7 +21,7 @@ export function ColorField({
           type="color"
           class="color-field__swatch"
           value={value}
-          aria-label={`Chọn màu ${label}`}
+          aria-label={`Pick ${label} color`}
           onInput={(event) => onChange(event.currentTarget.value)}
         />
         <code class="color-field__hex">{value}</code>
@@ -29,8 +29,8 @@ export function ColorField({
           <button
             type="button"
             class="color-field__clear"
-            title="Trả về màu của theme"
-            aria-label={`Trả ${label} về màu của theme`}
+            title="Reset to theme color"
+            aria-label={`Reset ${label} to theme color`}
             onClick={onClear}
           >
             ↺

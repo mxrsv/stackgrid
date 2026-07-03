@@ -123,7 +123,7 @@ export function getPreset(themeId: string): ThemePreset {
   );
 }
 
-/** Gộp preset với các màu override — trả về theme mới, không mutate. */
+/** Merge preset with color overrides — returns a new theme, no mutation. */
 export function resolveTheme(settings: Settings): ITheme {
   const preset = getPreset(settings.themeId);
   const background =

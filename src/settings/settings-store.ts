@@ -15,22 +15,25 @@ export const settings = signal<Settings>(DEFAULT_SETTINGS);
 
 let store: Store | null = null;
 
-/** Đọc settings từ đĩa khi khởi động — lỗi thì dùng defaults, app vẫn chạy. */
+/** Load settings from disk at startup — on failure fall back to defaults, app keeps running. */
 export async function initSettings(): Promise<void> {
   try {
-    store = await Store.load(STORE_FILE, { autoSave: AUTOSAVE_DEBOUNCE_MS });
+    store = await Store.load(STORE_FILE, {
+      defaults: { [STORE_KEY]: DEFAULT_SETTINGS },
+      autoSave: AUTOSAVE_DEBOUNCE_MS,
+    });
     const raw = await store.get<unknown>(STORE_KEY);
     if (raw !== undefined && raw !== null) {
       settings.value = validateSettings(raw);
     }
   } catch (err) {
-    console.warn("Không đọc được settings, dùng mặc định:", err);
+    console.warn("Failed to load settings, using defaults:", err);
   }
 }
 
 function persist(next: Settings): void {
   store?.set(STORE_KEY, next).catch((err: unknown) => {
-    console.warn("Không lưu được settings:", err);
+    console.warn("Failed to save settings:", err);
   });
 }
 
@@ -40,7 +43,7 @@ export function updateSettings(patch: Partial<Settings>): void {
   persist(next);
 }
 
-/** Đặt hoặc xoá (value = undefined) một màu override. */
+/** Set or remove (value = undefined) a single color override. */
 export function updateColorOverride(
   key: keyof TerminalColors,
   value: string | undefined,

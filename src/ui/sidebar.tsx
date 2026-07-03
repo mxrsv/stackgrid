@@ -4,6 +4,9 @@ interface SidebarProps {
   position: SidebarPosition;
   settingsOpen: boolean;
   onToggleSettings: () => void;
+  onSplitRow: () => void;
+  onSplitColumn: () => void;
+  onClosePane: () => void;
 }
 
 function GearIcon() {
@@ -25,18 +28,103 @@ function GearIcon() {
   );
 }
 
+function SplitRowIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      aria-hidden="true"
+    >
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <line x1="12" y1="4.5" x2="12" y2="19.5" />
+    </svg>
+  );
+}
+
+function SplitColumnIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      aria-hidden="true"
+    >
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <line x1="3.5" y1="12" x2="20.5" y2="12" />
+    </svg>
+  );
+}
+
+function ClosePaneIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      aria-hidden="true"
+    >
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <path d="M9.5 9.5l5 5m0-5l-5 5" />
+    </svg>
+  );
+}
+
 export function Sidebar({
   position,
   settingsOpen,
   onToggleSettings,
+  onSplitRow,
+  onSplitColumn,
+  onClosePane,
 }: SidebarProps) {
   return (
-    <nav class={`sidebar sidebar--${position}`} aria-label="Thanh công cụ">
+    <nav class={`sidebar sidebar--${position}`} aria-label="Toolbar">
       <button
         type="button"
-        class={`sidebar__button ${settingsOpen ? "is-active" : ""}`}
+        class="sidebar__button"
+        title="Split vertically (⌘D)"
+        aria-label="Split pane vertically"
+        onClick={onSplitRow}
+      >
+        <SplitRowIcon />
+      </button>
+      <button
+        type="button"
+        class="sidebar__button"
+        title="Split horizontally (⌘⇧D)"
+        aria-label="Split pane horizontally"
+        onClick={onSplitColumn}
+      >
+        <SplitColumnIcon />
+      </button>
+      <button
+        type="button"
+        class="sidebar__button"
+        title="Close pane (⌘⇧W)"
+        aria-label="Close current pane"
+        onClick={onClosePane}
+      >
+        <ClosePaneIcon />
+      </button>
+      <span class="sidebar__spacer" aria-hidden="true" />
+      <button
+        type="button"
+        class={`sidebar__button sidebar__button--gear ${settingsOpen ? "is-active" : ""}`}
         title="Settings"
-        aria-label="Mở settings"
+        aria-label="Open settings"
         aria-pressed={settingsOpen}
         onClick={onToggleSettings}
       >

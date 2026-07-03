@@ -24,8 +24,8 @@ const COLOR_LABELS: Record<keyof TerminalColors, string> = {
 };
 
 const POSITIONS: ReadonlyArray<{ value: SidebarPosition; label: string }> = [
-  { value: "left", label: "Trái" },
-  { value: "top", label: "Trên" },
+  { value: "left", label: "Left" },
+  { value: "top", label: "Top" },
 ];
 
 interface SettingsPanelProps {
@@ -47,7 +47,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
         <button
           type="button"
           class="settings-panel__close"
-          aria-label="Đóng settings"
+          aria-label="Close settings"
           onClick={onClose}
         >
           ✕
@@ -61,12 +61,12 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           onChange={(fontFamily) => updateSettings({ fontFamily })}
         />
         <div class="field">
-          <span class="field__label">Cỡ chữ</span>
+          <span class="field__label">Font size</span>
           <div class="stepper">
             <button
               type="button"
               class="stepper__button"
-              aria-label="Giảm cỡ chữ"
+              aria-label="Decrease font size"
               disabled={current.fontSize <= FONT_SIZE_MIN}
               onClick={() => stepFontSize(-1)}
             >
@@ -76,7 +76,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             <button
               type="button"
               class="stepper__button"
-              aria-label="Tăng cỡ chữ"
+              aria-label="Increase font size"
               disabled={current.fontSize >= FONT_SIZE_MAX}
               onClick={() => stepFontSize(1)}
             >
@@ -87,7 +87,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
       </section>
 
       <section class="settings-section">
-        <h3 class="settings-section__title">Màu sắc</h3>
+        <h3 class="settings-section__title">Colors</h3>
         <div class="field">
           <label class="field__label" for="theme-preset">
             Theme
@@ -97,7 +97,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             class="select"
             value={current.themeId}
             onChange={(event) =>
-              // Đổi theme thì bỏ các màu override cũ
+              // Switching theme clears previous color overrides
               updateSettings({
                 themeId: event.currentTarget.value,
                 colorOverrides: {},
@@ -126,8 +126,12 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
       <section class="settings-section">
         <h3 class="settings-section__title">Sidebar</h3>
         <div class="field">
-          <span class="field__label">Vị trí</span>
-          <div class="segmented" role="radiogroup" aria-label="Vị trí sidebar">
+          <span class="field__label">Position</span>
+          <div
+            class="segmented"
+            role="radiogroup"
+            aria-label="Sidebar position"
+          >
             {POSITIONS.map((position) => (
               <button
                 key={position.value}
@@ -150,7 +154,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
       <footer class="settings-panel__footer">
         <button type="button" class="btn-reset" onClick={resetSettings}>
-          Khôi phục mặc định
+          Restore defaults
         </button>
       </footer>
     </aside>
