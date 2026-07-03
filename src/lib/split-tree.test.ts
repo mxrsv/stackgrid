@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   countLeaves,
+  expandForPane,
   leaf,
   leafIds,
   movePane,
+  ratioEntries,
   serializeTree,
+  setRatio,
   splitLeaf,
   treeFromLayout,
   type SerializedNode,
@@ -152,5 +155,97 @@ describe("countLeaves", () => {
         second: { type: "leaf" },
       }),
     ).toBe(2);
+  });
+});
+
+describe("expandForPane", () => {
+  it("returns a single leaf unchanged by reference", () => {
+    const tree = leaf(1);
+    expect(expandForPane(tree, 1, 0.65)).toBe(tree);
+  });
+
+  it("expands branch a to minRatio when the pane is in a", () => {
+    const tree = splitLeaf(leaf(1), 1, 2, "row"); // ratio 0.5, pane 1 in a
+    const result = expandForPane(tree, 1, 0.65);
+    expect(result).toMatchObject({ kind: "split", ratio: 0.65 });
+  });
+
+  it("shrinks branch a to 1 - minRatio when the pane is in b", () => {
+    const tree = splitLeaf(leaf(1), 1, 2, "row"); // pane 2 in b
+    const result = expandForPane(tree, 2, 0.65);
+    expect(result).toMatchObject({ kind: "split", ratio: 1 - 0.65 });
+  });
+
+  it("overrides ratios along the whole path in a nested tree", () => {
+    // root(row): a = leaf(1), b = split(column): a = leaf(2), b = leaf(3)
+    let tree = splitLeaf(leaf(1), 1, 2, "row");
+    tree = splitLeaf(tree, 2, 3, "column");
+    const result = expandForPane(tree, 3, 0.65);
+    if (result.kind !== "split" || result.b.kind !== "split") {
+      throw new Error("expected nested split");
+    }
+    expect(result.ratio).toBeCloseTo(0.35); // pane 3 in b of root
+    expect(result.b.ratio).toBeCloseTo(0.35); // pane 3 in b of inner split
+    expect(result.a).toBe(tree.kind === "split" ? tree.a : tree); // off-path branch by reference
+  });
+
+  it("keeps a ratio that already satisfies minRatio", () => {
+    const base = splitLeaf(leaf(1), 1, 2, "row");
+    const tree = setRatio(base, [], 0.8); // branch a already at 0.8 ≥ 0.65
+    expect(expandForPane(tree, 1, 0.65)).toBe(tree); // nothing changes → same reference
+  });
+
+  it("returns the same reference when paneId is not in the tree", () => {
+    const tree = splitLeaf(leaf(1), 1, 2, "row");
+    expect(expandForPane(tree, 99, 0.65)).toBe(tree);
+  });
+
+  it("never mutates the input tree", () => {
+    const tree = splitLeaf(leaf(1), 1, 2, "row");
+    const before = JSON.stringify(tree);
+    expandForPane(tree, 1, 0.65);
+    expect(JSON.stringify(tree)).toBe(before);
+  });
+});
+
+describe("ratioEntries", () => {
+  it("returns an empty list for a single leaf", () => {
+    expect(ratioEntries(leaf(1))).toEqual([]);
+  });
+
+  it("lists path and ratio for every split, root first", () => {
+    // root(row, 0.3): a = leaf(1), b = split(column, 0.7): a = leaf(2), b = leaf(3)
+    const tree = treeFromLayout(
+      {
+        type: "split",
+        direction: "row",
+        ratio: 0.3,
+        first: { type: "leaf" },
+        second: {
+          type: "split",
+          direction: "column",
+          ratio: 0.7,
+          first: { type: "leaf" },
+          second: { type: "leaf" },
+        },
+      },
+      [1, 2, 3],
+    );
+    expect(ratioEntries(tree)).toEqual([
+      { path: [], ratio: 0.3 },
+      { path: ["b"], ratio: 0.7 },
+    ]);
+  });
+
+  it("prefixes nested paths on both branches", () => {
+    // root: a = split, b = split
+    let tree = splitLeaf(leaf(1), 1, 2, "row");
+    tree = splitLeaf(tree, 1, 3, "column"); // splits leaf 1 inside branch a
+    tree = splitLeaf(tree, 2, 4, "column"); // splits leaf 2 inside branch b
+    expect(ratioEntries(tree)).toEqual([
+      { path: [], ratio: 0.5 },
+      { path: ["a"], ratio: 0.5 },
+      { path: ["b"], ratio: 0.5 },
+    ]);
   });
 });

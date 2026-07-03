@@ -160,6 +160,58 @@ export function setRatio(node: TreeNode, path: Path, ratio: number): TreeNode {
     : { ...node, b: setRatio(node.b, rest, ratio) };
 }
 
+/**
+ * Display-time overlay: return a copy of the tree where every split on the
+ * path to leaf `paneId` gives that branch at least `minRatio`. Ratios that
+ * already satisfy the minimum are kept (the active pane never shrinks).
+ * Returns the node by reference when nothing changes or when `paneId` is
+ * not in the tree.
+ */
+export function expandForPane(
+  node: TreeNode,
+  paneId: number,
+  minRatio: number,
+): TreeNode {
+  if (node.kind === "leaf") {
+    return node;
+  }
+  const inA = leafIds(node.a).includes(paneId);
+  const inB = !inA && leafIds(node.b).includes(paneId);
+  if (!inA && !inB) {
+    return node;
+  }
+  const ratio = inA
+    ? Math.max(node.ratio, minRatio)
+    : Math.min(node.ratio, 1 - minRatio);
+  const a = inA ? expandForPane(node.a, paneId, minRatio) : node.a;
+  const b = inB ? expandForPane(node.b, paneId, minRatio) : node.b;
+  if (a === node.a && b === node.b && ratio === node.ratio) {
+    return node;
+  }
+  return { ...node, ratio, a, b };
+}
+
+export interface RatioEntry {
+  readonly path: Path;
+  readonly ratio: number;
+}
+
+/** Every split's path and ratio, pre-order (root first). Pure — used by applyRatios. */
+export function ratioEntries(node: TreeNode): RatioEntry[] {
+  if (node.kind === "leaf") {
+    return [];
+  }
+  return [
+    { path: [], ratio: node.ratio },
+    ...ratioEntries(node.a).map(
+      (entry): RatioEntry => ({ ...entry, path: ["a", ...entry.path] }),
+    ),
+    ...ratioEntries(node.b).map(
+      (entry): RatioEntry => ({ ...entry, path: ["b", ...entry.path] }),
+    ),
+  ];
+}
+
 export interface SerializedLeaf {
   readonly type: "leaf";
 }
