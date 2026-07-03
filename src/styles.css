@@ -403,6 +403,19 @@ body,
   min-height: 0;
 }
 
+.tab-stage {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.tab-stage > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 .split {
   display: flex;
   width: 100%;

@@ -4,27 +4,24 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { installQuitGuard } from "../lib/quit-guard";
 import { settings } from "../settings/settings-store";
 import { resolveTheme } from "../settings/themes";
-import {
-  createTerminalManager,
-  type TerminalManager,
-} from "../terminal/terminal-manager";
+import { createTabManager, type TabManager } from "../terminal/tab-manager";
 import { Sidebar } from "./sidebar";
 import { SettingsPanel } from "./settings-panel";
 
 export function App() {
   const panelOpen = useSignal(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const managerRef = useRef<TerminalManager | null>(null);
+  const stagesRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<TabManager | null>(null);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) {
+    const host = stagesRef.current;
+    if (!host) {
       return;
     }
-    const manager = createTerminalManager();
-    managerRef.current = manager;
-    manager.init(container).catch((err: unknown) => {
-      console.error("Failed to initialize terminal:", err);
+    const manager = createTabManager(host);
+    tabsRef.current = manager;
+    manager.init().catch((err: unknown) => {
+      console.error("Failed to initialize terminals:", err);
     });
     return () => manager.dispose();
   }, []);
@@ -44,7 +41,7 @@ export function App() {
   // Apply settings to terminals + app chrome CSS vars whenever settings change
   useSignalEffect(() => {
     const current = settings.value;
-    managerRef.current?.applySettings(current);
+    tabsRef.current?.applySettings(current);
     const theme = resolveTheme(current);
     const rootStyle = document.documentElement.style;
     rootStyle.setProperty("--app-bg", theme.background ?? "#16161e");
@@ -54,7 +51,7 @@ export function App() {
 
   const closePanel = (): void => {
     panelOpen.value = false;
-    managerRef.current?.focusActive();
+    tabsRef.current?.focusActive();
   };
 
   return (
@@ -69,13 +66,13 @@ export function App() {
             panelOpen.value = true;
           }
         }}
-        onSplitRow={() => void managerRef.current?.splitActive("row")}
-        onSplitColumn={() => void managerRef.current?.splitActive("column")}
-        onClosePane={() => void managerRef.current?.closeActive()}
+        onSplitRow={() => void tabsRef.current?.splitActive("row")}
+        onSplitColumn={() => void tabsRef.current?.splitActive("column")}
+        onClosePane={() => void tabsRef.current?.closePane()}
       />
       <div class="app__main">
         {panelOpen.value && <SettingsPanel onClose={closePanel} />}
-        <div class="terminal-container" ref={containerRef} />
+        <div class="terminal-container" ref={stagesRef} />
       </div>
     </div>
   );

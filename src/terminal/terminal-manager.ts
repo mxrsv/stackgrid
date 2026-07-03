@@ -1,54 +1,70 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Settings } from "../settings/settings-schema";
 import { settings } from "../settings/settings-store";
 import {
+  countLeaves,
   leaf,
   leafIds,
   removeLeaf,
   replaceLeaf,
+  serializeTree,
   setRatio,
   splitLeaf,
+  treeFromLayout,
   type Direction,
+  type SerializedNode,
   type TreeNode,
 } from "../lib/split-tree";
+import { paneHeaderInfo, type PaneProcessInfo } from "../lib/process-info";
 import { renderTree } from "./layout";
-import { matchBinding } from "./keymap";
 import { createPane, type Pane, type PaneEvents } from "./pane";
-
-const EVENT_OUTPUT = "pty:output";
-const EVENT_EXIT = "pty:exit";
 
 // Placeholder size at spawn — fit() after mount resizes to the real dimensions
 const INITIAL_COLS = 80;
 const INITIAL_ROWS = 24;
 
-interface OutputPayload {
-  id: number;
-  data: string;
+export interface ManagerCallbacks {
+  /** Fired after any structural change (split, close, ratio commit). */
+  onLayoutChange(): void;
 }
 
-interface ExitPayload {
-  id: number;
-}
-
+/** One tab's worth of terminals: a split tree of panes sharing a container. */
 export interface TerminalManager {
-  init(container: HTMLElement): Promise<void>;
+  /** Spawn a single fresh shell. Throws when the spawn fails. */
+  initFresh(): Promise<void>;
+  /** Spawn one shell per leaf and rebuild the split structure. Throws when any spawn fails. */
+  initFromLayout(layout: SerializedNode): Promise<void>;
+  show(): void;
+  hide(): void;
   splitActive(dir: Direction): Promise<void>;
   closeActive(): Promise<void>;
-  applySettings(next: Settings): void;
+  cycleFocus(step: 1 | -1): void;
   focusActive(): void;
+  applySettings(next: Settings): void;
+  serializeLayout(): SerializedNode | null;
+  paneIds(): number[];
+  activePaneId(): number | null;
+  paneCount(): number;
+  /** Routed from the tab manager's single pty:output listener; ignores unowned ids. */
+  handleOutput(id: number, data: string): void;
+  /** Routed from the tab manager's single pty:exit listener; ignores unowned ids. */
+  handleExit(id: number): void;
+  updatePaneInfo(infos: readonly PaneProcessInfo[], home: string): void;
+  /** Write an error line into the active pane (used for tab spawn failures). */
+  notifyError(message: string): void;
+  /** Kills all PTYs, disposes xterm instances and removes the container. */
   dispose(): void;
 }
 
-export function createTerminalManager(): TerminalManager {
+export function createTerminalManager(
+  container: HTMLElement,
+  callbacks: ManagerCallbacks,
+): TerminalManager {
   const panes = new Map<number, Pane>();
   const exited = new Set<number>();
   const respawning = new Set<number>();
-  const unlisteners: UnlistenFn[] = [];
   let tree: TreeNode | null = null;
   let activeId: number | null = null;
-  let container: HTMLElement | null = null;
 
   const paneEvents: PaneEvents = {
     onData(id, data) {
@@ -100,7 +116,7 @@ export function createTerminalManager(): TerminalManager {
   }
 
   function render(): void {
-    if (!container || !tree) {
+    if (!tree) {
       return;
     }
     renderTree(container, tree, {
@@ -110,6 +126,7 @@ export function createTerminalManager(): TerminalManager {
       onRatioCommit(path, ratio) {
         if (tree) {
           tree = setRatio(tree, path, ratio);
+          callbacks.onLayoutChange();
         }
       },
     });
@@ -127,9 +144,6 @@ export function createTerminalManager(): TerminalManager {
   }
 
   function updateActiveClasses(): void {
-    if (!container) {
-      return;
-    }
     const highlight = panes.size > 1;
     for (const slot of container.querySelectorAll<HTMLElement>(".pane-slot")) {
       slot.classList.toggle(
@@ -203,10 +217,11 @@ export function createTerminalManager(): TerminalManager {
 
     const rest = removeLeaf(tree, id);
     if (rest === null) {
-      // Last pane — always keep at least one terminal
+      // Last pane in the tab — always keep at least one terminal
       tree = null;
       activeId = null;
       await openInitialPane();
+      callbacks.onLayoutChange();
       return;
     }
     tree = rest;
@@ -217,6 +232,7 @@ export function createTerminalManager(): TerminalManager {
     if (activeId !== null) {
       panes.get(activeId)?.focus();
     }
+    callbacks.onLayoutChange();
   }
 
   async function openInitialPane(): Promise<void> {
@@ -227,9 +243,7 @@ export function createTerminalManager(): TerminalManager {
       render();
       pane.focus();
     } catch (err) {
-      if (container) {
-        container.textContent = `Failed to start shell: ${err}`;
-      }
+      container.textContent = `Failed to start shell: ${err}`;
     }
   }
 
@@ -249,6 +263,7 @@ export function createTerminalManager(): TerminalManager {
       render();
       setActive(pane.id);
       pane.focus();
+      callbacks.onLayoutChange();
     } catch (err) {
       panes
         .get(targetId)
@@ -267,75 +282,101 @@ export function createTerminalManager(): TerminalManager {
     panes.get(next)?.focus();
   }
 
-  function handleShortcut(event: KeyboardEvent): void {
-    const action = matchBinding(event);
-    if (!action) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    switch (action) {
-      case "split-row":
-        void splitActive("row");
-        break;
-      case "split-column":
-        void splitActive("column");
-        break;
-      case "close-pane":
-        void closeActive();
-        break;
-      case "focus-next":
-        cycleFocus(1);
-        break;
-      case "focus-prev":
-        cycleFocus(-1);
-        break;
-    }
+  async function initFresh(): Promise<void> {
+    const pane = await spawnPane();
+    tree = leaf(pane.id);
+    activeId = pane.id;
+    render();
+    pane.focus();
   }
 
-  async function init(el: HTMLElement): Promise<void> {
-    container = el;
-    unlisteners.push(
-      await listen<OutputPayload>(EVENT_OUTPUT, (event) => {
-        panes.get(event.payload.id)?.write(event.payload.data);
-      }),
+  async function initFromLayout(layout: SerializedNode): Promise<void> {
+    const total = countLeaves(layout);
+    const spawned: Pane[] = [];
+    try {
+      for (let i = 0; i < total; i += 1) {
+        spawned.push(await spawnPane());
+      }
+    } catch (err) {
+      for (const pane of spawned) {
+        discardPane(pane);
+      }
+      throw err;
+    }
+    tree = treeFromLayout(
+      layout,
+      spawned.map((pane) => pane.id),
     );
-    unlisteners.push(
-      await listen<ExitPayload>(EVENT_EXIT, (event) => {
-        handleExit(event.payload.id);
-      }),
-    );
-    window.addEventListener("keydown", handleShortcut, true);
-    await openInitialPane();
-  }
-
-  function closeActive(): Promise<void> {
-    return activeId === null ? Promise.resolve() : closePane(activeId);
+    activeId = spawned[0]?.id ?? null;
+    render();
+    spawned[0]?.focus();
   }
 
   return {
-    init,
-    splitActive,
-    closeActive,
-    applySettings(next) {
+    initFresh,
+    initFromLayout,
+    show() {
+      container.style.display = "";
       for (const pane of panes.values()) {
-        pane.applySettings(next);
+        pane.fit();
+      }
+      if (activeId !== null) {
+        panes.get(activeId)?.focus();
       }
     },
+    hide() {
+      container.style.display = "none";
+    },
+    splitActive,
+    closeActive() {
+      return activeId === null ? Promise.resolve() : closePane(activeId);
+    },
+    cycleFocus,
     focusActive() {
       if (activeId !== null) {
         panes.get(activeId)?.focus();
       }
     },
-    dispose() {
-      window.removeEventListener("keydown", handleShortcut, true);
-      for (const unlisten of unlisteners) {
-        unlisten();
-      }
+    applySettings(next) {
       for (const pane of panes.values()) {
+        pane.applySettings(next);
+      }
+    },
+    serializeLayout() {
+      return tree === null ? null : serializeTree(tree);
+    },
+    paneIds() {
+      return tree === null ? [] : leafIds(tree);
+    },
+    activePaneId() {
+      return activeId;
+    },
+    paneCount() {
+      return panes.size;
+    },
+    handleOutput(id, data) {
+      panes.get(id)?.write(data);
+    },
+    handleExit,
+    updatePaneInfo(infos, home) {
+      for (const info of infos) {
+        panes.get(info.id)?.setHeaderInfo(paneHeaderInfo(info, home));
+      }
+    },
+    notifyError(message) {
+      if (activeId !== null) {
+        panes.get(activeId)?.writeln(`\r\n\x1b[31m${message}\x1b[0m`);
+      }
+    },
+    dispose() {
+      for (const pane of panes.values()) {
+        invoke("kill_pty", { id: pane.id }).catch(() => {
+          // Session already gone — ignore
+        });
         pane.dispose();
       }
       panes.clear();
+      container.remove();
     },
   };
 }
