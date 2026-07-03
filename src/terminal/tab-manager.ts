@@ -8,6 +8,7 @@ import { SESSION_VERSION, type SessionData } from "../lib/session-schema";
 import { isAgent, type PaneProcessInfo } from "../lib/process-info";
 import { matchBinding, selectTabIndex } from "./keymap";
 import { loadSession, scheduleSessionSave } from "./session-persistence";
+import { installFileDrop } from "./file-drop";
 import {
   createTerminalManager,
   type TerminalManager,
@@ -253,6 +254,11 @@ export function createTabManager(host: HTMLElement): TabManager {
   }
 
   function handleShortcut(event: KeyboardEvent): void {
+    // Never intercept keys the IME is still composing — keyCode 229 catches
+    // WebKit events that arrive without isComposing (Vietnamese/CJK input).
+    if (event.isComposing || event.keyCode === 229) {
+      return;
+    }
     const action = matchBinding(event);
     if (action === null) {
       return;
@@ -316,6 +322,19 @@ export function createTabManager(host: HTMLElement): TabManager {
         for (const tab of tabs) {
           tab.manager.handleExit(event.payload.id);
         }
+      }),
+    );
+    unlisteners.push(
+      await installFileDrop({
+        onOver(x, y) {
+          activeManager()?.fileDragOver(x, y);
+        },
+        onDrop(x, y, paths) {
+          activeManager()?.fileDrop(x, y, paths);
+        },
+        onLeave() {
+          activeManager()?.fileDragLeave();
+        },
       }),
     );
     window.addEventListener("keydown", handleShortcut, true);

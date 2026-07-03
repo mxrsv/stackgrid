@@ -18,6 +18,7 @@ import {
   type TreeNode,
 } from "../lib/split-tree";
 import { paneHeaderInfo, type PaneProcessInfo } from "../lib/process-info";
+import { shellEscapePaths } from "../lib/shell-escape";
 import { renderTree } from "./layout";
 import { createPane, type Pane, type PaneEvents } from "./pane";
 import { createPaneDragController, type PaneDragController } from "./pane-drag";
@@ -55,6 +56,12 @@ export interface TerminalManager {
   updatePaneInfo(infos: readonly PaneProcessInfo[], home: string): void;
   /** Write an error line into the active pane (used for tab spawn failures). */
   notifyError(message: string): void;
+  /** Highlight the pane under the cursor while dragging files (logical CSS px). */
+  fileDragOver(x: number, y: number): void;
+  /** Clear any drop-target highlight. */
+  fileDragLeave(): void;
+  /** Write the (shell-escaped) paths into the PTY of the pane under the cursor. */
+  fileDrop(x: number, y: number, paths: string[]): void;
   /** Kills all PTYs, disposes xterm instances and removes the container. */
   dispose(): void;
 }
@@ -316,6 +323,54 @@ export function createTerminalManager(
     spawned[0]?.focus();
   }
 
+  function slotAt(x: number, y: number): HTMLElement | null {
+    for (const slot of container.querySelectorAll<HTMLElement>(".pane-slot")) {
+      const r = slot.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+        return slot;
+      }
+    }
+    return null;
+  }
+
+  function clearDropTargets(): void {
+    for (const slot of container.querySelectorAll<HTMLElement>(
+      ".pane-slot.is-drop-target",
+    )) {
+      slot.classList.remove("is-drop-target");
+    }
+  }
+
+  function fileDragOver(x: number, y: number): void {
+    clearDropTargets();
+    slotAt(x, y)?.classList.add("is-drop-target");
+  }
+
+  function fileDragLeave(): void {
+    clearDropTargets();
+  }
+
+  function fileDrop(x: number, y: number, paths: string[]): void {
+    clearDropTargets();
+    const slot = slotAt(x, y);
+    if (!slot) {
+      return; // dropped outside every pane (tab bar / status bar) — ignore
+    }
+    const id = Number(slot.dataset.paneId);
+    if (!panes.has(id) || exited.has(id)) {
+      return; // pane already exited — never write into a dead PTY
+    }
+    const data = shellEscapePaths(paths);
+    if (data === "") {
+      return;
+    }
+    invoke("write_pty", { id, data }).catch((err: unknown) => {
+      console.error("write_pty failed:", err);
+    });
+    setActive(id);
+    panes.get(id)?.focus();
+  }
+
   const paneDrag: PaneDragController = createPaneDragController(container, {
     paneCount: () => panes.size,
     onMove(sourceId: number, targetId: number, edge: Edge) {
@@ -390,6 +445,9 @@ export function createTerminalManager(
         panes.get(activeId)?.writeln(`\r\n\x1b[31m${message}\x1b[0m`);
       }
     },
+    fileDragOver,
+    fileDragLeave,
+    fileDrop,
     dispose() {
       paneDrag.dispose();
       for (const pane of panes.values()) {

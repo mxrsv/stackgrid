@@ -883,3 +883,11 @@ body,
     width 0.08s ease,
     height 0.08s ease;
 }
+
+/* ── File drop target ────────────────────────────────────── */
+
+.pane-slot.is-drop-target .pane {
+  border-color: color-mix(in srgb, var(--accent) 80%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -2px;
+}
