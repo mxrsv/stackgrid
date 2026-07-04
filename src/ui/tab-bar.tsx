@@ -1,5 +1,6 @@
 import { activeTabIndex, tabViews } from "../terminal/tabs-store";
 import { dotColor } from "../lib/process-info";
+import { tabDotCssColor } from "../lib/tab-colors";
 
 interface TabBarProps {
   settingsOpen: boolean;
@@ -125,9 +126,13 @@ export function TabBar(props: TabBarProps) {
           >
             <span
               class="tab__dot"
-              style={{ background: dotColor(tab.process) }}
+              style={{
+                background: tab.dotColor
+                  ? tabDotCssColor(tab.dotColor)
+                  : dotColor(tab.process),
+              }}
             />
-            <span class="tab__label">{tab.process ?? "shell"}</span>
+            <span class="tab__label">{tab.name ?? tab.process ?? "shell"}</span>
             <button
               type="button"
               class="tab__close"

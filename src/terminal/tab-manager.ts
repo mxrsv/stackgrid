@@ -17,7 +17,14 @@ import {
   createTerminalManager,
   type TerminalManager,
 } from "./terminal-manager";
-import { activeTabIndex, statusInfo, tabViews } from "./tabs-store";
+import {
+  activeTabIndex,
+  applyTabOverride,
+  statusInfo,
+  tabViews,
+  type TabOverride,
+} from "./tabs-store";
+import type { TabDotColor } from "../lib/tab-colors";
 
 const EVENT_OUTPUT = "pty:output";
 const EVENT_EXIT = "pty:exit";
@@ -43,6 +50,10 @@ export interface TabManager {
   newTab(): Promise<void>;
   closeTab(index: number): Promise<void>;
   selectTab(index: number): void;
+  /** Set or clear (null) a custom tab name; overrides the process label. */
+  renameTab(index: number, name: string | null): void;
+  /** Set or clear (null) a custom tab dot color token. */
+  setTabDotColor(index: number, color: TabDotColor | null): void;
   cycleTab(step: 1 | -1): void;
   splitActive(dir: Direction): Promise<void>;
   closePane(): Promise<void>;
@@ -55,6 +66,9 @@ export function createTabManager(host: HTMLElement): TabManager {
   const tabs: TabEntry[] = [];
   const unlisteners: UnlistenFn[] = [];
   const infoByPane = new Map<number, PaneProcessInfo>();
+  // Per-tab user overrides (rename, dot color), keyed by tab key —
+  // merged over process-derived values on every syncViews.
+  const overrides = new Map<number, TabOverride>();
   let nextKey = 1;
   let active = -1;
   let home = "";
@@ -89,7 +103,15 @@ export function createTabManager(host: HTMLElement): TabManager {
     tabViews.value = tabs.map((tab) => {
       const paneId = tab.manager.activePaneId();
       const info = paneId === null ? undefined : infoByPane.get(paneId);
-      return { key: tab.key, process: info?.process ?? null };
+      return applyTabOverride(
+        {
+          key: tab.key,
+          process: info?.process ?? null,
+          name: null,
+          dotColor: null,
+        },
+        overrides.get(tab.key),
+      );
     });
     activeTabIndex.value = active;
     const manager = activeManager();
@@ -147,6 +169,21 @@ export function createTabManager(host: HTMLElement): TabManager {
     persist();
   }
 
+  function setOverride(index: number, patch: TabOverride): void {
+    const entry = tabs[index];
+    if (!entry) {
+      return;
+    }
+    const next = { ...(overrides.get(entry.key) ?? {}), ...patch };
+    if (next.name === undefined && next.dotColor === undefined) {
+      overrides.delete(entry.key);
+    } else {
+      overrides.set(entry.key, next);
+    }
+    syncViews();
+    persist();
+  }
+
   async function newTab(): Promise<void> {
     if (!(await addTab(null))) {
       return;
@@ -162,6 +199,7 @@ export function createTabManager(host: HTMLElement): TabManager {
     const closingActive = index === active;
     entry.manager.dispose();
     tabs.splice(index, 1);
+    overrides.delete(entry.key);
     if (tabs.length === 0) {
       // Never show zero tabs — replace the last one with a fresh tab
       active = -1;
@@ -393,6 +431,13 @@ export function createTabManager(host: HTMLElement): TabManager {
     newTab,
     closeTab,
     selectTab,
+    renameTab(index, name) {
+      const trimmed = name?.trim() ?? "";
+      setOverride(index, { name: trimmed === "" ? undefined : trimmed });
+    },
+    setTabDotColor(index, color) {
+      setOverride(index, { dotColor: color ?? undefined });
+    },
     cycleTab,
     splitActive,
     closePane,
