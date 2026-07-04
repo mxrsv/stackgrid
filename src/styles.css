@@ -276,6 +276,17 @@ body,
   min-width: 0;
   min-height: 0;
   display: flex;
+  position: relative; /* anchor for the pane zoom overlay */
+}
+
+/* Pane zoom (tmux-style): the zoomed pane's element is reparented into an
+   overlay covering the tab, leaving the split layout untouched underneath */
+.zoom-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  z-index: 10;
+  background: var(--bg);
 }
 
 .tab-stage > * {

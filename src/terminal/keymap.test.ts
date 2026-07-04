@@ -71,6 +71,14 @@ describe("matchBinding", () => {
     expect(matchBinding(keyEvent("0", { metaKey: true }))).toBe("zoom-reset");
   });
 
+  it("matches Cmd+Shift+Enter to toggle-zoom-pane", () => {
+    expect(
+      matchBinding(keyEvent("Enter", { metaKey: true, shiftKey: true })),
+    ).toBe("toggle-zoom-pane");
+    expect(matchBinding(keyEvent("Enter", { metaKey: true }))).toBeNull();
+    expect(matchBinding(keyEvent("Enter"))).toBeNull();
+  });
+
   it("does not zoom without the meta modifier", () => {
     expect(matchBinding(keyEvent("="))).toBeNull();
     expect(matchBinding(keyEvent("-"))).toBeNull();

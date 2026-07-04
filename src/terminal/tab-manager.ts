@@ -318,6 +318,9 @@ export function createTabManager(host: HTMLElement): TabManager {
       case "zoom-reset":
         updateSettings({ fontSize: DEFAULT_SETTINGS.fontSize });
         break;
+      case "toggle-zoom-pane":
+        activeManager()?.toggleZoom();
+        break;
     }
   }
 

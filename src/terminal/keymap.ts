@@ -12,6 +12,7 @@ export type ShortcutAction =
   | "zoom-in"
   | "zoom-out"
   | "zoom-reset"
+  | "toggle-zoom-pane"
   | `select-tab-${number}`;
 
 export interface KeyBinding {
@@ -51,6 +52,8 @@ export const DEFAULT_KEYMAP: readonly KeyBinding[] = [
   { key: "+", meta: true, shift: true, action: "zoom-in" },
   { key: "-", meta: true, action: "zoom-out" },
   { key: "0", meta: true, action: "zoom-reset" },
+  // Maximize the active pane over the whole tab (tmux zoom), toggle to restore
+  { key: "enter", meta: true, shift: true, action: "toggle-zoom-pane" },
   ...TAB_SELECT_BINDINGS,
 ];
 

@@ -47,6 +47,8 @@ export interface TerminalManager {
   splitActive(dir: Direction): Promise<void>;
   closeActive(): Promise<void>;
   cycleFocus(step: 1 | -1): void;
+  /** Maximize the active pane over the whole tab; call again to restore. */
+  toggleZoom(): void;
   focusActive(): void;
   applySettings(next: Settings): void;
   serializeLayout(): SerializedNode | null;
@@ -79,6 +81,11 @@ export function createTerminalManager(
   const respawning = new Set<number>();
   let tree: TreeNode | null = null;
   let activeId: number | null = null;
+  // Zoom (tmux-style): the pane element is reparented into an overlay that
+  // covers the tab, so the flex layout underneath keeps its exact sizes and
+  // hidden panes never get resized while zoomed.
+  let zoomedId: number | null = null;
+  let zoomOverlay: HTMLElement | null = null;
 
   const paneEvents: PaneEvents = {
     onData(id, data) {
@@ -140,10 +147,61 @@ export function createTerminalManager(
     return expandForPane(tree, activeId, EXPAND_RATIO);
   }
 
+  function unzoom(): void {
+    if (zoomedId === null) {
+      return;
+    }
+    const pane = panes.get(zoomedId);
+    const slot = container.querySelector<HTMLElement>(
+      `.pane-slot[data-pane-id="${zoomedId}"]`,
+    );
+    if (pane && slot) {
+      slot.appendChild(pane.element);
+    }
+    zoomOverlay?.remove();
+    zoomOverlay = null;
+    container.classList.remove("is-zoomed");
+    const restored = zoomedId;
+    zoomedId = null;
+    panes.get(restored)?.fit();
+  }
+
+  function toggleZoom(): void {
+    if (zoomedId !== null) {
+      unzoom();
+      focusActivePane();
+      return;
+    }
+    if (activeId === null || panes.size <= 1) {
+      return;
+    }
+    const pane = panes.get(activeId);
+    if (!pane) {
+      return;
+    }
+    zoomOverlay = document.createElement("div");
+    zoomOverlay.className = "zoom-overlay";
+    zoomOverlay.appendChild(pane.element);
+    container.appendChild(zoomOverlay);
+    container.classList.add("is-zoomed");
+    zoomedId = activeId;
+    pane.fit();
+    pane.focus();
+  }
+
+  function focusActivePane(): void {
+    if (activeId !== null) {
+      panes.get(activeId)?.focus();
+    }
+  }
+
   function render(): void {
     if (!tree) {
       return;
     }
+    // renderTree re-slots every pane element — a live zoom overlay would be
+    // left covering the tab while its pane is stolen back into the tree.
+    unzoom();
     container.classList.toggle("has-multiple-panes", panes.size > 1);
     // Build from the ORIGINAL tree so dividers capture original ratios as
     // their commit baseline (onUp fires even on a click without dragging).
@@ -170,6 +228,10 @@ export function createTerminalManager(
   function setActive(id: number): void {
     if (activeId === id) {
       return;
+    }
+    // Moving focus while zoomed restores the layout (tmux behavior)
+    if (zoomedId !== null && zoomedId !== id) {
+      unzoom();
     }
     activeId = id;
     updateActiveClasses();
@@ -367,6 +429,9 @@ export function createTerminalManager(
 
   function fileDragOver(x: number, y: number): void {
     clearDropTargets();
+    if (zoomedId !== null) {
+      return; // overlay covers the slots — the drop always hits the zoomed pane
+    }
     slotAt(x, y)?.classList.add("is-drop-target");
   }
 
@@ -376,11 +441,12 @@ export function createTerminalManager(
 
   function fileDrop(x: number, y: number, paths: string[]): void {
     clearDropTargets();
-    const slot = slotAt(x, y);
-    if (!slot) {
+    // While zoomed the overlay covers every slot — the drop belongs to the
+    // zoomed pane, not whatever slot happens to sit underneath the cursor.
+    const id = zoomedId ?? Number(slotAt(x, y)?.dataset.paneId ?? NaN);
+    if (Number.isNaN(id)) {
       return; // dropped outside every pane (tab bar / status bar) — ignore
     }
-    const id = Number(slot.dataset.paneId);
     if (!panes.has(id) || exited.has(id)) {
       return; // pane already exited — never write into a dead PTY
     }
@@ -433,6 +499,7 @@ export function createTerminalManager(
       return activeId === null ? Promise.resolve() : closePane(activeId);
     },
     cycleFocus,
+    toggleZoom,
     focusActive() {
       if (activeId !== null) {
         panes.get(activeId)?.focus();
