@@ -1,4 +1,5 @@
 import type { SerializedNode } from "./split-tree";
+import { isTabDotColor, type TabDotColor } from "./tab-colors";
 
 export const SESSION_VERSION = 1;
 
@@ -8,6 +9,10 @@ const MAX_LAYOUT_DEPTH = 8;
 
 export interface SessionTab {
   readonly layout: SerializedNode;
+  /** Custom tab name override — restored by tab order, not by key. */
+  readonly name?: string;
+  /** Custom tab dot color token — restored by tab order, not by key. */
+  readonly dotColor?: TabDotColor;
 }
 
 export interface SessionData {
@@ -52,6 +57,19 @@ function validateLayout(raw: unknown, depth: number): SerializedNode | null {
   };
 }
 
+const MAX_TAB_NAME_LENGTH = 64;
+
+function validateTabName(raw: unknown): string | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (trimmed === "" || trimmed.length > MAX_TAB_NAME_LENGTH) {
+    return undefined;
+  }
+  return trimmed;
+}
+
 /** null = corrupt/missing/foreign version — the caller starts with a fresh tab. */
 export function validateSession(raw: unknown): SessionData | null {
   if (typeof raw !== "object" || raw === null) {
@@ -80,7 +98,16 @@ export function validateSession(raw: unknown): SessionData | null {
     if (layout === null) {
       return null;
     }
-    tabs.push({ layout });
+    const tabSource = rawTab as Record<string, unknown>;
+    const name = validateTabName(tabSource.name);
+    const dotColor = isTabDotColor(tabSource.dotColor)
+      ? tabSource.dotColor
+      : undefined;
+    tabs.push({
+      layout,
+      ...(name !== undefined ? { name } : {}),
+      ...(dotColor !== undefined ? { dotColor } : {}),
+    });
   }
   const activeTab =
     typeof source.activeTab === "number" &&

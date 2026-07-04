@@ -18,6 +18,47 @@ const validRaw = {
   ],
 };
 
+const validTab = { layout: { type: "leaf" } };
+
+describe("session tab overrides", () => {
+  it("keeps valid name and dotColor", () => {
+    const session = validateSession({
+      version: 1,
+      activeTab: 0,
+      tabs: [{ ...validTab, name: "backend", dotColor: "red" }],
+    });
+    expect(session?.tabs[0].name).toBe("backend");
+    expect(session?.tabs[0].dotColor).toBe("red");
+  });
+
+  it("drops invalid overrides without rejecting the session", () => {
+    const session = validateSession({
+      version: 1,
+      activeTab: 0,
+      tabs: [
+        { ...validTab, name: "   ", dotColor: "hotpink" },
+        { ...validTab, name: 42, dotColor: 7 },
+        { ...validTab, name: "x".repeat(65) },
+      ],
+    });
+    expect(session).not.toBeNull();
+    for (const tab of session?.tabs ?? []) {
+      expect(tab.name).toBeUndefined();
+      expect(tab.dotColor).toBeUndefined();
+    }
+  });
+
+  it("leaves overrides undefined when absent (old session files)", () => {
+    const session = validateSession({
+      version: 1,
+      activeTab: 0,
+      tabs: [validTab],
+    });
+    expect(session?.tabs[0].name).toBeUndefined();
+    expect(session?.tabs[0].dotColor).toBeUndefined();
+  });
+});
+
 describe("validateSession", () => {
   it("accepts a valid session", () => {
     expect(validateSession(validRaw)).toEqual(validRaw);

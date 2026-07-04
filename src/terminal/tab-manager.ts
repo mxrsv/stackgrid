@@ -8,7 +8,11 @@ import {
 } from "../settings/settings-schema";
 import { settings, updateSettings } from "../settings/settings-store";
 import type { Direction, SerializedNode } from "../lib/split-tree";
-import { SESSION_VERSION, type SessionData } from "../lib/session-schema";
+import {
+  SESSION_VERSION,
+  type SessionData,
+  type SessionTab,
+} from "../lib/session-schema";
 import { isAgent, type PaneProcessInfo } from "../lib/process-info";
 import { matchBinding, selectTabIndex } from "./keymap";
 import { loadSession, scheduleSessionSave } from "./session-persistence";
@@ -82,16 +86,28 @@ export function createTabManager(host: HTMLElement): TabManager {
   }
 
   function buildSessionData(): SessionData | null {
-    const layouts = tabs
-      .map((tab) => tab.manager.serializeLayout())
-      .filter((layout): layout is SerializedNode => layout !== null);
-    if (layouts.length === 0) {
+    const sessionTabs: SessionTab[] = [];
+    for (const tab of tabs) {
+      const layout = tab.manager.serializeLayout();
+      if (layout === null) {
+        continue;
+      }
+      const override = overrides.get(tab.key);
+      sessionTabs.push({
+        layout,
+        ...(override?.name !== undefined ? { name: override.name } : {}),
+        ...(override?.dotColor !== undefined
+          ? { dotColor: override.dotColor }
+          : {}),
+      });
+    }
+    if (sessionTabs.length === 0) {
       return null;
     }
     return {
       version: SESSION_VERSION,
-      activeTab: Math.min(Math.max(active, 0), layouts.length - 1),
-      tabs: layouts.map((layout) => ({ layout })),
+      activeTab: Math.min(Math.max(active, 0), sessionTabs.length - 1),
+      tabs: sessionTabs,
     };
   }
 
@@ -407,8 +423,20 @@ export function createTabManager(host: HTMLElement): TabManager {
 
     const session = settings.value.restoreTabs ? await loadSession() : null;
     if (session !== null) {
-      for (const tab of session.tabs) {
-        await addTab(tab.layout);
+      for (const sessionTab of session.tabs) {
+        if (!(await addTab(sessionTab.layout))) {
+          continue; // spawn failed — skip its overrides too
+        }
+        const key = tabs[tabs.length - 1].key;
+        const override: TabOverride = {
+          ...(sessionTab.name !== undefined ? { name: sessionTab.name } : {}),
+          ...(sessionTab.dotColor !== undefined
+            ? { dotColor: sessionTab.dotColor }
+            : {}),
+        };
+        if (override.name !== undefined || override.dotColor !== undefined) {
+          overrides.set(key, override);
+        }
       }
     }
     if (tabs.length === 0) {
