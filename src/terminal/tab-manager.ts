@@ -317,6 +317,15 @@ export function createTabManager(host: HTMLElement): TabManager {
     if (event.isComposing || event.keyCode === 229) {
       return;
     }
+    // Never fire shortcuts while typing in a text field (same approach as
+    // the IME guard above) — e.g. the tab rename input in the popover.
+    if (
+      (event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement) &&
+      !(event.target as HTMLElement).closest(".pane__term")
+    ) {
+      return;
+    }
     const action = matchBinding(event);
     if (action === null) {
       return;
