@@ -71,10 +71,18 @@ colors.** Derivation rules:
   - tab active background: 15%
   - input background: 30% on dark themes, 6% on light themes
 - **Hairlines:** `--hair` = fg 12% over bg, `--hair-strong` = fg 20%.
-- **Text tokens with contrast floors (WCAG-checked against `--chrome-1`):**
+- **Text tokens with contrast floors (WCAG-checked):**
+  - `--text-primary` (chrome body text: input/select values, active tab label):
+    start at raw fg, raise toward tone until **≥ 4.5:1** against both
+    `--input-bg` and `--chrome-2`. Chrome never uses raw `--fg` directly —
+    a low-contrast fg override (e.g. fg #565f89 on bg #1a1b26 gives 1.02:1 on
+    inputs) must not sink the chrome.
   - `--text-muted`: start at fg 52% mix, raise toward tone until **≥ 4.5:1**
+    against `--chrome-1`
   - `--text-faint`: start at fg 34% mix, raise toward tone until **≥ 3:1**
-- These contrast floors are the **standard for all current and future UI** in
+    against `--chrome-1`
+- General rule: every text token is contrast-checked against the surface it
+  sits on. These floors are the **standard for all current and future UI** in
   the app.
 
 Implementation note: the contrast enforcement needs color math in JS (compute
