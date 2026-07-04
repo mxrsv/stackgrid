@@ -18,11 +18,18 @@ import {
   type SerializedNode,
   type TreeNode,
 } from "../lib/split-tree";
+import {
+  nearestInDirection,
+  type FocusDirection,
+  type PaneRect,
+} from "../lib/pane-geometry";
 import { paneHeaderInfo, type PaneProcessInfo } from "../lib/process-info";
 import { shellEscapePaths } from "../lib/shell-escape";
 import { applyRatios, renderTree } from "./layout";
 import { createPane, type Pane, type PaneEvents } from "./pane";
+import { freshCwd } from "./pane-info";
 import { createPaneDragController, type PaneDragController } from "./pane-drag";
+import { closeSearchBarForPane, openSearchBar } from "./search-bar";
 
 // Placeholder size at spawn — fit() after mount resizes to the real dimensions
 const INITIAL_COLS = 80;
@@ -38,18 +45,31 @@ export interface ManagerCallbacks {
 
 /** One tab's worth of terminals: a split tree of panes sharing a container. */
 export interface TerminalManager {
-  /** Spawn a single fresh shell. Throws when the spawn fails. */
-  initFresh(): Promise<void>;
-  /** Spawn one shell per leaf and rebuild the split structure. Throws when any spawn fails. */
-  initFromLayout(layout: SerializedNode): Promise<void>;
+  /** Spawn a single fresh shell (at `cwd` when given). Throws when the spawn fails. */
+  initFresh(cwd?: string | null): Promise<void>;
+  /**
+   * Spawn one shell per leaf and rebuild the split structure. `cwds` maps to
+   * leaves in left-to-right order (missing/null entries → $HOME). Throws when
+   * any spawn fails.
+   */
+  initFromLayout(
+    layout: SerializedNode,
+    cwds?: readonly (string | null)[],
+  ): Promise<void>;
   show(): void;
   hide(): void;
   splitActive(dir: Direction): Promise<void>;
   closeActive(): Promise<void>;
   cycleFocus(step: 1 | -1): void;
+  /** Move focus to the nearest pane in a direction; no pane there → no-op. */
+  focusDirection(dir: FocusDirection): void;
   /** Maximize the active pane over the whole tab; call again to restore. */
   toggleZoom(): void;
   focusActive(): void;
+  /** Clear the active pane's buffer, keeping the prompt line (Cmd+K). */
+  clearActive(): void;
+  /** Open the search bar on the active pane (Cmd+F). */
+  openSearch(): void;
   applySettings(next: Settings): void;
   serializeLayout(): SerializedNode | null;
   paneIds(): number[];
@@ -116,10 +136,11 @@ export function createTerminalManager(
     },
   };
 
-  async function spawnPane(): Promise<Pane> {
+  async function spawnPane(cwd: string | null = null): Promise<Pane> {
     const id = await invoke<number>("spawn_shell", {
       cols: INITIAL_COLS,
       rows: INITIAL_ROWS,
+      cwd,
     });
     const pane = createPane(id, settings.value, paneEvents);
     panes.set(id, pane);
@@ -312,6 +333,7 @@ export function createTerminalManager(
     });
     panes.delete(id);
     exited.delete(id);
+    closeSearchBarForPane(id);
     pane.dispose();
 
     const rest = removeLeaf(tree, id);
@@ -352,7 +374,9 @@ export function createTerminalManager(
     }
     const targetId = activeId;
     try {
-      const pane = await spawnPane();
+      // Fresh lookup, not the 2s poll cache — the user may have just cd'd
+      const cwd = await freshCwd(targetId);
+      const pane = await spawnPane(cwd);
       if (!isInTree(targetId)) {
         // Target pane closed while spawning — drop the new session
         discardPane(pane);
@@ -383,20 +407,52 @@ export function createTerminalManager(
     panes.get(next)?.focus();
   }
 
-  async function initFresh(): Promise<void> {
-    const pane = await spawnPane();
+  function focusDirection(dir: FocusDirection): void {
+    if (!tree || activeId === null) {
+      return;
+    }
+    const rects: PaneRect[] = [];
+    for (const slot of container.querySelectorAll<HTMLElement>(".pane-slot")) {
+      const id = Number(slot.dataset.paneId);
+      if (Number.isNaN(id)) {
+        continue;
+      }
+      const r = slot.getBoundingClientRect();
+      rects.push({
+        id,
+        left: r.left,
+        top: r.top,
+        right: r.right,
+        bottom: r.bottom,
+      });
+    }
+    const target = nearestInDirection(rects, activeId, dir);
+    if (target === null) {
+      return;
+    }
+    // Route through setActive so zoom restore, active classes and expand
+    // ratios are inherited rather than re-derived.
+    setActive(target);
+    panes.get(target)?.focus();
+  }
+
+  async function initFresh(cwd: string | null = null): Promise<void> {
+    const pane = await spawnPane(cwd);
     tree = leaf(pane.id);
     activeId = pane.id;
     render();
     pane.focus();
   }
 
-  async function initFromLayout(layout: SerializedNode): Promise<void> {
+  async function initFromLayout(
+    layout: SerializedNode,
+    cwds: readonly (string | null)[] = [],
+  ): Promise<void> {
     const total = countLeaves(layout);
     const spawned: Pane[] = [];
     try {
       for (let i = 0; i < total; i += 1) {
-        spawned.push(await spawnPane());
+        spawned.push(await spawnPane(cwds[i] ?? null));
       }
     } catch (err) {
       for (const pane of spawned) {
@@ -503,10 +559,24 @@ export function createTerminalManager(
       return activeId === null ? Promise.resolve() : closePane(activeId);
     },
     cycleFocus,
+    focusDirection,
     toggleZoom,
     focusActive() {
       if (activeId !== null) {
         panes.get(activeId)?.focus();
+      }
+    },
+    clearActive() {
+      if (activeId !== null) {
+        panes.get(activeId)?.clear();
+      }
+    },
+    openSearch() {
+      if (activeId !== null) {
+        const pane = panes.get(activeId);
+        if (pane) {
+          openSearchBar(pane);
+        }
       }
     },
     applySettings(next) {
@@ -553,6 +623,7 @@ export function createTerminalManager(
         invoke("kill_pty", { id: pane.id }).catch(() => {
           // Session already gone — ignore
         });
+        closeSearchBarForPane(pane.id);
         pane.dispose();
       }
       panes.clear();

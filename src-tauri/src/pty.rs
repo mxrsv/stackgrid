@@ -88,12 +88,20 @@ fn remove_session(app: &AppHandle, id: u32) {
     };
 }
 
+/// Working directory for a new shell: an existing directory passes through,
+/// anything else (missing, deleted, not a dir, None) falls back to `$HOME`.
+fn resolve_spawn_cwd(cwd: Option<String>) -> Option<String> {
+    cwd.filter(|dir| std::path::Path::new(dir).is_dir())
+        .or_else(|| std::env::var("HOME").ok())
+}
+
 #[tauri::command]
 pub fn spawn_shell(
     app: AppHandle,
     state: State<PtyState>,
     cols: u16,
     rows: u16,
+    cwd: Option<String>,
 ) -> Result<u32, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -113,8 +121,8 @@ pub fn spawn_shell(
     }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    if let Ok(home) = std::env::var("HOME") {
-        cmd.cwd(home);
+    if let Some(dir) = resolve_spawn_cwd(cwd) {
+        cmd.cwd(dir);
     }
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
@@ -266,6 +274,22 @@ mod tests {
     fn empty_input_yields_empty_string() {
         let mut pending = Vec::new();
         assert_eq!(take_valid_utf8(&mut pending), "");
+    }
+
+    #[test]
+    fn resolve_spawn_cwd_accepts_an_existing_dir() {
+        let dir = std::env::temp_dir().to_string_lossy().into_owned();
+        assert_eq!(super::resolve_spawn_cwd(Some(dir.clone())), Some(dir));
+    }
+
+    #[test]
+    fn resolve_spawn_cwd_falls_back_to_home() {
+        let home = std::env::var("HOME").ok();
+        assert_eq!(
+            super::resolve_spawn_cwd(Some("/definitely/not/a/dir".into())),
+            home
+        );
+        assert_eq!(super::resolve_spawn_cwd(None), home);
     }
 }
 

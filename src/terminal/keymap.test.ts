@@ -23,9 +23,8 @@ describe("matchBinding", () => {
     expect(matchBinding(keyEvent("d", { metaKey: true, shiftKey: true }))).toBe(
       "split-column",
     );
-    expect(matchBinding(keyEvent("w", { metaKey: true, shiftKey: true }))).toBe(
-      "close-pane",
-    );
+    // Swapped to iTerm2 convention: Cmd+W closes the pane
+    expect(matchBinding(keyEvent("w", { metaKey: true }))).toBe("close-pane");
     expect(matchBinding(keyEvent("]", { metaKey: true }))).toBe("focus-next");
     expect(matchBinding(keyEvent("[", { metaKey: true }))).toBe("focus-prev");
   });
@@ -46,7 +45,9 @@ describe("matchBinding", () => {
 
   it("matches the new tab bindings", () => {
     expect(matchBinding(keyEvent("t", { metaKey: true }))).toBe("new-tab");
-    expect(matchBinding(keyEvent("w", { metaKey: true }))).toBe("close-tab");
+    expect(matchBinding(keyEvent("w", { metaKey: true, shiftKey: true }))).toBe(
+      "close-tab",
+    );
     // On a US layout Shift+] produces "}" and Shift+[ produces "{"
     expect(matchBinding(keyEvent("}", { metaKey: true, shiftKey: true }))).toBe(
       "next-tab",
@@ -88,11 +89,30 @@ describe("matchBinding", () => {
   it("returns null when modifiers do not match exactly", () => {
     expect(matchBinding(keyEvent("t"))).toBeNull();
     expect(
-      matchBinding(keyEvent("t", { metaKey: true, shiftKey: true })),
-    ).toBeNull();
-    expect(
       matchBinding(keyEvent("d", { metaKey: true, ctrlKey: true })),
     ).toBeNull();
+  });
+
+  it("matches the iTerm2-parity batch bindings", () => {
+    expect(matchBinding(keyEvent("f", { metaKey: true }))).toBe("find");
+    expect(matchBinding(keyEvent("k", { metaKey: true }))).toBe("clear-buffer");
+    expect(matchBinding(keyEvent("t", { metaKey: true, shiftKey: true }))).toBe(
+      "reopen-tab",
+    );
+  });
+
+  it("matches Cmd+Option+Arrows to directional focus", () => {
+    const mods = { metaKey: true, altKey: true };
+    expect(matchBinding(keyEvent("ArrowLeft", mods))).toBe("focus-left");
+    expect(matchBinding(keyEvent("ArrowRight", mods))).toBe("focus-right");
+    expect(matchBinding(keyEvent("ArrowUp", mods))).toBe("focus-up");
+    expect(matchBinding(keyEvent("ArrowDown", mods))).toBe("focus-down");
+  });
+
+  it("does not match arrows without both Cmd and Option", () => {
+    expect(matchBinding(keyEvent("ArrowLeft", { metaKey: true }))).toBeNull();
+    expect(matchBinding(keyEvent("ArrowLeft", { altKey: true }))).toBeNull();
+    expect(matchBinding(keyEvent("ArrowLeft"))).toBeNull();
   });
 });
 

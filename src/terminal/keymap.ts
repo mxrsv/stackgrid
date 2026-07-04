@@ -13,6 +13,13 @@ export type ShortcutAction =
   | "zoom-out"
   | "zoom-reset"
   | "toggle-zoom-pane"
+  | "find"
+  | "clear-buffer"
+  | "focus-left"
+  | "focus-right"
+  | "focus-up"
+  | "focus-down"
+  | "reopen-tab"
   | `select-tab-${number}`;
 
 export interface KeyBinding {
@@ -36,12 +43,13 @@ const TAB_SELECT_BINDINGS: readonly KeyBinding[] = Array.from(
 export const DEFAULT_KEYMAP: readonly KeyBinding[] = [
   { key: "d", meta: true, action: "split-row" },
   { key: "d", meta: true, shift: true, action: "split-column" },
-  { key: "w", meta: true, shift: true, action: "close-pane" },
+  // iTerm2 convention: Cmd+W closes the pane, Cmd+Shift+W the whole tab
+  { key: "w", meta: true, action: "close-pane" },
+  { key: "w", meta: true, shift: true, action: "close-tab" },
   { key: "]", meta: true, action: "focus-next" },
   { key: "[", meta: true, action: "focus-prev" },
   { key: "e", meta: true, action: "toggle-expand" },
   { key: "t", meta: true, action: "new-tab" },
-  { key: "w", meta: true, action: "close-tab" },
   // On a US layout Shift+] produces "}" and Shift+[ produces "{",
   // so the bindings match the produced key, not the physical one.
   { key: "}", meta: true, shift: true, action: "next-tab" },
@@ -54,6 +62,14 @@ export const DEFAULT_KEYMAP: readonly KeyBinding[] = [
   { key: "0", meta: true, action: "zoom-reset" },
   // Maximize the active pane over the whole tab (tmux zoom), toggle to restore
   { key: "enter", meta: true, shift: true, action: "toggle-zoom-pane" },
+  { key: "f", meta: true, action: "find" },
+  { key: "k", meta: true, action: "clear-buffer" },
+  { key: "t", meta: true, shift: true, action: "reopen-tab" },
+  // event.key for arrows is "ArrowLeft" etc. — lowercased by matchBinding
+  { key: "arrowleft", meta: true, alt: true, action: "focus-left" },
+  { key: "arrowright", meta: true, alt: true, action: "focus-right" },
+  { key: "arrowup", meta: true, alt: true, action: "focus-up" },
+  { key: "arrowdown", meta: true, alt: true, action: "focus-down" },
   ...TAB_SELECT_BINDINGS,
 ];
 

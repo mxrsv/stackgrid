@@ -22,6 +22,14 @@ import {
   type TerminalManager,
 } from "./terminal-manager";
 import {
+  captureCwds,
+  popClosedTab,
+  pushClosedTab,
+  type ClosedTabSnapshot,
+} from "./closed-tabs";
+import { confirmClose } from "./close-guard";
+import { freshCwd } from "./pane-info";
+import {
   activeTabIndex,
   applyTabOverride,
   statusInfo,
@@ -52,6 +60,7 @@ interface TabEntry {
 export interface TabManager {
   init(): Promise<void>;
   newTab(): Promise<void>;
+  /** Close a tab after the busy guard; every pane's process is checked. */
   closeTab(index: number): Promise<void>;
   selectTab(index: number): void;
   /** Set or clear (null) a custom tab name; overrides the process label. */
@@ -60,6 +69,7 @@ export interface TabManager {
   setTabDotColor(index: number, color: TabDotColor | null): void;
   cycleTab(step: 1 | -1): void;
   splitActive(dir: Direction): Promise<void>;
+  /** Close the focused pane (busy-guarded); last pane in tab closes the tab. */
   closePane(): Promise<void>;
   applySettings(next: Settings): void;
   focusActive(): void;
@@ -73,6 +83,8 @@ export function createTabManager(host: HTMLElement): TabManager {
   // Per-tab user overrides (rename, dot color), keyed by tab key —
   // merged over process-derived values on every syncViews.
   const overrides = new Map<number, TabOverride>();
+  // Recently closed tabs (Cmd+Shift+T), newest last; in-memory only.
+  let closedTabs: readonly ClosedTabSnapshot[] = [];
   let nextKey = 1;
   let active = -1;
   let home = "";
@@ -151,7 +163,10 @@ export function createTabManager(host: HTMLElement): TabManager {
   };
 
   /** Create + init a tab; false (and an error note) when spawning fails. */
-  async function addTab(layout: SerializedNode | null): Promise<boolean> {
+  async function addTab(
+    layout: SerializedNode | null,
+    cwds: readonly (string | null)[] = [],
+  ): Promise<boolean> {
     const container = document.createElement("div");
     container.className = "tab-stage";
     container.style.display = "none";
@@ -159,9 +174,9 @@ export function createTabManager(host: HTMLElement): TabManager {
     const manager = createTerminalManager(container, callbacks);
     try {
       if (layout === null) {
-        await manager.initFresh();
+        await manager.initFresh(cwds[0] ?? null);
       } else {
-        await manager.initFromLayout(layout);
+        await manager.initFromLayout(layout, cwds);
       }
     } catch (err) {
       console.error("Failed to open tab:", err);
@@ -201,8 +216,30 @@ export function createTabManager(host: HTMLElement): TabManager {
   }
 
   async function newTab(): Promise<void> {
-    if (!(await addTab(null))) {
+    const cwd = await freshCwd(activeManager()?.activePaneId() ?? null);
+    if (!(await addTab(null, [cwd]))) {
       return;
+    }
+    selectTab(tabs.length - 1);
+  }
+
+  async function reopenTab(): Promise<void> {
+    const [snapshot, rest] = popClosedTab(closedTabs);
+    if (snapshot === null) {
+      return;
+    }
+    if (!(await addTab(snapshot.layout, snapshot.cwds))) {
+      return; // spawn failed — keep the snapshot for another attempt
+    }
+    closedTabs = rest;
+    // Fresh tab key from addTab/nextKey — re-register overrides under it
+    const key = tabs[tabs.length - 1].key;
+    const override: TabOverride = {
+      ...(snapshot.name !== null ? { name: snapshot.name } : {}),
+      ...(snapshot.dotColor !== null ? { dotColor: snapshot.dotColor } : {}),
+    };
+    if (override.name !== undefined || override.dotColor !== undefined) {
+      overrides.set(key, override);
     }
     selectTab(tabs.length - 1);
   }
@@ -211,6 +248,17 @@ export function createTabManager(host: HTMLElement): TabManager {
     const entry = tabs[index];
     if (!entry) {
       return;
+    }
+    // Snapshot BEFORE dispose/override-cleanup — every close path pushes one
+    const layout = entry.manager.serializeLayout();
+    if (layout !== null) {
+      const override = overrides.get(entry.key);
+      closedTabs = pushClosedTab(closedTabs, {
+        layout,
+        name: override?.name ?? null,
+        dotColor: override?.dotColor ?? null,
+        cwds: captureCwds(entry.manager.paneIds(), infoByPane),
+      });
     }
     const closingActive = index === active;
     entry.manager.dispose();
@@ -345,7 +393,7 @@ export function createTabManager(host: HTMLElement): TabManager {
         void splitActive("column");
         break;
       case "close-pane":
-        void closePane();
+        void closePaneGuarded();
         break;
       case "focus-next":
         activeManager()?.cycleFocus(1);
@@ -360,7 +408,7 @@ export function createTabManager(host: HTMLElement): TabManager {
         void newTab();
         break;
       case "close-tab":
-        void closeTab(active);
+        void closeTabGuarded(active);
         break;
       case "next-tab":
         cycleTab(1);
@@ -384,6 +432,27 @@ export function createTabManager(host: HTMLElement): TabManager {
       case "toggle-zoom-pane":
         activeManager()?.toggleZoom();
         break;
+      case "clear-buffer":
+        activeManager()?.clearActive();
+        break;
+      case "focus-left":
+        activeManager()?.focusDirection("left");
+        break;
+      case "focus-right":
+        activeManager()?.focusDirection("right");
+        break;
+      case "focus-up":
+        activeManager()?.focusDirection("up");
+        break;
+      case "focus-down":
+        activeManager()?.focusDirection("down");
+        break;
+      case "reopen-tab":
+        void reopenTab();
+        break;
+      case "find":
+        activeManager()?.openSearch();
+        break;
     }
   }
 
@@ -391,8 +460,44 @@ export function createTabManager(host: HTMLElement): TabManager {
     return activeManager()?.splitActive(dir) ?? Promise.resolve();
   }
 
-  function closePane(): Promise<void> {
-    return activeManager()?.closeActive() ?? Promise.resolve();
+  /**
+   * Cmd+W routing (iTerm2 semantics): last pane in the tab → close the tab;
+   * otherwise close the pane. The routing decision runs first, then the busy
+   * guard runs once on the final target set — exactly one dialog.
+   */
+  async function closePaneGuarded(): Promise<void> {
+    const manager = activeManager();
+    if (!manager) {
+      return;
+    }
+    if (manager.paneCount() <= 1) {
+      await closeTabGuarded(active);
+      return;
+    }
+    const paneId = manager.activePaneId();
+    if (paneId === null) {
+      return;
+    }
+    if (!(await confirmClose([paneId]))) {
+      return;
+    }
+    await manager.closeActive();
+  }
+
+  async function closeTabGuarded(index: number): Promise<void> {
+    const entry = tabs[index];
+    if (!entry) {
+      return;
+    }
+    if (!(await confirmClose(entry.manager.paneIds()))) {
+      return;
+    }
+    // Re-resolve after the dialog — the tab list may have shifted meanwhile
+    const currentIndex = tabs.indexOf(entry);
+    if (currentIndex === -1) {
+      return;
+    }
+    await closeTab(currentIndex);
   }
 
   async function init(): Promise<void> {
@@ -466,7 +571,7 @@ export function createTabManager(host: HTMLElement): TabManager {
   return {
     init,
     newTab,
-    closeTab,
+    closeTab: closeTabGuarded,
     selectTab,
     renameTab(index, name) {
       const trimmed = name?.trim() ?? "";
@@ -477,7 +582,7 @@ export function createTabManager(host: HTMLElement): TabManager {
     },
     cycleTab,
     splitActive,
-    closePane,
+    closePane: closePaneGuarded,
     applySettings(next) {
       for (const tab of tabs) {
         tab.manager.applySettings(next);

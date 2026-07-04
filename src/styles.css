@@ -439,6 +439,63 @@ body,
   text-overflow: ellipsis;
 }
 
+/* ── Search bar (Cmd+F) ─────────────────────────────────── */
+
+.search-bar {
+  position: absolute;
+  top: 34px;
+  right: 10px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--hair-strong);
+  border-radius: 7px;
+  background: var(--chrome-2);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.35);
+  font: 12px var(--ui-font);
+}
+
+/* Pane bar hidden → no header to clear, hug the top edge */
+.pane-bar-hidden .search-bar {
+  top: 8px;
+}
+
+.search-bar__input {
+  width: 160px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+}
+
+.search-bar__count {
+  min-width: 34px;
+  text-align: right;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.search-bar__btn {
+  padding: 2px 5px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search-bar__btn:hover {
+  background: var(--tab-active-bg);
+  color: var(--text-primary);
+}
+
 .pane__dot {
   width: 6px;
   height: 6px;

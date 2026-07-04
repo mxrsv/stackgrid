@@ -216,7 +216,7 @@ export function TabBar(props: TabBarProps) {
         <button
           type="button"
           class="iconbtn"
-          title="Close pane (⌘⇧W)"
+          title="Close pane (⌘W)"
           aria-label="Close current pane"
           onClick={props.onClosePane}
         >

@@ -1,5 +1,6 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { FONT_FALLBACK, type Settings } from "../settings/settings-schema";
@@ -18,11 +19,15 @@ export interface PaneEvents {
 export interface Pane {
   readonly id: number;
   readonly element: HTMLElement;
+  /** Per-pane search addon (Cmd+F); disposed with the terminal. */
+  readonly search: SearchAddon;
   /** Call after the element is in the DOM — opens xterm and observes resize. */
   mount(): void;
   write(data: string): void;
   writeln(line: string): void;
   fit(): void;
+  /** Drop scrollback and keep only the current prompt line (Cmd+K). */
+  clear(): void;
   focus(): void;
   applySettings(next: Settings): void;
   /** Update the header bar (dot color, cwd, process badge). */
@@ -91,6 +96,8 @@ export function createPane(
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
   term.loadAddon(new WebLinksAddon());
+  const searchAddon = new SearchAddon();
+  term.loadAddon(searchAddon);
 
   // xterm core measures cell width with a Unicode 6 table and no grapheme
   // clustering, so Vietnamese combining marks (NFD "ố" = o + ◌̂ + ◌́) are
@@ -189,10 +196,12 @@ export function createPane(
   return {
     id,
     element,
+    search: searchAddon,
     mount,
     write: (data) => term.write(data),
     writeln: (line) => term.writeln(line),
     fit,
+    clear: () => term.clear(),
     focus: () => term.focus(),
     applySettings,
     setHeaderInfo,
