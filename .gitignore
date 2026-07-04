@@ -26,3 +26,7 @@ dist-ssr
 # Local design docs / specs (không track)
 docs/
 docs/superpowers/
+
+# Local tool state
+.playwright-mcp/
+.planning/
