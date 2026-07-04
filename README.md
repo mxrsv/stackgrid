@@ -27,9 +27,10 @@
 
 1. Download the latest `.dmg` from [Releases](https://github.com/mxrsv/stackgrid/releases/latest).
 2. Drag **Stackgrid** into **Applications**.
-3. First launch — the app is not signed with an Apple Developer ID yet, so macOS Gatekeeper will warn you. Either:
-   - Right-click **Stackgrid.app** → **Open** → **Open**, or
-   - Run `xattr -cr /Applications/Stackgrid.app` once.
+3. First launch — the app is not signed with an Apple Developer ID yet, so macOS Gatekeeper will block it ("Apple could not verify…"). Click **Done** (not "Move to Trash"), then either:
+   - Run `xattr -cr /Applications/Stackgrid.app` once, or
+   - Open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**.
+   - On macOS 14 and earlier you can also right-click **Stackgrid.app** → **Open** → **Open**.
 
 ## Keyboard shortcuts
 
