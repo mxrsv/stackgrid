@@ -1,7 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { homeDir } from "@tauri-apps/api/path";
-import type { Settings } from "../settings/settings-schema";
+import {
+  clampFontSize,
+  DEFAULT_SETTINGS,
+  type Settings,
+} from "../settings/settings-schema";
 import { settings, updateSettings } from "../settings/settings-store";
 import type { Direction, SerializedNode } from "../lib/split-tree";
 import { SESSION_VERSION, type SessionData } from "../lib/session-schema";
@@ -300,6 +304,19 @@ export function createTabManager(host: HTMLElement): TabManager {
         break;
       case "prev-tab":
         cycleTab(-1);
+        break;
+      case "zoom-in":
+        updateSettings({
+          fontSize: clampFontSize(settings.value.fontSize + 1),
+        });
+        break;
+      case "zoom-out":
+        updateSettings({
+          fontSize: clampFontSize(settings.value.fontSize - 1),
+        });
+        break;
+      case "zoom-reset":
+        updateSettings({ fontSize: DEFAULT_SETTINGS.fontSize });
         break;
     }
   }

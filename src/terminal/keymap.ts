@@ -9,6 +9,9 @@ export type ShortcutAction =
   | "close-tab"
   | "next-tab"
   | "prev-tab"
+  | "zoom-in"
+  | "zoom-out"
+  | "zoom-reset"
   | `select-tab-${number}`;
 
 export interface KeyBinding {
@@ -42,6 +45,12 @@ export const DEFAULT_KEYMAP: readonly KeyBinding[] = [
   // so the bindings match the produced key, not the physical one.
   { key: "}", meta: true, shift: true, action: "next-tab" },
   { key: "{", meta: true, shift: true, action: "prev-tab" },
+  // Font zoom, matching the standard macOS terminal shortcuts. Cmd+= counts
+  // as zoom-in so users don't have to hold Shift for the "+" key.
+  { key: "=", meta: true, action: "zoom-in" },
+  { key: "+", meta: true, shift: true, action: "zoom-in" },
+  { key: "-", meta: true, action: "zoom-out" },
+  { key: "0", meta: true, action: "zoom-reset" },
   ...TAB_SELECT_BINDINGS,
 ];
 

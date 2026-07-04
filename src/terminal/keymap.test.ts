@@ -61,6 +61,22 @@ describe("matchBinding", () => {
     expect(matchBinding(keyEvent("9", { metaKey: true }))).toBe("select-tab-9");
   });
 
+  it("matches the zoom bindings", () => {
+    expect(matchBinding(keyEvent("=", { metaKey: true }))).toBe("zoom-in");
+    // Shift+= produces "+" on a US layout
+    expect(matchBinding(keyEvent("+", { metaKey: true, shiftKey: true }))).toBe(
+      "zoom-in",
+    );
+    expect(matchBinding(keyEvent("-", { metaKey: true }))).toBe("zoom-out");
+    expect(matchBinding(keyEvent("0", { metaKey: true }))).toBe("zoom-reset");
+  });
+
+  it("does not zoom without the meta modifier", () => {
+    expect(matchBinding(keyEvent("="))).toBeNull();
+    expect(matchBinding(keyEvent("-"))).toBeNull();
+    expect(matchBinding(keyEvent("0"))).toBeNull();
+  });
+
   it("returns null when modifiers do not match exactly", () => {
     expect(matchBinding(keyEvent("t"))).toBeNull();
     expect(
@@ -69,7 +85,6 @@ describe("matchBinding", () => {
     expect(
       matchBinding(keyEvent("d", { metaKey: true, ctrlKey: true })),
     ).toBeNull();
-    expect(matchBinding(keyEvent("0", { metaKey: true }))).toBeNull();
   });
 });
 
