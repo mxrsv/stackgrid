@@ -1,10 +1,11 @@
 import { useEffect, useRef } from "preact/hooks";
 import { useSignal, useSignalEffect } from "@preact/signals";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { installQuitGuard } from "../lib/quit-guard";
 import { deriveChromeColors } from "../lib/derive-colors";
 import { settings, updateSettings } from "../settings/settings-store";
-import { resolveTheme, THEME_PRESETS } from "../settings/themes";
+import { resolveTheme } from "../settings/themes";
 import { createTabManager, type TabManager } from "../terminal/tab-manager";
 import { TabBar } from "./tab-bar";
 import { StatusBar } from "./status-bar";
@@ -74,17 +75,19 @@ export function App() {
     tabsRef.current?.focusActive();
   };
 
-  const cycleTheme = (): void => {
-    const index = THEME_PRESETS.findIndex(
-      (preset) => preset.id === settings.value.themeId,
-    );
-    const next = THEME_PRESETS[(index + 1) % THEME_PRESETS.length];
-    // Switching theme clears previous color overrides
-    updateSettings({ themeId: next.id, colorOverrides: {} });
-  };
-
   return (
     <div class="window">
+      <div
+        class="titlebar"
+        data-tauri-drag-region
+        onDblClick={() => {
+          getCurrentWindow()
+            .toggleMaximize()
+            .catch((err: unknown) => {
+              console.warn("toggleMaximize failed:", err);
+            });
+        }}
+      />
       <TabBar
         settingsOpen={panelOpen.value}
         onSelectTab={(index) => tabsRef.current?.selectTab(index)}
@@ -97,7 +100,6 @@ export function App() {
         onToggleExpand={() =>
           updateSettings({ focusExpand: !settings.value.focusExpand })
         }
-        onCycleTheme={cycleTheme}
         onToggleSettings={() => {
           if (panelOpen.value) {
             closePanel();

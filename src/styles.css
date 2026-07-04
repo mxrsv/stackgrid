@@ -28,7 +28,8 @@
   --mono:
     "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
 
-  --tabbar-h: 44px;
+  --titlebar-h: 26px;
+  --tabbar-h: 33px;
   --status-h: 28px;
   --radius: 10px;
 }
@@ -52,10 +53,16 @@ body,
   height: 100vh;
   width: 100vw;
   display: grid;
-  grid-template-rows: var(--tabbar-h) 1fr var(--status-h);
+  grid-template-rows: var(--titlebar-h) var(--tabbar-h) 1fr var(--status-h);
   color: var(--text-primary);
   font-family: var(--ui-font);
   font-size: 13px;
+  background: var(--bg);
+}
+
+/* ── Title bar: traffic lights only, full-width drag region ── */
+
+.titlebar {
   background: var(--bg);
 }
 
@@ -65,17 +72,10 @@ body,
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 10px 0 0;
+  padding: 0 8px 0 6px;
   background: var(--chrome-1);
   border-bottom: 1px solid var(--hair);
   min-width: 0;
-}
-
-/* Space reserved under the native macOS traffic lights (overlay titlebar) */
-.tabbar__traffic {
-  width: 78px;
-  align-self: stretch;
-  flex-shrink: 0;
 }
 
 .tabbar__tabs {
@@ -90,9 +90,9 @@ body,
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 30px;
+  height: 25px;
   padding: 0 6px 0 12px;
-  border-radius: 9px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-muted);
   font-size: 12.5px;
@@ -162,8 +162,8 @@ body,
 }
 
 .tab-add {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 8px;
   border: none;
   background: transparent;
@@ -198,16 +198,16 @@ body,
 
 .tabbar__sep {
   width: 1px;
-  height: 20px;
+  height: 16px;
   background: var(--hair);
   margin: 0 5px;
 }
 
 .iconbtn {
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   border: none;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -239,27 +239,6 @@ body,
 
 .iconbtn--gear:hover svg {
   transform: rotate(35deg);
-}
-
-.swatch {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  cursor: pointer;
-  border: 1px solid var(--hair-strong);
-  background: conic-gradient(
-    from 210deg,
-    var(--accent),
-    var(--magenta),
-    var(--cyan),
-    var(--green),
-    var(--accent)
-  );
-  transition: transform 0.15s ease;
-}
-
-.swatch:hover {
-  transform: scale(1.06);
 }
 
 /* ── Stage (terminal area) ───────────────────────────────── */

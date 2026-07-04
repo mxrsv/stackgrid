@@ -9,7 +9,6 @@ interface TabBarProps {
   onSplitRow(): void;
   onSplitColumn(): void;
   onClosePane(): void;
-  onCycleTheme(): void;
   onToggleSettings(): void;
   expandActive: boolean;
   onToggleExpand(): void;
@@ -18,8 +17,8 @@ interface TabBarProps {
 function SplitRowIcon() {
   return (
     <svg
-      width="18"
-      height="18"
+      width="13"
+      height="13"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -36,8 +35,8 @@ function SplitRowIcon() {
 function SplitColumnIcon() {
   return (
     <svg
-      width="18"
-      height="18"
+      width="13"
+      height="13"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -54,8 +53,8 @@ function SplitColumnIcon() {
 function ClosePaneIcon() {
   return (
     <svg
-      width="18"
-      height="18"
+      width="13"
+      height="13"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -72,8 +71,8 @@ function ClosePaneIcon() {
 function ExpandIcon() {
   return (
     <svg
-      width="18"
-      height="18"
+      width="13"
+      height="13"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -93,8 +92,8 @@ function ExpandIcon() {
 function GearIcon() {
   return (
     <svg
-      width="18"
-      height="18"
+      width="13"
+      height="13"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -114,8 +113,6 @@ export function TabBar(props: TabBarProps) {
   const active = activeTabIndex.value;
   return (
     <header class="tabbar" data-tauri-drag-region>
-      {/* Reserved space under the native traffic lights (titleBarStyle: Overlay) */}
-      <div class="tabbar__traffic" data-tauri-drag-region aria-hidden="true" />
       <div class="tabbar__tabs" role="tablist" aria-label="Terminal tabs">
         {tabs.map((tab, index) => (
           <div
@@ -194,13 +191,6 @@ export function TabBar(props: TabBarProps) {
           <ExpandIcon />
         </button>
         <span class="tabbar__sep" aria-hidden="true" />
-        <button
-          type="button"
-          class="swatch"
-          title="Cycle theme"
-          aria-label="Cycle theme preset"
-          onClick={props.onCycleTheme}
-        />
         <button
           type="button"
           class={`iconbtn iconbtn--gear ${props.settingsOpen ? "is-active" : ""}`}
