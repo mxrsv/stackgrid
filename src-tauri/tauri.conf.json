@@ -30,6 +30,16 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "mxrsv",
+    "copyright": "© 2026 mxrsv",
+    "category": "DeveloperTool",
+    "shortDescription": "A minimal macOS terminal for AI agent CLIs",
+    "longDescription": "Stackgrid is a lightweight desktop terminal built with Tauri 2, xterm.js and Preact — designed for running AI agent CLIs like Claude Code, Codex and Gemini with split panes, themes and persistent settings.",
+    "homepage": "https://github.com/mxrsv/stackgrid",
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": "-"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
