@@ -39,14 +39,14 @@ export function createPaneDragController(
     if (el.closest(".split__divider")) {
       return; // let the divider handle its own resize drag
     }
-    const bar = el.closest(".pane__bar");
-    if (!bar) {
-      return; // only drag from the header bar, not the xterm area
+    const handle = el.closest(".pane__bar, .pane__anchor");
+    if (!handle) {
+      return; // only drag from the header bar or the hover anchor
     }
     if (opts.paneCount() < 2) {
       return;
     }
-    const slot = bar.closest<HTMLElement>(".pane-slot");
+    const slot = handle.closest<HTMLElement>(".pane-slot");
     if (!slot) {
       return;
     }

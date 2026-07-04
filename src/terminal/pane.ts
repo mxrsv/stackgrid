@@ -57,9 +57,21 @@ export function createPane(
   badge.textContent = "shell";
   bar.append(dot, cwdEl, badge);
 
+  // Hover anchor: shown only while the pane bar is hidden (CSS-gated).
+  // It is the pane-drag handle and shows the cwd; revealed when the
+  // pointer enters the top ~26px of the pane.
+  const anchor = document.createElement("div");
+  anchor.className = "pane__anchor";
+  const anchorGrip = document.createElement("span");
+  anchorGrip.className = "pane__anchor-grip";
+  anchorGrip.textContent = "⋮⋮";
+  const anchorCwd = document.createElement("span");
+  anchorCwd.className = "pane__anchor-cwd";
+  anchor.append(anchorGrip, anchorCwd);
+
   const termEl = document.createElement("div");
   termEl.className = "pane__term";
-  element.append(bar, termEl);
+  element.append(bar, anchor, termEl);
 
   const term = new Terminal({
     // Terminal.unicode is gated behind the proposed-API check in xterm 6 —
@@ -94,6 +106,18 @@ export function createPane(
   term.onResize(({ cols, rows }) => events.onResize(id, cols, rows));
   element.addEventListener("focusin", () => events.onFocus(id));
   element.addEventListener("mousedown", () => events.onFocus(id));
+
+  const ANCHOR_ZONE_PX = 26;
+  element.addEventListener("mousemove", (event) => {
+    const top = element.getBoundingClientRect().top;
+    element.classList.toggle(
+      "is-anchor-zone",
+      event.clientY - top < ANCHOR_ZONE_PX,
+    );
+  });
+  element.addEventListener("mouseleave", () => {
+    element.classList.remove("is-anchor-zone");
+  });
 
   // The flex-grow transition fires ResizeObserver every frame for ~150ms;
   // debouncing here keeps fit()/resize_pty to one call after the dust
@@ -146,6 +170,7 @@ export function createPane(
   function setHeaderInfo(info: PaneHeaderInfo): void {
     dot.style.background = info.dotColor;
     cwdEl.textContent = info.cwd;
+    anchorCwd.textContent = info.cwd;
     badge.textContent = info.badge;
     badge.className = `pane__badge ${
       info.agent ? "pane__badge--agent" : "pane__badge--shell"
