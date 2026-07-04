@@ -69,7 +69,8 @@ colors.** Derivation rules:
   - `--chrome-1` (bars): 4%
   - `--chrome-2` (panels, popovers): 7%
   - tab active background: 15%
-  - input background: 30% on dark themes, 6% on light themes
+  - input background: 12% on dark themes, 6% on light themes (kept soft;
+    readability comes from the `--text-primary` floor, not a bright surface)
 - **Hairlines:** `--hair` = fg 12% over bg, `--hair-strong` = fg 20%.
 - **Text tokens with contrast floors (WCAG-checked):**
   - `--text-primary` (chrome body text: input/select values, active tab label):
