@@ -9,11 +9,17 @@
   --magenta: #bb9af7;
   --cyan: #7dcfff;
 
-  /* Derived chrome tones — follow the theme automatically */
-  --chrome-1: color-mix(in srgb, var(--bg) 90%, white);
-  --chrome-2: color-mix(in srgb, var(--bg) 82%, white);
+  /* Derived chrome tones — computed in JS (lib/derive-colors.ts) and set on
+     :root by app.tsx; the values below are pre-JS fallbacks for first paint.
+     --tone is white on dark themes, black on light ones. */
+  --tone: #ffffff;
+  --chrome-1: color-mix(in srgb, var(--bg) 96%, var(--tone));
+  --chrome-2: color-mix(in srgb, var(--bg) 93%, var(--tone));
+  --tab-active-bg: color-mix(in srgb, var(--bg) 85%, var(--tone));
+  --input-bg: color-mix(in srgb, var(--bg) 88%, var(--tone));
   --hair: color-mix(in srgb, var(--fg) 12%, transparent);
   --hair-strong: color-mix(in srgb, var(--fg) 20%, transparent);
+  --text-primary: var(--fg);
   --text-muted: color-mix(in srgb, var(--fg) 52%, var(--bg));
   --text-faint: color-mix(in srgb, var(--fg) 34%, var(--bg));
 
@@ -47,7 +53,7 @@ body,
   width: 100vw;
   display: grid;
   grid-template-rows: var(--tabbar-h) 1fr var(--status-h);
-  color: var(--fg);
+  color: var(--text-primary);
   font-family: var(--ui-font);
   font-size: 13px;
   background: var(--bg);
@@ -99,14 +105,14 @@ body,
 }
 
 .tab:hover {
-  color: var(--fg);
+  color: var(--text-primary);
   background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
 
 /* Active tab: background only — no other indicator (flat rule) */
 .tab.is-active {
-  color: var(--fg);
-  background: color-mix(in srgb, var(--bg) 55%, white);
+  color: var(--text-primary);
+  background: var(--tab-active-bg);
 }
 
 .tab__dot {
@@ -175,7 +181,7 @@ body,
 
 .tab-add:hover {
   background: color-mix(in srgb, var(--fg) 8%, transparent);
-  color: var(--fg);
+  color: var(--text-primary);
   transform: rotate(90deg);
 }
 
@@ -214,7 +220,7 @@ body,
 
 .iconbtn:hover {
   background: color-mix(in srgb, var(--fg) 8%, transparent);
-  color: var(--fg);
+  color: var(--text-primary);
 }
 
 .iconbtn:focus-visible {
@@ -590,7 +596,7 @@ body,
 
 .panel__x:hover {
   background: color-mix(in srgb, var(--fg) 8%, transparent);
-  color: var(--fg);
+  color: var(--text-primary);
 }
 
 .panel__body {
@@ -633,7 +639,7 @@ body,
   border-radius: 9px;
   cursor: pointer;
   border: 1px solid var(--hair);
-  background: color-mix(in srgb, var(--bg) 70%, white);
+  background: var(--input-bg);
   font-size: 11.5px;
   color: var(--text-muted);
   font-family: var(--ui-font);
@@ -643,12 +649,12 @@ body,
 }
 
 .theme-chip:hover {
-  color: var(--fg);
+  color: var(--text-primary);
 }
 
 .theme-chip.is-active {
   border-color: var(--accent);
-  color: var(--fg);
+  color: var(--text-primary);
 }
 
 /* Swatch outline uses a real border (accent via inline style) — flat rule */
@@ -686,8 +692,8 @@ body,
   padding: 6px 10px;
   border: 1px solid var(--hair-strong);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--bg) 70%, white);
-  color: var(--fg);
+  background: var(--input-bg);
+  color: var(--text-primary);
   font-family: var(--ui-font);
   font-size: 12.5px;
 }
@@ -717,7 +723,7 @@ body,
   gap: 2px;
   border: 1px solid var(--hair-strong);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--bg) 70%, white);
+  background: var(--input-bg);
   width: fit-content;
 }
 
@@ -726,7 +732,7 @@ body,
   height: 26px;
   border: none;
   background: transparent;
-  color: var(--fg);
+  color: var(--text-primary);
   font-size: 14px;
   cursor: pointer;
   border-radius: 7px;
@@ -814,7 +820,7 @@ body,
   padding: 2px;
   border: 1px solid var(--hair-strong);
   border-radius: 9px;
-  background: color-mix(in srgb, var(--bg) 70%, white);
+  background: var(--input-bg);
   width: fit-content;
 }
 
@@ -833,7 +839,7 @@ body,
 
 .segmented__option.is-active {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--fg);
+  color: var(--text-primary);
 }
 
 .btn-reset {
@@ -851,7 +857,7 @@ body,
 }
 
 .btn-reset:hover {
-  color: var(--fg);
+  color: var(--text-primary);
   border-color: var(--text-muted);
 }
 

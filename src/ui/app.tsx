@@ -2,6 +2,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { useSignal, useSignalEffect } from "@preact/signals";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { installQuitGuard } from "../lib/quit-guard";
+import { deriveChromeColors } from "../lib/derive-colors";
 import { settings, updateSettings } from "../settings/settings-store";
 import { resolveTheme, THEME_PRESETS } from "../settings/themes";
 import { createTabManager, type TabManager } from "../terminal/tab-manager";
@@ -44,15 +45,28 @@ export function App() {
     const current = settings.value;
     tabsRef.current?.applySettings(current);
     const theme = resolveTheme(current);
+    const bg = theme.background ?? "#16161e";
+    const fg = theme.foreground ?? "#c0caf5";
+    const chrome = deriveChromeColors(bg, fg);
     const rootStyle = document.documentElement.style;
-    rootStyle.setProperty("--bg", theme.background ?? "#16161e");
-    rootStyle.setProperty("--fg", theme.foreground ?? "#c0caf5");
+    rootStyle.setProperty("--bg", bg);
+    rootStyle.setProperty("--fg", fg);
     rootStyle.setProperty("--accent", theme.blue ?? "#7aa2f7");
     rootStyle.setProperty("--red", theme.red ?? "#f7768e");
     rootStyle.setProperty("--green", theme.green ?? "#9ece6a");
     rootStyle.setProperty("--yellow", theme.yellow ?? "#e0af68");
     rootStyle.setProperty("--magenta", theme.magenta ?? "#bb9af7");
     rootStyle.setProperty("--cyan", theme.cyan ?? "#7dcfff");
+    rootStyle.setProperty("--tone", chrome.tone);
+    rootStyle.setProperty("--chrome-1", chrome.chrome1);
+    rootStyle.setProperty("--chrome-2", chrome.chrome2);
+    rootStyle.setProperty("--tab-active-bg", chrome.tabActiveBg);
+    rootStyle.setProperty("--input-bg", chrome.inputBg);
+    rootStyle.setProperty("--hair", chrome.hair);
+    rootStyle.setProperty("--hair-strong", chrome.hairStrong);
+    rootStyle.setProperty("--text-primary", chrome.textPrimary);
+    rootStyle.setProperty("--text-muted", chrome.textMuted);
+    rootStyle.setProperty("--text-faint", chrome.textFaint);
   });
 
   const closePanel = (): void => {
