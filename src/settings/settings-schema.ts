@@ -12,6 +12,7 @@ export interface Settings {
   colorOverrides: Partial<TerminalColors>;
   restoreTabs: boolean;
   focusExpand: boolean;
+  showPaneBar: boolean;
 }
 
 export const FONT_SIZE_MIN = 10;
@@ -33,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   colorOverrides: {},
   restoreTabs: true,
   focusExpand: false,
+  showPaneBar: false,
 };
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -88,5 +90,9 @@ export function validateSettings(raw: unknown): Settings {
       typeof source.focusExpand === "boolean"
         ? source.focusExpand
         : DEFAULT_SETTINGS.focusExpand,
+    showPaneBar:
+      typeof source.showPaneBar === "boolean"
+        ? source.showPaneBar
+        : DEFAULT_SETTINGS.showPaneBar,
   };
 }

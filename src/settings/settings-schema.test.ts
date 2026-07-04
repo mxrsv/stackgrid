@@ -18,6 +18,18 @@ describe("validateSettings", () => {
   });
 });
 
+describe("showPaneBar", () => {
+  it("defaults to false", () => {
+    expect(DEFAULT_SETTINGS.showPaneBar).toBe(false);
+    expect(validateSettings({}).showPaneBar).toBe(false);
+  });
+
+  it("accepts a boolean and rejects other types", () => {
+    expect(validateSettings({ showPaneBar: true }).showPaneBar).toBe(true);
+    expect(validateSettings({ showPaneBar: "yes" }).showPaneBar).toBe(false);
+  });
+});
+
 describe("focusExpand", () => {
   it("defaults to false", () => {
     expect(DEFAULT_SETTINGS.focusExpand).toBe(false);

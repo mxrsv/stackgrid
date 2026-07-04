@@ -132,6 +132,33 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         </section>
 
         <section class="panel__sec">
+          <h3 class="panel__sec-title">Panes</h3>
+          <div class="field">
+            <span class="field__label">Show pane bar</span>
+            <div class="segmented" role="radiogroup" aria-label="Show pane bar">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={current.showPaneBar}
+                class={`segmented__option ${current.showPaneBar ? "is-active" : ""}`}
+                onClick={() => updateSettings({ showPaneBar: true })}
+              >
+                On
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!current.showPaneBar}
+                class={`segmented__option ${current.showPaneBar ? "" : "is-active"}`}
+                onClick={() => updateSettings({ showPaneBar: false })}
+              >
+                Off
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel__sec">
           <h3 class="panel__sec-title">Tabs</h3>
           <div class="field">
             <span class="field__label">Restore on launch</span>

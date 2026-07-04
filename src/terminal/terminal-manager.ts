@@ -87,6 +87,10 @@ export function createTerminalManager(
   let zoomedId: number | null = null;
   let zoomOverlay: HTMLElement | null = null;
 
+  // Pane bar visibility is CSS-only: pane.ts always builds and populates the
+  // bar (the drag ghost and anchor still read its cwd) — this class hides it.
+  container.classList.toggle("pane-bar-hidden", !settings.value.showPaneBar);
+
   const paneEvents: PaneEvents = {
     onData(id, data) {
       if (exited.has(id)) {
@@ -506,6 +510,7 @@ export function createTerminalManager(
       }
     },
     applySettings(next) {
+      container.classList.toggle("pane-bar-hidden", !next.showPaneBar);
       for (const pane of panes.values()) {
         pane.applySettings(next);
       }
