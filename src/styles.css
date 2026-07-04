@@ -894,6 +894,55 @@ body,
   border-color: var(--text-muted);
 }
 
+/* ── Tab options popover ─────────────────────────────────── */
+
+.tab-popover {
+  position: fixed;
+  z-index: 100;
+  width: 216px;
+  padding: 10px 12px 12px;
+  background: var(--chrome-2);
+  border: 1px solid var(--hair-strong);
+  border-radius: 10px;
+}
+
+.tab-popover__label {
+  margin: 8px 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: var(--text-faint);
+}
+
+.tab-popover__label:first-child {
+  margin-top: 0;
+}
+
+.tab-popover__colors {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tab-popover__swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--hair-strong);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.tab-popover__swatch.is-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ── Pane drag-dock ──────────────────────────────────────── */
 
 .has-multiple-panes .pane__bar {

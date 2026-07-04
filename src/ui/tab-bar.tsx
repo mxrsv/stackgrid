@@ -1,6 +1,8 @@
+import { useSignal } from "@preact/signals";
 import { activeTabIndex, tabViews } from "../terminal/tabs-store";
 import { dotColor } from "../lib/process-info";
-import { tabDotCssColor } from "../lib/tab-colors";
+import { tabDotCssColor, type TabDotColor } from "../lib/tab-colors";
+import { TabPopover } from "./tab-popover";
 
 interface TabBarProps {
   settingsOpen: boolean;
@@ -10,6 +12,8 @@ interface TabBarProps {
   onSplitRow(): void;
   onSplitColumn(): void;
   onClosePane(): void;
+  onRenameTab(index: number, name: string | null): void;
+  onSetTabColor(index: number, color: TabDotColor | null): void;
   onToggleSettings(): void;
   expandActive: boolean;
   onToggleExpand(): void;
@@ -112,6 +116,11 @@ function GearIcon() {
 export function TabBar(props: TabBarProps) {
   const tabs = tabViews.value;
   const active = activeTabIndex.value;
+  const popover = useSignal<{
+    index: number;
+    left: number;
+    top: number;
+  } | null>(null);
   return (
     <header class="tabbar" data-tauri-drag-region>
       <div class="tabbar__tabs" role="tablist" aria-label="Terminal tabs">
@@ -122,7 +131,18 @@ export function TabBar(props: TabBarProps) {
             aria-selected={index === active}
             tabIndex={0}
             class={`tab ${index === active ? "is-active" : ""}`}
-            onClick={() => props.onSelectTab(index)}
+            onClick={(event) => {
+              if (index !== active) {
+                props.onSelectTab(index); // inactive tab: just select
+                return;
+              }
+              if (popover.value?.index === index) {
+                popover.value = null; // second click on the active tab toggles it off
+                return;
+              }
+              const rect = event.currentTarget.getBoundingClientRect();
+              popover.value = { index, left: rect.left, top: rect.bottom + 6 };
+            }}
           >
             <span
               class="tab__dot"
@@ -207,6 +227,27 @@ export function TabBar(props: TabBarProps) {
           <GearIcon />
         </button>
       </div>
+      {popover.value !== null && tabs[popover.value.index] !== undefined && (
+        <TabPopover
+          left={popover.value.left}
+          top={popover.value.top}
+          name={tabs[popover.value.index].name}
+          dotColor={tabs[popover.value.index].dotColor}
+          onRename={(name) => {
+            if (popover.value !== null) {
+              props.onRenameTab(popover.value.index, name);
+            }
+          }}
+          onPickColor={(color) => {
+            if (popover.value !== null) {
+              props.onSetTabColor(popover.value.index, color);
+            }
+          }}
+          onClose={() => {
+            popover.value = null;
+          }}
+        />
+      )}
     </header>
   );
 }

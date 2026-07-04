@@ -96,6 +96,10 @@ export function App() {
         onSplitRow={() => void tabsRef.current?.splitActive("row")}
         onSplitColumn={() => void tabsRef.current?.splitActive("column")}
         onClosePane={() => void tabsRef.current?.closePane()}
+        onRenameTab={(index, name) => tabsRef.current?.renameTab(index, name)}
+        onSetTabColor={(index, color) =>
+          tabsRef.current?.setTabDotColor(index, color)
+        }
         expandActive={settings.value.focusExpand}
         onToggleExpand={() =>
           updateSettings({ focusExpand: !settings.value.focusExpand })
