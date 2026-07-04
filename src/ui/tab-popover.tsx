@@ -9,6 +9,9 @@ interface TabPopoverProps {
   /** Viewport coordinates of the anchor tab (fixed positioning). */
   left: number;
   top: number;
+  /** The tab element the popover is anchored to — clicks on it are ignored
+      by the outside-close listener so the tab's own onClick can toggle. */
+  anchorEl: HTMLElement;
   /** Current overrides — null means "derived from process". */
   name: string | null;
   dotColor: TabDotColor | null;
@@ -26,7 +29,11 @@ export function TabPopover(props: TabPopoverProps) {
   // that also hits another tab closes us before it selects that tab).
   useEffect(() => {
     const onPointerDown = (event: PointerEvent): void => {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        !rootRef.current?.contains(target) &&
+        !props.anchorEl.contains(target)
+      ) {
         props.onClose();
       }
     };

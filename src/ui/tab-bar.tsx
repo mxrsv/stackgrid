@@ -116,11 +116,22 @@ function GearIcon() {
 export function TabBar(props: TabBarProps) {
   const tabs = tabViews.value;
   const active = activeTabIndex.value;
+  // Anchored by tab key, not index — tabs can close (and indexes shift)
+  // while the popover is open; actions resolve the index at call time.
   const popover = useSignal<{
-    index: number;
+    key: number;
     left: number;
     top: number;
+    anchorEl: HTMLElement;
   } | null>(null);
+  const popoverTab =
+    popover.value === null
+      ? undefined
+      : tabs.find((tab) => tab.key === popover.value?.key);
+  const resolvePopoverIndex = (): number =>
+    popover.value === null
+      ? -1
+      : tabs.findIndex((tab) => tab.key === popover.value?.key);
   return (
     <header class="tabbar" data-tauri-drag-region>
       <div class="tabbar__tabs" role="tablist" aria-label="Terminal tabs">
@@ -136,12 +147,18 @@ export function TabBar(props: TabBarProps) {
                 props.onSelectTab(index); // inactive tab: just select
                 return;
               }
-              if (popover.value?.index === index) {
+              if (popover.value?.key === tab.key) {
                 popover.value = null; // second click on the active tab toggles it off
                 return;
               }
-              const rect = event.currentTarget.getBoundingClientRect();
-              popover.value = { index, left: rect.left, top: rect.bottom + 6 };
+              const anchorEl = event.currentTarget as HTMLElement;
+              const rect = anchorEl.getBoundingClientRect();
+              popover.value = {
+                key: tab.key,
+                left: rect.left,
+                top: rect.bottom + 6,
+                anchorEl,
+              };
             }}
           >
             <span
@@ -227,20 +244,23 @@ export function TabBar(props: TabBarProps) {
           <GearIcon />
         </button>
       </div>
-      {popover.value !== null && tabs[popover.value.index] !== undefined && (
+      {popover.value !== null && popoverTab !== undefined && (
         <TabPopover
           left={popover.value.left}
           top={popover.value.top}
-          name={tabs[popover.value.index].name}
-          dotColor={tabs[popover.value.index].dotColor}
+          anchorEl={popover.value.anchorEl}
+          name={popoverTab.name}
+          dotColor={popoverTab.dotColor}
           onRename={(name) => {
-            if (popover.value !== null) {
-              props.onRenameTab(popover.value.index, name);
+            const index = resolvePopoverIndex();
+            if (index !== -1) {
+              props.onRenameTab(index, name);
             }
           }}
           onPickColor={(color) => {
-            if (popover.value !== null) {
-              props.onSetTabColor(popover.value.index, color);
+            const index = resolvePopoverIndex();
+            if (index !== -1) {
+              props.onSetTabColor(index, color);
             }
           }}
           onClose={() => {
