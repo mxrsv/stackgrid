@@ -47,6 +47,40 @@ fn default_shell() -> String {
     })
 }
 
+/// Drains the longest decodable prefix of `pending` into a String, leaving an
+/// incomplete trailing UTF-8 sequence (at most 3 bytes) behind for the next
+/// read. Invalid bytes inside the stream become U+FFFD and are consumed, so a
+/// malformed byte can never stall the pipeline.
+fn take_valid_utf8(pending: &mut Vec<u8>) -> String {
+    let mut out = String::new();
+    loop {
+        match std::str::from_utf8(pending) {
+            Ok(s) => {
+                out.push_str(s);
+                pending.clear();
+                return out;
+            }
+            Err(e) => {
+                let valid = e.valid_up_to();
+                // The prefix up to the error is valid by definition.
+                out.push_str(std::str::from_utf8(&pending[..valid]).unwrap_or(""));
+                match e.error_len() {
+                    // Incomplete sequence at the end — keep it for the next read.
+                    None => {
+                        pending.drain(..valid);
+                        return out;
+                    }
+                    // Genuinely invalid bytes — replace and keep scanning.
+                    Some(len) => {
+                        out.push('\u{FFFD}');
+                        pending.drain(..valid + len);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn remove_session(app: &AppHandle, id: u32) {
     let state = app.state::<PtyState>();
     if let Ok(mut sessions) = state.sessions.lock() {
@@ -107,11 +141,20 @@ pub fn spawn_shell(
     let output_app = app.clone();
     thread::spawn(move || {
         let mut buf = [0u8; 8192];
+        // Multi-byte UTF-8 sequences can straddle read boundaries; lossy-decoding
+        // each chunk independently turns the split halves into U+FFFD, which
+        // corrupts TUI output (extra columns → wrapped dividers → ghost lines).
+        // Hold back an incomplete trailing sequence until the next read instead.
+        let mut pending: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    pending.extend_from_slice(&buf[..n]);
+                    let data = take_valid_utf8(&mut pending);
+                    if data.is_empty() {
+                        continue;
+                    }
                     if output_app
                         .emit(EVENT_OUTPUT, OutputPayload { id, data })
                         .is_err()
@@ -120,6 +163,11 @@ pub fn spawn_shell(
                     }
                 }
             }
+        }
+        // Stream ended mid-sequence — flush whatever is left, lossily.
+        if !pending.is_empty() {
+            let data = String::from_utf8_lossy(&pending).to_string();
+            let _ = output_app.emit(EVENT_OUTPUT, OutputPayload { id, data });
         }
         remove_session(&output_app, id);
         let _ = output_app.emit(EVENT_EXIT, ExitPayload { id });
@@ -170,6 +218,55 @@ pub fn kill_pty(state: State<PtyState>, id: u32) -> Result<(), String> {
         let _ = session.killer.kill();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::take_valid_utf8;
+
+    #[test]
+    fn passes_through_complete_utf8() {
+        let mut pending = "chào ─── bạn".as_bytes().to_vec();
+        assert_eq!(take_valid_utf8(&mut pending), "chào ─── bạn");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn holds_back_split_box_drawing_char() {
+        // "──" = E2 94 80 E2 94 80; split mid-second-char like a read boundary
+        let bytes = "──".as_bytes();
+        let mut pending = bytes[..4].to_vec();
+        assert_eq!(take_valid_utf8(&mut pending), "─");
+        assert_eq!(pending, &bytes[3..4]); // partial E2 held back
+
+        pending.extend_from_slice(&bytes[4..]);
+        assert_eq!(take_valid_utf8(&mut pending), "─");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn holds_back_split_vietnamese_char() {
+        // "ố" = E1 BB 91 (3 bytes); boundary after the first byte
+        let bytes = "sống".as_bytes();
+        let mut pending = bytes[..2].to_vec(); // "s" + first byte of "ố"
+        assert_eq!(take_valid_utf8(&mut pending), "s");
+        pending.extend_from_slice(&bytes[2..]);
+        assert_eq!(take_valid_utf8(&mut pending), "ống");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn replaces_truly_invalid_bytes_without_stalling() {
+        let mut pending = vec![b'a', 0xFF, b'b'];
+        assert_eq!(take_valid_utf8(&mut pending), "a\u{FFFD}b");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn empty_input_yields_empty_string() {
+        let mut pending = Vec::new();
+        assert_eq!(take_valid_utf8(&mut pending), "");
+    }
 }
 
 impl PtyState {

@@ -1,7 +1,10 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { FONT_FALLBACK, type Settings } from "../settings/settings-schema";
+import { applyWebkitImeFix, isWebKitWebView } from "./webkit-ime-fix";
+import { installImeTrace } from "./ime-trace";
 import { resolveTheme } from "../settings/themes";
 import type { PaneHeaderInfo } from "../lib/process-info";
 
@@ -59,18 +62,33 @@ export function createPane(
   element.append(bar, termEl);
 
   const term = new Terminal({
+    // Terminal.unicode is gated behind the proposed-API check in xterm 6 —
+    // required for the UnicodeGraphemesAddon below.
+    allowProposedApi: true,
     cursorBlink: true,
     fontSize: initial.fontSize,
     fontFamily: toFontStack(initial.fontFamily),
     lineHeight: 1.25,
     scrollback: 10_000,
-    macOptionIsMeta: true,
+    // Option must stay a character key on macOS so IMEs (Vietnamese Telex,
+    // dead-key accents) can compose — `true` swallows it as Meta.
+    macOptionIsMeta: false,
     theme: resolveTheme(initial),
   });
 
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
   term.loadAddon(new WebLinksAddon());
+
+  // xterm core measures cell width with a Unicode 6 table and no grapheme
+  // clustering, so Vietnamese combining marks (NFD "ố" = o + ◌̂ + ◌́) are
+  // counted as extra columns. Claude Code / Ink measure them as a single
+  // column, so the two disagree — the cursor drifts and deleted text leaves
+  // ghost cells. The graphemes addon switches xterm to Unicode 15 + grapheme
+  // clustering so both sides agree on width.
+  term.loadAddon(new UnicodeGraphemesAddon());
+  // The addon's activate() already sets this; kept explicit as documentation.
+  term.unicode.activeVersion = "15-graphemes";
 
   term.onData((data) => events.onData(id, data));
   term.onResize(({ cols, rows }) => events.onResize(id, cols, rows));
@@ -96,6 +114,14 @@ export function createPane(
   function mount(): void {
     if (!opened) {
       term.open(termEl);
+      if (isWebKitWebView()) {
+        applyWebkitImeFix(term);
+      }
+      // Diagnostic keystroke tap — dev builds only, never in production
+      // (it POSTs every keystroke and PTY byte to a local collector).
+      if (import.meta.env.DEV) {
+        installImeTrace(term);
+      }
       observer.observe(termEl);
       opened = true;
     }
