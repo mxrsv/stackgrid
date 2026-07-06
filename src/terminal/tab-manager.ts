@@ -265,16 +265,10 @@ export function createTabManager(host: HTMLElement): TabManager {
     tabs.splice(index, 1);
     overrides.delete(entry.key);
     if (tabs.length === 0) {
-      // Never show zero tabs — replace the last one with a fresh tab
+      // Closing the last tab quits the app (ADR 0002). closeTabGuarded
+      // already ran the busy guard, so exit directly — no second dialog.
       active = -1;
-      if (!(await addTab(null))) {
-        syncViews();
-        return;
-      }
-      active = 0;
-      tabs[0].manager.show();
-      syncViews();
-      persist();
+      await invoke("confirm_quit");
       return;
     }
     if (index < active) {
