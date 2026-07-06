@@ -475,7 +475,9 @@ export function createTabManager(host: HTMLElement): TabManager {
     if (!(await confirmClose([paneId]))) {
       return;
     }
-    await manager.closeActive();
+    // Close the pane the user confirmed, not whichever is active now — a
+    // pty:exit during the dialog can move focus to a different pane.
+    await manager.closePaneById(paneId);
   }
 
   async function closeTabGuarded(index: number): Promise<void> {

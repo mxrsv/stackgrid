@@ -60,6 +60,8 @@ export interface TerminalManager {
   hide(): void;
   splitActive(dir: Direction): Promise<void>;
   closeActive(): Promise<void>;
+  /** Close a specific pane; unknown id → no-op (it may have exited meanwhile). */
+  closePaneById(id: number): Promise<void>;
   cycleFocus(step: 1 | -1): void;
   /** Move focus to the nearest pane in a direction; no pane there → no-op. */
   focusDirection(dir: FocusDirection): void;
@@ -557,6 +559,9 @@ export function createTerminalManager(
     splitActive,
     closeActive() {
       return activeId === null ? Promise.resolve() : closePane(activeId);
+    },
+    closePaneById(id) {
+      return closePane(id);
     },
     cycleFocus,
     focusDirection,

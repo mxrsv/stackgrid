@@ -42,29 +42,40 @@ export function confirmMessage(names: readonly string[]): string {
     : `These processes are still running: ${names.join(", ")}. Close anyway?`;
 }
 
+let prompting = false;
+
 /**
  * True when closing may proceed. Fetches fresh process info for the target
  * panes (the 2s poll can miss a just-launched process) and shows one native
  * dialog when anything is busy. Info failure → not busy (degrade contract);
- * dialog failure → false (fail safe: do not close).
+ * dialog failure → false (fail safe: do not close). Re-entrant calls while a
+ * prompt is open → false (mirrors quit-guard's `prompting` flag).
  */
 export async function confirmClose(
   paneIds: readonly number[],
 ): Promise<boolean> {
-  const infos = await freshPaneInfo(paneIds);
-  const names = busyProcesses(infos);
-  if (names.length === 0) {
-    return true;
-  }
-  try {
-    return await ask(confirmMessage(names), {
-      title: "Close Terminal",
-      kind: "warning",
-      okLabel: "Close",
-      cancelLabel: "Cancel",
-    });
-  } catch (err: unknown) {
-    console.error("Close prompt failed:", err);
+  if (prompting) {
     return false;
+  }
+  prompting = true;
+  try {
+    const infos = await freshPaneInfo(paneIds);
+    const names = busyProcesses(infos);
+    if (names.length === 0) {
+      return true;
+    }
+    try {
+      return await ask(confirmMessage(names), {
+        title: "Close Terminal",
+        kind: "warning",
+        okLabel: "Close",
+        cancelLabel: "Cancel",
+      });
+    } catch (err: unknown) {
+      console.error("Close prompt failed:", err);
+      return false;
+    }
+  } finally {
+    prompting = false;
   }
 }
