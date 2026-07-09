@@ -1230,3 +1230,43 @@ body,
 }
 .save-preset__actions button:disabled { opacity: 0.4; cursor: default; }
 .save-preset__actions button.is-primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+
+/* ---------- Agent picker (UX §4) ---------- */
+.agent-picker {
+  position: absolute; inset: 0; z-index: 20; display: flex;
+  align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  animation: rise-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.agent-picker__card {
+  display: flex; flex-direction: column; gap: 4px; min-width: 240px; max-width: 85%;
+  padding: 12px; background: var(--chrome-1); border: 1px solid var(--hair-strong);
+  border-radius: 12px; outline: none;
+}
+.agent-picker__card h1 { font-size: 12px; margin: 0; color: var(--text-primary); }
+.agent-picker__card p { font-size: 10px; margin: 0 0 6px; color: var(--text-faint); }
+.agent-picker__option {
+  display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px;
+  padding: 6px 8px; border: 0; border-radius: 6px; background: none;
+  color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer; text-align: left;
+}
+.agent-picker__option:hover, .agent-picker__option.is-focused { background: var(--chrome-2); }
+.agent-picker__option.is-shell { border-top: 1px solid var(--hair); border-radius: 0 0 6px 6px; margin-top: 4px; padding-top: 8px; }
+.agent-picker__option kbd {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--text-faint); border: 1px solid var(--hair-strong); border-radius: 4px;
+  padding: 0 4px; text-align: center;
+}
+.agent-picker__option code { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+.skip-all-bar {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 25;
+  display: flex; align-items: center; gap: 12px; padding: 6px 12px;
+  background: var(--chrome-1); border: 1px solid var(--hair-strong); border-radius: 8px;
+  font-size: 11px; color: var(--text-muted);
+  animation: rise-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.skip-all-bar button {
+  font: inherit; font-size: 11px; padding: 3px 10px; border-radius: 6px;
+  border: 1px solid var(--hair-strong); background: none; color: var(--text-primary); cursor: pointer;
+}
+.skip-all-bar button:hover { border-color: var(--accent); }
