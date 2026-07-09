@@ -31,3 +31,25 @@ It lives under the Glow workspace as an independent project (own git remote: `mx
 - Public positioning matches README: “minimal macOS terminal for AI agent CLIs,” Tauri 2, unsigned Gatekeeper friction on first install.
 - Agent recognition today is process-name driven for pane-header styling only.
 - Closing the last tab quits the app (ADR 0002); busy guard still applies.
+
+---
+
+# CONTEXT archive — product elicitation (2026-07-09)
+
+Crystallized before freeze of PRD + BUSINESS-FLOW. Living memory compacted into `docs/CONTEXT.md`.
+
+## Confirmed intent (now frozen in PRD / BUSINESS-FLOW)
+
+- Pain: iTerm/Terminal thiếu tiện ích agent CLI; job = quan sát + điều khiển nhiều agent song song.
+- Must-now: focus, split, swap pane, layout preset (mock → new tab; save from live; CRUD; split+CWD), move pane ↔ window (bidirectional), file sidebar (Cmd+click → md preview + git diff, view-only).
+- Open board: workspace ∥ preset → Open → agent picker (PATH detect + Shell + Skip all; pick = spawn).
+- Relaunch: restore chrome all windows; one-shot agent picker after restore. New Window → always Open board.
+- Busy: confirm only on close, not swap/move.
+- OUT: embed agent UI, SSH/remote, full iTerm parity, sidebar edit, signed build as v1 gate.
+- Gatekeeper: unsigned OK for v1.
+- Cmd+click: relative via pane CWD; missing → toast, no sidebar.
+- Preset empty: built-in single-pane default always available.
+
+## Deferred at freeze
+
+- Multi-window session schema; ADR 0002 amendment; PATH agent discovery heuristics; Open-board empty-preset UX polish.

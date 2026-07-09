@@ -1,3 +1,9 @@
+---
+frozen: true
+hash: 5830f27c0db628695ed4f2359e04f5cb955d6d2812b5c97e881e3f4089235abb
+from_hash:
+  PRINCIPLES: a06e3bee0cac7feb7d51244c8d46960f939f90f54fbd4c793ae2f6abd412f401
+---
 # BUSINESS-FLOW — Stackgrid
 
 States, rules, and invariants for v1 product behavior. Complements `PRD.md`; does not replace PRINCIPLES.

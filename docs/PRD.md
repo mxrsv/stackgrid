@@ -1,3 +1,9 @@
+---
+frozen: true
+hash: 1d1b4c0c4dc5455d87bd348fa635f33d2c331cc363fd1d6abb8bb18be2c912a8
+from_hash:
+  PRINCIPLES: a06e3bee0cac7feb7d51244c8d46960f939f90f54fbd4c793ae2f6abd412f401
+---
 # PRD — Stackgrid
 
 Product intent, primary journey, and v1 scope. Narrative FR/NFR only — atomic requirements wait for `/requirements`.
