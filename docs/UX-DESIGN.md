@@ -1,6 +1,6 @@
 ---
 frozen: true
-hash: a959cf89ee2ac3a83fc5dd2e5550a7dae9ca625bd806e6c3e13067215e085cb7
+hash: e5ff0dcfe278b0ef3de3c50aa55fadccd09673abc68d567e6c764c92563135e0
 from_hash:
   PRINCIPLES: a06e3bee0cac7feb7d51244c8d46960f939f90f54fbd4c793ae2f6abd412f401
   PRD: 1d1b4c0c4dc5455d87bd348fa635f33d2c331cc363fd1d6abb8bb18be2c912a8
@@ -12,9 +12,10 @@ from_hash:
 Interaction and visual design for the v1 **net-new** surfaces, distilled from a
 clickable prototype reviewed by eye. Complements `PRD.md` (intent/journey/scope) and
 `BUSINESS-FLOW.md` (states/rules/invariants); every surface here maps back to those
-rules. Shipped surfaces (focus, split, drag-dock rearrange, pane zoom, swap, busy/agent
+rules. Shipped surfaces (focus, split, drag-dock rearrange, pane zoom, busy/agent
 chrome, tab bar, settings slide-over) are **referenced, not redefined** — this document
-covers only what v1 adds.
+covers only what v1 adds. **Pane swap and cross-window move are net-new** (PRD
+Brownfield note; ARCHITECTURE §2) and are defined in §6.
 
 Rule references like `BF-Rule 14` / `BF-Inv 6` point at `BUSINESS-FLOW.md`.
 
@@ -82,6 +83,11 @@ Two parallel columns of equal width under a header; a footer spans the bottom.
   **miniature of its split tree** (from the preset's serialized layout), the name, and a
   meta line (pane count · whether it carries a CWD map). The **built-in "Single pane"**
   preset is always present and tagged `BUILT-IN` so Open can never soft-lock (BF-Rule 4).
+  A dashed **＋ New preset…** card at the end of the grid opens the preset editor (§3).
+- **Preset card CRUD (BF-Rule 17):** saved cards manage themselves in place —
+  right-click a card for **Rename…** / **Delete**; with a card focused, `R` renames
+  inline and `⌫` deletes (one-step inline confirm on the card). The `BUILT-IN` card
+  offers neither. Overwrite happens from a live layout (§3), not on the board.
 - **Footer:** a live summary sentence ("Open **{workspace}** as **{preset}**"), plus
   **Cancel** and a primary **Open**.
 
@@ -128,6 +134,22 @@ A modal for **designing a layout preset** without touching the live PTY layout
 (BF state: _Preset editing_). Confirming **opens a new tab** with that layout — it does
 **not** apply over the current tab (BF-Rule 18). It is also reachable from a live layout
 via "save as preset" (BF-Rule 17, 19) — that path skips the mock.
+
+**Entry points.** The **＋ New preset…** card on the Open board (§2), or
+**Window ▸ New Layout Preset…** from a live window. Confirm behaves per BF-Rule 18 on
+both paths: **Create tab** saves the named preset and opens a **new tab** with that
+layout. `↑ inherit` panes resolve at that moment: to the board's chosen workspace when
+entered from the board (BF-Rule 6 — Create tab is gated on a workspace selection like
+Open, materializes the window's first tab, and dismisses the board), or to the focused
+pane's CWD when entered from a live window (a mock-created tab is a runtime new tab —
+BF-Rule 8).
+
+**Save from a live layout (BF-Rule 17, 19).** **Window ▸ Save Layout as Preset…**
+(`⌘⇧S`) captures the current tab without opening the mock: a small dialog asks for a
+**name** (save as new) or an **existing preset to overwrite**, plus an
+**Include per-pane folders** toggle (on by default — writes each pane's current CWD
+into the preset's CWD map; off saves the bare tree). Rename and delete live on the
+Open board's preset cards (§2).
 
 ### Layout
 
@@ -300,12 +322,74 @@ Diff is one click away.
 
 ---
 
-## 6. Cross-surface rules & seam notes
+## 6. Pane movement — swap & move across windows
+
+Both surfaces are **net-new in v1** (PRD Brownfield note; ARCHITECTURE §2). They act on
+live panes: neither ever touches the PTY — pane-ids are stable and the registry lives in
+Rust (ARCHITECTURE §4) — and neither shows a busy confirm (BF-Rule 22, BF-Inv 3).
+
+### Pane swap (BF-Rule 20)
+
+Exchange two panes' places in the same tab; PTYs, scrollback, and running processes
+follow their panes. A pure tree transform (exchange two leaf ids — ARCHITECTURE D2);
+divider ratios stay as they are.
+
+- **Mouse — center drop zone.** Pane drag (shipped drag-dock: grab the header bar)
+  gains a fifth drop zone: the **inner region** of a target pane (roughly the middle
+  half; the four edge zones keep the shipped dock behavior). Hovering it shows a
+  **full-pane** accent overlay instead of a half-pane one; dropping **swaps** source
+  and target. `Esc` still cancels the drag.
+- **Keyboard — swap with neighbor.** `⌘⌥⇧` + `←`/`→`/`↑`/`↓` swaps the focused pane
+  with its neighbor in that direction — the same neighbor resolution as directional
+  focus (`⌘⌥` + arrows, shipped). Focus follows the pane to its new slot. No neighbor
+  in that direction → no-op.
+
+### Move a pane to another window (BF-Rule 21)
+
+One affordance covers both directions of the round trip (detach for attention, later
+join back into a layout — PRD "Steer"): a **"Move pane to…" popover** on the focused
+pane, listing every legal destination.
+
+```
+┌ Move pane to… ─────────────────────────┐
+│ ↗ New window                            │
+│ ──────────────────────────────────────  │
+│ ⧉ Window 2 · new tab                    │
+│ ⧉ Window 2 · join "build" (active tab)  │
+│ ⧉ Window 3 · new tab                    │
+│ ⧉ Window 3 · join "infra" (active tab)  │
+└─────────────────────────────────────────┘
+```
+
+- **Open it:** `⌘⇧M`, or **Window ▸ Move Pane To…** in the native menu bar. The menu
+  item is the mouse path; the popover itself is fully clickable.
+- **Destinations:** **New window** (pane becomes the sole pane of a fresh window's
+  first tab); per other window, **new tab** (pane arrives as its own tab) or **join
+  active tab** (pane splits onto that tab's focused pane, 50/50 — refine placement
+  afterwards with shipped drag-dock). Rows name the target window by its active tab.
+- **Keyboard:** `↑`/`↓` + `Return` selects; `Esc` cancels. **Mouse:** click a row.
+- **Semantics (ARCHITECTURE D1):** one coordinator command reassigns ownership; the
+  PTY keeps running; both webviews re-render. No busy confirm.
+
+Edge cases:
+
+- The source side collapses by the shipped close routing **without** the busy guard —
+  nothing is killed: last pane leaves a tab → the tab closes (BF-Rule 24); the last
+  tab leaves a window → that window closes (BF-Rule 25). The app never quits from a
+  move — the pane's destination window always exists.
+- **New window** is disabled when the pane is already the sole pane of its window's
+  only tab (a no-op churn).
+- Single window, single pane → the popover opens with all rows disabled and a hint
+  ("nothing to move to — split first").
+
+---
+
+## 7. Cross-surface rules & seam notes
 
 - **One-shot discipline:** the agent picker is the only surface that auto-appears per
   materialization; it never re-prompts within a cycle (BF-Rule 14).
-- **No destructive confirms here:** swap / cross-window move show no busy confirm
-  (BF-Inv 3); only close keeps the busy guard — those are shipped surfaces, unchanged.
+- **No destructive confirms here:** swap / cross-window move (§6) show no busy confirm
+  (BF-Inv 3); only close keeps the busy guard (shipped, unchanged).
 - **Session vs preset:** the Open board and preset editor operate on **preset artifacts**
   (split tree + optional CWD map), which are separate from `session.json` (chrome only —
   BF-Inv 2). The picker and sidebar operate on the **live PTY** panes (PTYs live in the
@@ -314,11 +398,16 @@ Diff is one click away.
 - **Keyboard parity:** every action above has a keyboard path; nothing is mouse-only
   (BF-Inv 9 / PRINCIPLES).
 
-## 7. Open decisions folded in (defaults — overridable)
+## 8. Open decisions folded in (defaults — overridable)
 
 1. **Open board preset default** → remember last-used preset, else built-in Single pane.
 2. **Agent picker** → show per-option number hints for keyboard-first picking.
 3. **Sidebar default tab (git files)** → Preview.
+4. **Swap affordances** → center drop zone on the shipped pane drag + `⌘⌥⇧` arrows.
+5. **Cross-window move** → single "Move pane to…" popover (`⌘⇧M` / Window menu).
+6. **Preset CRUD placement** → rename/delete on Open board cards; save-from-live and
+   new-preset entries in the Window menu (`⌘⇧S` / board card).
 
-These were set as least-surprise defaults during prototype review; none are load-bearing
-for the architecture and each can change without reshaping a surface.
+These were set as least-surprise defaults during prototype review (4–6 during the
+requirements-phase reconcile); none are load-bearing for the architecture and each can
+change without reshaping a surface.
