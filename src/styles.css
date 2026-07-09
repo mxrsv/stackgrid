@@ -1149,3 +1149,61 @@ body,
 }
 .open-board__actions button:disabled { opacity: 0.4; cursor: default; }
 .open-board__actions button.is-primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+
+/* ---------- Preset editor (UX §3) ---------- */
+.modal-scrim {
+  position: absolute; inset: 0; z-index: 40; display: flex;
+  align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg) 65%, transparent);
+}
+.preset-editor {
+  display: flex; flex-direction: column; width: min(720px, 86vw); height: min(520px, 82vh);
+  background: var(--chrome-1); border: 1px solid var(--hair-strong); border-radius: 12px;
+  outline: none; animation: rise-in 0.2s cubic-bezier(0.22, 1, 0.36, 1); overflow: hidden;
+}
+.preset-editor__toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid var(--hair);
+}
+.preset-editor__toolbar h1 { font-size: 13px; margin: 0; }
+.preset-editor__tools { display: flex; gap: 6px; }
+.preset-editor__tools button {
+  font: inherit; font-size: 11px; padding: 4px 10px; border-radius: 6px;
+  border: 1px solid var(--hair-strong); background: none; color: var(--text-primary); cursor: pointer;
+}
+.preset-editor__tools button:disabled { opacity: 0.4; cursor: default; }
+.preset-editor__stage { flex: 1; margin: 12px; border-radius: 8px; overflow: hidden; background: var(--bg); }
+.preset-editor__stage > .mock-split, .preset-editor__stage > .mock-pane { width: 100%; height: 100%; }
+.mock-split { display: flex; width: 100%; height: 100%; }
+.mock-split.is-column { flex-direction: column; }
+.mock-branch { display: flex; min-width: 0; min-height: 0; }
+.mock-branch > * { flex: 1; }
+.mock-divider { position: relative; flex: 0 0 1px; background: var(--hair); z-index: 1; }
+.mock-divider.is-row { cursor: col-resize; }
+.mock-divider.is-column { cursor: row-resize; }
+.mock-divider::after { content: ""; position: absolute; inset: -3px; }
+.mock-divider:hover { background: var(--accent); }
+.mock-pane {
+  display: flex; flex-direction: column; gap: 2px; padding: 8px;
+  background: var(--bg); cursor: pointer; min-width: 0; min-height: 0;
+}
+.mock-pane.is-selected { box-shadow: inset 0 0 0 1px var(--accent); }
+.mock-pane__cwd { font-family: var(--mono); font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mock-pane__label { font-size: 10px; color: var(--text-faint); }
+.preset-editor__footer {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-top: 1px solid var(--hair);
+}
+.preset-editor__name {
+  flex: 0 0 220px; font: inherit; font-size: 12px; padding: 6px 8px;
+  background: var(--input-bg); color: var(--text-primary);
+  border: 1px solid var(--hair-strong); border-radius: 6px;
+}
+.preset-editor__meta { flex: 1; font-size: 11px; color: var(--text-faint); }
+.preset-editor__actions { display: flex; gap: 8px; }
+.preset-editor__actions button {
+  font: inherit; font-size: 12px; padding: 6px 14px; border-radius: 6px;
+  border: 1px solid var(--hair-strong); background: none; color: var(--text-primary); cursor: pointer;
+}
+.preset-editor__actions button:disabled { opacity: 0.4; cursor: default; }
+.preset-editor__actions button.is-primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
