@@ -9,6 +9,10 @@ use tauri::{App, Runtime};
 
 #[cfg(target_os = "macos")]
 const QUIT_MENU_ID: &str = "quit-confirm";
+#[cfg(target_os = "macos")]
+const NEW_PRESET_MENU_ID: &str = "new-preset";
+#[cfg(target_os = "macos")]
+const SAVE_PRESET_MENU_ID: &str = "save-preset";
 
 /// Explicit macOS menu, replacing the default one for two reasons:
 /// - The default Quit item (Cmd+Q) exits the process without going through
@@ -47,11 +51,28 @@ pub fn install<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
         .paste()
         .select_all()
         .build()?;
+    let new_preset = MenuItem::with_id(
+        handle,
+        NEW_PRESET_MENU_ID,
+        "New Layout Preset…",
+        true,
+        None::<&str>,
+    )?;
+    let save_preset = MenuItem::with_id(
+        handle,
+        SAVE_PRESET_MENU_ID,
+        "Save Layout as Preset…",
+        true,
+        Some("CmdOrCtrl+Shift+S"),
+    )?;
     let window_menu = SubmenuBuilder::new(handle, "Window")
         .minimize()
         .maximize()
         .separator()
         .fullscreen()
+        .separator()
+        .item(&new_preset)
+        .item(&save_preset)
         .build()?;
     let menu = MenuBuilder::new(handle)
         .items(&[&app_menu, &edit_menu, &window_menu])
@@ -60,6 +81,10 @@ pub fn install<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
     app.on_menu_event(|handle, event| {
         if event.id() == QUIT_MENU_ID {
             let _ = handle.emit("quit-requested", ());
+        } else if event.id() == NEW_PRESET_MENU_ID {
+            let _ = handle.emit("menu:new-preset", ());
+        } else if event.id() == SAVE_PRESET_MENU_ID {
+            let _ = handle.emit("menu:save-preset", ());
         }
     });
     Ok(())
