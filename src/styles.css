@@ -1207,3 +1207,26 @@ body,
 }
 .preset-editor__actions button:disabled { opacity: 0.4; cursor: default; }
 .preset-editor__actions button.is-primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+
+/* ---------- Save preset dialog (UX §3) ---------- */
+.save-preset {
+  display: flex; flex-direction: column; gap: 12px; width: 360px; padding: 16px;
+  background: var(--chrome-1); border: 1px solid var(--hair-strong); border-radius: 12px;
+  outline: none; animation: rise-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.save-preset h1 { font-size: 13px; margin: 0; }
+.save-preset__row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.save-preset__row span { flex: 0 0 96px; color: var(--text-muted); }
+.save-preset__row input, .save-preset__row select {
+  flex: 1; font: inherit; font-size: 12px; padding: 6px 8px;
+  background: var(--input-bg); color: var(--text-primary);
+  border: 1px solid var(--hair-strong); border-radius: 6px;
+}
+.save-preset__toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+.save-preset__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.save-preset__actions button {
+  font: inherit; font-size: 12px; padding: 6px 14px; border-radius: 6px;
+  border: 1px solid var(--hair-strong); background: none; color: var(--text-primary); cursor: pointer;
+}
+.save-preset__actions button:disabled { opacity: 0.4; cursor: default; }
+.save-preset__actions button.is-primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
