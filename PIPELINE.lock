@@ -1,0 +1,9 @@
+lock_version: 1
+phase: product
+decisions: { ux: pending }
+flags: { pending_arch_sync: false }
+docs:
+  - { id: PRINCIPLES, path: docs/PRINCIPLES.md, status: active }
+requirements_version: 0
+adr_manifest: {}
+archive_versions: []
