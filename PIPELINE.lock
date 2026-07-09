@@ -1,11 +1,16 @@
 lock_version: 1
-phase: architecture
-decisions: { ux: pending }
+phase: requirements
+decisions: { ux: included }
 flags: { pending_arch_sync: false }
 docs:
   - { id: PRINCIPLES, path: docs/PRINCIPLES.md, status: active }
   - { id: PRD, path: docs/PRD.md, status: active }
   - { id: BUSINESS-FLOW, path: docs/BUSINESS-FLOW.md, status: active }
+  - { id: ARCHITECTURE, path: docs/ARCHITECTURE.md, status: active }
+  - { id: UX-DESIGN, path: docs/UX-DESIGN.md, status: active }
 requirements_version: 0
-adr_manifest: {}
+adr_manifest:
+  "0001": feec58eade9a4fb6c8023fe31c05116d2553f092e16e8e8a42542b7dee62b18d
+  "0002": 0f0074ff303e3b4146abd9caa9d021875d80d2cb305c9f2a0f63d7f33ae6ae2d
+  "0003": fa8e8bd3187847a24d8459f5608564ad8d887480fe08ebc88480596caaf32638
 archive_versions: []
