@@ -1,5 +1,5 @@
 lock_version: 1
-phase: requirements
+phase: done
 decisions: { ux: included }
 flags: { pending_arch_sync: false }
 docs:
@@ -8,7 +8,8 @@ docs:
   - { id: BUSINESS-FLOW, path: docs/BUSINESS-FLOW.md, status: active }
   - { id: ARCHITECTURE, path: docs/ARCHITECTURE.md, status: active }
   - { id: UX-DESIGN, path: docs/UX-DESIGN.md, status: active }
-requirements_version: 0
+  - { id: REQUIREMENTS, path: docs/REQUIREMENTS.md, status: active }
+requirements_version: 1
 adr_manifest:
   "0001": feec58eade9a4fb6c8023fe31c05116d2553f092e16e8e8a42542b7dee62b18d
   "0002": 0f0074ff303e3b4146abd9caa9d021875d80d2cb305c9f2a0f63d7f33ae6ae2d
