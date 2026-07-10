@@ -1,4 +1,5 @@
 import { useSignal, type Signal } from "@preact/signals";
+import { useEffect, useRef } from "preact/hooks";
 import { open } from "@tauri-apps/plugin-dialog";
 import { leafIds, type Path, type TreeNode } from "../lib/split-tree";
 import {
@@ -92,6 +93,11 @@ export function PresetEditor({ onCancel, onCreate }: PresetEditorProps) {
   const name = useSignal("");
   const paneCount = leafIds(model.value.tree).length;
   const selectedCwd = model.value.cwds.get(model.value.selectedId);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    containerRef.current?.focus();
+  }, []);
 
   async function pickCwd(): Promise<void> {
     try {
@@ -168,7 +174,7 @@ export function PresetEditor({ onCancel, onCreate }: PresetEditorProps) {
         class="preset-editor"
         tabIndex={0}
         onKeyDown={handleKeyDown}
-        ref={(el) => el?.focus()}
+        ref={containerRef}
       >
         <header class="preset-editor__toolbar">
           <h1>▦ New layout preset</h1>

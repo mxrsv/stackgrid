@@ -158,7 +158,11 @@ export function installAgentPicker(
         cards.delete(id);
       }
     }
-    let firstNew: HTMLElement | null = null;
+    // Session restore can bring back several tabs at once — only tab is
+    // shown (others sit at `display: none`), so `.focus()` on a card in a
+    // hidden tab is a DOM no-op. Focus the first NEW card that's actually
+    // visible, so keyboard selection works without requiring a click first.
+    let firstVisibleNew: HTMLElement | null = null;
     for (const id of pending) {
       if (cards.has(id)) {
         continue;
@@ -170,9 +174,11 @@ export function installAgentPicker(
       const overlay = buildCard(id, agents);
       host.appendChild(overlay);
       cards.set(id, overlay);
-      firstNew ??= overlay;
+      if (firstVisibleNew === null && host.offsetParent !== null) {
+        firstVisibleNew = overlay;
+      }
     }
-    firstNew
+    firstVisibleNew
       ?.querySelector<HTMLElement>(".agent-picker__card")
       ?.focus();
   });

@@ -1270,3 +1270,15 @@ body,
   border: 1px solid var(--hair-strong); background: none; color: var(--text-primary); cursor: pointer;
 }
 .skip-all-bar button:hover { border-color: var(--accent); }
+.persist-error-bar {
+  position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); z-index: 25;
+  display: flex; align-items: center; gap: 12px; padding: 6px 12px;
+  background: var(--chrome-1); border: 1px solid var(--red); border-radius: 8px;
+  font-size: 11px; color: var(--text-primary);
+  animation: rise-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.persist-error-bar button {
+  font: inherit; font-size: 11px; padding: 3px 10px; border-radius: 6px;
+  border: 1px solid var(--hair-strong); background: none; color: var(--text-primary); cursor: pointer;
+}
+.persist-error-bar button:hover { border-color: var(--accent); }

@@ -6,6 +6,7 @@ import {
   WORKSPACES_VERSION,
   type WorkspacesData,
 } from "../lib/workspace-recents";
+import { reportPersistError } from "../presets/ui-signals";
 
 const STORE_FILE = "workspaces.json";
 const STORE_KEY = "workspaces";
@@ -35,10 +36,15 @@ export function recordWorkspaceOpen(path: string): void {
     recents: pushRecent(workspacesData.value.recents, path, Date.now()),
   };
   workspacesData.value = next;
+  if (!store) {
+    reportPersistError("Recent folder wasn't saved (storage unavailable)");
+    return;
+  }
   store
-    ?.set(STORE_KEY, next)
+    .set(STORE_KEY, next)
     .then(() => store?.save())
     .catch((err: unknown) => {
       console.warn("Failed to save workspace recents:", err);
+      reportPersistError("Recent folder wasn't saved to disk");
     });
 }

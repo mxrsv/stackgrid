@@ -62,7 +62,11 @@ function validatePreset(raw: unknown): Preset | null {
     return null;
   }
   const source = raw as Record<string, unknown>;
-  if (typeof source.id !== "string" || source.id === "") {
+  if (
+    typeof source.id !== "string" ||
+    source.id === "" ||
+    source.id === BUILT_IN_PRESET_ID
+  ) {
     return null;
   }
   const name = validatePresetName(source.name);

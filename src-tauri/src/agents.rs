@@ -1,4 +1,9 @@
 use serde::Serialize;
+use std::time::Duration;
+
+/// Login shells that hang (e.g. a `.zprofile` waiting on network) must not
+/// wedge the picker forever — degrade to empty after this.
+const DETECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct AgentInfo {
@@ -37,8 +42,10 @@ fn parse_command_v_output(output: &str) -> Vec<AgentInfo> {
 
 /// Resolve the allowlist through the user's LOGIN shell — the GUI process
 /// PATH is stripped on macOS, but `$SHELL -lc` sees the same PATH the
-/// spawned panes use. Any failure degrades to an empty list (picker then
-/// shows Shell only — FR-025).
+/// spawned panes use. Any failure (spawn error, non-blocking-pool panic, or
+/// a hung `.zprofile` past `DETECT_TIMEOUT`) degrades to an empty list
+/// (picker then shows Shell only — FR-025) instead of blocking a Tokio
+/// worker thread forever.
 #[tauri::command]
 pub async fn detect_agents() -> Vec<AgentInfo> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
@@ -47,12 +54,12 @@ pub async fn detect_agents() -> Vec<AgentInfo> {
         .map(|name| format!("command -v {name}"))
         .collect::<Vec<_>>()
         .join("; ");
-    let output = match std::process::Command::new(&shell)
-        .args(["-lc", &script])
-        .output()
-    {
-        Ok(output) => output,
-        Err(_) => return Vec::new(),
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        std::process::Command::new(&shell).args(["-lc", &script]).output()
+    });
+    let output = match tokio::time::timeout(DETECT_TIMEOUT, task).await {
+        Ok(Ok(Ok(output))) => output,
+        _ => return Vec::new(), // timed out, task panicked, or the shell failed to spawn
     };
     parse_command_v_output(&String::from_utf8_lossy(&output.stdout))
 }

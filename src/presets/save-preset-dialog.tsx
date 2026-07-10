@@ -1,4 +1,5 @@
 import { useSignal } from "@preact/signals";
+import { useEffect, useRef } from "preact/hooks";
 import type { Preset } from "../lib/preset-schema";
 
 export type SaveTarget =
@@ -19,6 +20,11 @@ export function SavePresetDialog({
   const name = useSignal("");
   const overwriteId = useSignal<string | null>(null);
   const includeCwds = useSignal(true); // default on (UX §3)
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    containerRef.current?.querySelector("input")?.focus();
+  }, []);
 
   const target: SaveTarget | null =
     overwriteId.value !== null
@@ -51,7 +57,7 @@ export function SavePresetDialog({
         class="save-preset"
         tabIndex={0}
         onKeyDown={handleKeyDown}
-        ref={(el) => el?.querySelector("input")?.focus()}
+        ref={containerRef}
       >
         <h1>Save layout as preset</h1>
         <label class="save-preset__row">

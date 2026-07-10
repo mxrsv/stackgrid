@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useSignal } from "@preact/signals";
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import { open } from "@tauri-apps/plugin-dialog";
 import { countLeaves } from "../lib/split-tree";
 import { isBuiltIn, type Preset } from "../lib/preset-schema";
@@ -17,7 +17,8 @@ import { PresetThumb } from "../presets/preset-thumb";
 export interface OpenBoardProps {
   canCancel: boolean;
   onCancel(): void;
-  onOpen(workspace: string, preset: Preset): void;
+  /** Resolves to false on failure (e.g. PTY spawn error) — board stays up. */
+  onOpen(workspace: string, preset: Preset): Promise<boolean>;
   onNewPreset(workspace: string | null): void;
 }
 
@@ -40,6 +41,12 @@ export function OpenBoard({
   const renamingId = useSignal<string | null>(null);
   const renameValue = useSignal("");
   const confirmDeleteId = useSignal<string | null>(null);
+  const opening = useSignal(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    containerRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     const paths = recents.map((recent) => recent.path);
@@ -72,9 +79,17 @@ export function OpenBoard({
     }
   }
 
-  function confirmOpen(): void {
-    if (workspaceValid && selectedPath.value !== null) {
-      onOpen(selectedPath.value, selectedPreset);
+  /** Guards against a second Open (button/Enter/double-click) firing while
+   * the first one is still spawning panes — that would materialize two tabs
+   * from one confirm. Only resets on failure; success unmounts the board. */
+  async function confirmOpen(): Promise<void> {
+    if (!workspaceValid || selectedPath.value === null || opening.value) {
+      return;
+    }
+    opening.value = true;
+    const ok = await onOpen(selectedPath.value, selectedPreset);
+    if (!ok) {
+      opening.value = false;
     }
   }
 
@@ -135,7 +150,7 @@ export function OpenBoard({
           column.value === "workspace" ? "preset" : "workspace";
         break;
       case "Enter":
-        confirmOpen();
+        void confirmOpen();
         break;
       case "Escape":
         if (confirmDeleteId.value !== null) {
@@ -173,7 +188,7 @@ export function OpenBoard({
       class="open-board"
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      ref={(el) => el?.focus()}
+      ref={containerRef}
     >
       <header class="open-board__header">
         <h1>New window</h1>
@@ -235,7 +250,7 @@ export function OpenBoard({
                   selectedPresetId.value = preset.id;
                   column.value = "preset";
                 }}
-                onDblClick={confirmOpen}
+                onDblClick={() => void confirmOpen()}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   startRename(preset);
@@ -327,10 +342,10 @@ export function OpenBoard({
           </button>
           <button
             class="is-primary"
-            onClick={confirmOpen}
-            disabled={!workspaceValid}
+            onClick={() => void confirmOpen()}
+            disabled={!workspaceValid || opening.value}
           >
-            Open
+            {opening.value ? "Opening…" : "Open"}
           </button>
         </div>
       </footer>

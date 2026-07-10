@@ -39,7 +39,7 @@ import {
 import type { TabDotColor } from "../lib/tab-colors";
 import { beginAgentPick } from "../agent-picker/agent-picker";
 import { prunePending } from "../agent-picker/picker-store";
-import { saveDialogOpen } from "../presets/ui-signals";
+import { boardOpen, saveDialogOpen } from "../presets/ui-signals";
 
 const EVENT_OUTPUT = "pty:output";
 const EVENT_EXIT = "pty:exit";
@@ -516,7 +516,7 @@ export function createTabManager(host: HTMLElement): TabManager {
         activeManager()?.openSearch();
         break;
       case "save-preset":
-        if (tabs.length > 0) {
+        if (tabs.length > 0 && !boardOpen.value) {
           saveDialogOpen.value = true;
         }
         break;

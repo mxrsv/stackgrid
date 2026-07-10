@@ -10,6 +10,7 @@ import {
   type Preset,
   type PresetsData,
 } from "../lib/preset-schema";
+import { reportPersistError } from "./ui-signals";
 
 const STORE_FILE = "presets.json";
 const STORE_KEY = "presets";
@@ -32,13 +33,20 @@ export async function initPresets(): Promise<void> {
   }
 }
 
+/** Signal stays the source of truth for the running session even when the
+ * write below fails — see reportPersistError's doc comment for why. */
 function persist(next: PresetsData): void {
   presetsData.value = next;
+  if (!store) {
+    reportPersistError("Preset change wasn't saved (storage unavailable)");
+    return;
+  }
   store
-    ?.set(STORE_KEY, next)
+    .set(STORE_KEY, next)
     .then(() => store?.save())
     .catch((err: unknown) => {
       console.warn("Failed to save presets:", err);
+      reportPersistError("Preset change wasn't saved to disk");
     });
 }
 

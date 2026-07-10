@@ -44,6 +44,11 @@ describe("mock model", () => {
     expect(model.cwds.get(2)).toBe("/work");
     model = setSelectedCwd(model, null);
     expect(model.cwds.has(2)).toBe(false);
+    // Actually exercise the remove path (removeSelected), not just an
+    // explicit clear — the two are different code paths in mock-model.ts.
+    model = setSelectedCwd(model, "/again");
+    model = removeSelected(model);
+    expect(model.cwds.has(2)).toBe(false);
   });
 
   it("ratio set and nudge are clamped to 0.15–0.85", () => {

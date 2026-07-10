@@ -29,6 +29,7 @@ import {
 import type { PresetArtifact } from "../presets/mock-model";
 import { installAgentPicker } from "../agent-picker/agent-picker";
 import { SkipAllBar } from "../agent-picker/skip-all-bar";
+import { PersistErrorBar } from "../presets/persist-error-bar";
 import { TabBar } from "./tab-bar";
 import { StatusBar } from "./status-bar";
 import { SettingsPanel } from "./settings-panel";
@@ -122,7 +123,10 @@ export function App() {
   };
 
   /** Open board confirm: materialize + record recents + preselect memory. */
-  async function handleOpen(workspace: string, preset: Preset): Promise<void> {
+  async function handleOpen(
+    workspace: string,
+    preset: Preset,
+  ): Promise<boolean> {
     const ok = await tabsRef.current?.openFromPreset(
       preset.layout,
       resolveCwds(preset, workspace),
@@ -132,6 +136,7 @@ export function App() {
       markLastUsed(preset.id);
       boardOpen.value = false;
     }
+    return ok ?? false;
   }
 
   /** Editor confirm (FR-015): save the preset, then materialize a new tab. */
@@ -248,7 +253,7 @@ export function App() {
             onCancel={() => {
               // Unreachable while canCancel is false; multi-window plan enables it
             }}
-            onOpen={(workspace, preset) => void handleOpen(workspace, preset)}
+            onOpen={(workspace, preset) => handleOpen(workspace, preset)}
             onNewPreset={(workspace) => {
               editorRequest.value = { source: "board", workspace };
             }}
@@ -276,6 +281,7 @@ export function App() {
           />
         ) : null}
         <SkipAllBar />
+        <PersistErrorBar />
         <SettingsPanel open={panelOpen.value} onClose={closePanel} />
       </main>
       <StatusBar />
