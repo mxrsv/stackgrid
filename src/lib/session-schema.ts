@@ -1,11 +1,11 @@
 import type { SerializedNode } from "./split-tree";
 import { isTabDotColor, type TabDotColor } from "./tab-colors";
+import { validateLayout } from "./layout-validation";
 
 export const SESSION_VERSION = 1;
 
 // Sanity bounds so a corrupt file cannot spawn hundreds of shells
 const MAX_RESTORED_TABS = 16;
-const MAX_LAYOUT_DEPTH = 8;
 
 export interface SessionTab {
   readonly layout: SerializedNode;
@@ -19,42 +19,6 @@ export interface SessionData {
   readonly version: number;
   readonly activeTab: number;
   readonly tabs: readonly SessionTab[];
-}
-
-function validateLayout(raw: unknown, depth: number): SerializedNode | null {
-  if (typeof raw !== "object" || raw === null || depth > MAX_LAYOUT_DEPTH) {
-    return null;
-  }
-  const node = raw as Record<string, unknown>;
-  if (node.type === "leaf") {
-    return { type: "leaf" };
-  }
-  if (node.type !== "split") {
-    return null;
-  }
-  if (node.direction !== "row" && node.direction !== "column") {
-    return null;
-  }
-  if (
-    typeof node.ratio !== "number" ||
-    !Number.isFinite(node.ratio) ||
-    node.ratio <= 0 ||
-    node.ratio >= 1
-  ) {
-    return null;
-  }
-  const first = validateLayout(node.first, depth + 1);
-  const second = validateLayout(node.second, depth + 1);
-  if (first === null || second === null) {
-    return null;
-  }
-  return {
-    type: "split",
-    direction: node.direction,
-    ratio: node.ratio,
-    first,
-    second,
-  };
 }
 
 const MAX_TAB_NAME_LENGTH = 64;

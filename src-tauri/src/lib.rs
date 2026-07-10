@@ -1,3 +1,4 @@
+mod agents;
 mod info;
 mod menu;
 mod pty;
@@ -35,6 +36,8 @@ pub fn run() {
             pty::kill_pty,
             info::pty_info,
             info::git_branch,
+            agents::detect_agents,
+            agents::dirs_exist,
             confirm_quit
         ])
         .build(tauri::generate_context!())

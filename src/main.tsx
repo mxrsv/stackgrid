@@ -2,10 +2,13 @@ import { render } from "preact";
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 import { initSettings } from "./settings/settings-store";
+import { initPresets } from "./presets/presets-store";
+import { initWorkspaces } from "./open-board/workspaces-store";
 import { App } from "./ui/app";
 
 async function main(): Promise<void> {
   await initSettings();
+  await Promise.all([initPresets(), initWorkspaces()]);
   const root = document.getElementById("root");
   if (!root) {
     throw new Error("#root element not found");

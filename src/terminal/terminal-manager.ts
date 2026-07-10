@@ -77,6 +77,8 @@ export interface TerminalManager {
   paneIds(): number[];
   activePaneId(): number | null;
   paneCount(): number;
+  /** Root element of a pane (overlay anchor for the agent picker). */
+  paneElement(id: number): HTMLElement | null;
   /** Routed from the tab manager's single pty:output listener; ignores unowned ids. */
   handleOutput(id: number, data: string): void;
   /** Routed from the tab manager's single pty:exit listener; ignores unowned ids. */
@@ -604,6 +606,9 @@ export function createTerminalManager(
     },
     paneCount() {
       return panes.size;
+    },
+    paneElement(id) {
+      return panes.get(id)?.element ?? null;
     },
     handleOutput(id, data) {
       panes.get(id)?.write(data);

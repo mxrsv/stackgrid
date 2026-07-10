@@ -28,7 +28,7 @@ import {
   type ClosedTabSnapshot,
 } from "./closed-tabs";
 import { confirmClose } from "./close-guard";
-import { freshCwd } from "./pane-info";
+import { freshCwd, freshPaneInfo } from "./pane-info";
 import {
   activeTabIndex,
   applyTabOverride,
@@ -37,6 +37,9 @@ import {
   type TabOverride,
 } from "./tabs-store";
 import type { TabDotColor } from "../lib/tab-colors";
+import { beginAgentPick } from "../agent-picker/agent-picker";
+import { prunePending } from "../agent-picker/picker-store";
+import { boardOpen, saveDialogOpen } from "../presets/ui-signals";
 
 const EVENT_OUTPUT = "pty:output";
 const EVENT_EXIT = "pty:exit";
@@ -58,7 +61,22 @@ interface TabEntry {
 
 /** Owns all tabs: routing, keyboard, persistence and (later) info polling. */
 export interface TabManager {
-  init(): Promise<void>;
+  /** Init listeners + optional session restore; hasTabs=false → show the Open board. */
+  init(): Promise<{ hasTabs: boolean }>;
+  /** Materialize one tab from a preset layout + resolved CWDs; begins agent pick. */
+  openFromPreset(
+    layout: SerializedNode,
+    cwds: readonly (string | null)[],
+  ): Promise<boolean>;
+  /** Live layout + fresh per-pane CWDs for save-as-preset; null when no tab. */
+  captureActiveLayout(): Promise<{
+    layout: SerializedNode;
+    cwds: readonly (string | null)[];
+  } | null>;
+  /** Fresh CWD of the focused pane (editor "↑ inherit" from a live window). */
+  activePaneCwd(): Promise<string | null>;
+  /** Overlay anchor for a pane in any tab (agent picker cards). */
+  paneOverlayHost(id: number): HTMLElement | null;
   newTab(): Promise<void>;
   /** Close a tab after the busy guard; every pane's process is checked. */
   closeTab(index: number): Promise<void>;
@@ -155,10 +173,15 @@ export function createTabManager(host: HTMLElement): TabManager {
     };
   }
 
+  function allPaneIds(): number[] {
+    return tabs.flatMap((tab) => tab.manager.paneIds());
+  }
+
   const callbacks = {
     onLayoutChange(): void {
       syncViews();
       persist();
+      prunePending(allPaneIds());
     },
   };
 
@@ -223,6 +246,50 @@ export function createTabManager(host: HTMLElement): TabManager {
     selectTab(tabs.length - 1);
   }
 
+  /** FR-005: one tab per Open; CWDs already resolved by the caller. */
+  async function openFromPreset(
+    layout: SerializedNode,
+    cwds: readonly (string | null)[],
+  ): Promise<boolean> {
+    if (!(await addTab(layout, cwds))) {
+      return false;
+    }
+    selectTab(tabs.length - 1);
+    void poll();
+    void beginAgentPick(tabs[tabs.length - 1].manager.paneIds());
+    return true;
+  }
+
+  /** FR-012: fresh (non-polled) CWDs so a just-cd'd pane saves correctly. */
+  async function captureActiveLayout(): Promise<{
+    layout: SerializedNode;
+    cwds: readonly (string | null)[];
+  } | null> {
+    const manager = activeManager();
+    const layout = manager?.serializeLayout() ?? null;
+    if (!manager || layout === null) {
+      return null;
+    }
+    const ids = manager.paneIds();
+    const infos = await freshPaneInfo(ids);
+    const byId = new Map(infos.map((info) => [info.id, info] as const));
+    return { layout, cwds: ids.map((id) => byId.get(id)?.cwd ?? null) };
+  }
+
+  function activePaneCwd(): Promise<string | null> {
+    return freshCwd(activeManager()?.activePaneId() ?? null);
+  }
+
+  function paneOverlayHost(id: number): HTMLElement | null {
+    for (const tab of tabs) {
+      const element = tab.manager.paneElement(id);
+      if (element !== null) {
+        return element;
+      }
+    }
+    return null;
+  }
+
   async function reopenTab(): Promise<void> {
     const [snapshot, rest] = popClosedTab(closedTabs);
     if (snapshot === null) {
@@ -264,6 +331,7 @@ export function createTabManager(host: HTMLElement): TabManager {
     entry.manager.dispose();
     tabs.splice(index, 1);
     overrides.delete(entry.key);
+    prunePending(allPaneIds());
     if (tabs.length === 0) {
       // Closing the last tab quits the app (ADR 0002). closeTabGuarded
       // already ran the busy guard, so exit directly — no second dialog.
@@ -447,6 +515,11 @@ export function createTabManager(host: HTMLElement): TabManager {
       case "find":
         activeManager()?.openSearch();
         break;
+      case "save-preset":
+        if (tabs.length > 0 && !boardOpen.value) {
+          saveDialogOpen.value = true;
+        }
+        break;
     }
   }
 
@@ -496,7 +569,7 @@ export function createTabManager(host: HTMLElement): TabManager {
     await closeTab(currentIndex);
   }
 
-  async function init(): Promise<void> {
+  async function init(): Promise<{ hasTabs: boolean }> {
     unlisteners.push(
       await listen<OutputPayload>(EVENT_OUTPUT, (event) => {
         for (const tab of tabs) {
@@ -549,23 +622,27 @@ export function createTabManager(host: HTMLElement): TabManager {
         }
       }
     }
+    pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
     if (tabs.length === 0) {
-      await addTab(null);
-    }
-    if (tabs.length === 0) {
-      // Even the fallback tab failed to spawn — errors are already logged
+      // No restorable session — the App shows the Open board (FR-001)
       syncViews();
-      return;
+      return { hasTabs: false };
     }
     selectTab(
       session === null ? 0 : Math.min(session.activeTab, tabs.length - 1),
     );
-    pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
     void poll();
+    // Restore never skips the one-shot picker (FR-021 AC-3)
+    void beginAgentPick(allPaneIds());
+    return { hasTabs: true };
   }
 
   return {
     init,
+    openFromPreset,
+    captureActiveLayout,
+    activePaneCwd,
+    paneOverlayHost,
     newTab,
     closeTab: closeTabGuarded,
     selectTab,

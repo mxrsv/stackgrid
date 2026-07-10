@@ -114,6 +114,12 @@ describe("matchBinding", () => {
     expect(matchBinding(keyEvent("ArrowLeft", { altKey: true }))).toBeNull();
     expect(matchBinding(keyEvent("ArrowLeft"))).toBeNull();
   });
+
+  it("matches Cmd+Shift+S as save-preset", () => {
+    expect(
+      matchBinding(keyEvent("s", { metaKey: true, shiftKey: true })),
+    ).toBe("save-preset");
+  });
 });
 
 describe("selectTabIndex", () => {

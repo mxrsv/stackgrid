@@ -20,6 +20,7 @@ export type ShortcutAction =
   | "focus-up"
   | "focus-down"
   | "reopen-tab"
+  | "save-preset"
   | `select-tab-${number}`;
 
 export interface KeyBinding {
@@ -65,6 +66,8 @@ export const DEFAULT_KEYMAP: readonly KeyBinding[] = [
   { key: "f", meta: true, action: "find" },
   { key: "k", meta: true, action: "clear-buffer" },
   { key: "t", meta: true, shift: true, action: "reopen-tab" },
+  // Capture the live layout as a preset (UX §3) — also in the Window menu
+  { key: "s", meta: true, shift: true, action: "save-preset" },
   // event.key for arrows is "ArrowLeft" etc. — lowercased by matchBinding
   { key: "arrowleft", meta: true, alt: true, action: "focus-left" },
   { key: "arrowright", meta: true, alt: true, action: "focus-right" },
