@@ -14,7 +14,7 @@ const DRAG_THRESHOLD = 5;
 /**
  * Drag a pane by its header bar and dock it onto an edge of another pane.
  * A single delegated pointerdown listener lives on the tab container (which
- * survives renderTree — only its children are replaced); the ghost and the
+ * survives layout.sync — only its children are replaced); the ghost and the
  * drop overlay are children of document.body so a re-render mid-drag cannot
  * wipe them.
  */
@@ -81,7 +81,7 @@ export function createPaneDragController(
     overlay = document.createElement("div");
     overlay.className = "drop-overlay";
     overlay.style.display = "none";
-    // ALWAYS append to body — renderTree's replaceChildren(container) would wipe them.
+    // ALWAYS append to body — layout.sync's replaceChildren(container) would wipe them.
     document.body.append(ghost, overlay);
   }
 

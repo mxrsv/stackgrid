@@ -196,7 +196,7 @@ export interface RatioEntry {
   readonly ratio: number;
 }
 
-/** Every split's path and ratio, pre-order (root first). Pure — used by applyRatios. */
+/** Every split's path and ratio, pre-order (root first). Pure — used by LayoutEngine. */
 export function ratioEntries(node: TreeNode): RatioEntry[] {
   if (node.kind === "leaf") {
     return [];

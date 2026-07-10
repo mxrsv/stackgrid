@@ -1,46 +1,24 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { homeDir } from "@tauri-apps/api/path";
-import {
-  clampFontSize,
-  DEFAULT_SETTINGS,
-  type Settings,
-} from "../settings/settings-schema";
+import { clampFontSize, DEFAULT_SETTINGS, type Settings } from "../settings/settings-schema";
 import { settings, updateSettings } from "../settings/settings-store";
 import type { Direction, SerializedNode } from "../lib/split-tree";
-import {
-  SESSION_VERSION,
-  type SessionData,
-  type SessionTab,
-} from "../lib/session-schema";
 import { isAgent, type PaneProcessInfo } from "../lib/process-info";
 import { matchBinding, selectTabIndex } from "./keymap";
 import { loadSession, scheduleSessionSave } from "./session-persistence";
 import { installFileDrop } from "./file-drop";
-import {
-  createTerminalManager,
-  type TerminalManager,
-} from "./terminal-manager";
-import {
-  captureCwds,
-  popClosedTab,
-  pushClosedTab,
-  type ClosedTabSnapshot,
-} from "./closed-tabs";
+import { createTerminalManager, type TerminalManager } from "./terminal-manager";
+import { popClosedTab, pushClosedTab, type ClosedTabSnapshot } from "./closed-tabs";
 import { confirmClose } from "./close-guard";
-import { freshCwd, freshPaneInfo } from "./pane-info";
-import {
-  activeTabIndex,
-  applyTabOverride,
-  statusInfo,
-  tabViews,
-  type TabOverride,
-} from "./tabs-store";
+import { createCloseCoordinator } from "./close-coordinator";
+import { freshCwd } from "./pane-info";
+import { buildClosedTabSnapshot, buildSessionData, capturePresetLayout, resolvePaneCwds } from "./tab-materialize";
+import { activeTabIndex, applyTabOverride, statusInfo, tabViews, type TabOverride } from "./tabs-store";
 import type { TabDotColor } from "../lib/tab-colors";
 import { beginAgentPick } from "../agent-picker/agent-picker";
 import { prunePending } from "../agent-picker/picker-store";
-import { boardOpen, saveDialogOpen } from "../presets/ui-signals";
-
+import { boardOpen, saveDialogOpen } from "../chrome/events";
 const EVENT_OUTPUT = "pty:output";
 const EVENT_EXIT = "pty:exit";
 const POLL_INTERVAL_MS = 2000;
@@ -64,10 +42,7 @@ export interface TabManager {
   /** Init listeners + optional session restore; hasTabs=false → show the Open board. */
   init(): Promise<{ hasTabs: boolean }>;
   /** Materialize one tab from a preset layout + resolved CWDs; begins agent pick. */
-  openFromPreset(
-    layout: SerializedNode,
-    cwds: readonly (string | null)[],
-  ): Promise<boolean>;
+  openFromPreset(layout: SerializedNode, cwds: readonly (string | null)[]): Promise<boolean>;
   /** Live layout + fresh per-pane CWDs for save-as-preset; null when no tab. */
   captureActiveLayout(): Promise<{
     layout: SerializedNode;
@@ -115,34 +90,25 @@ export function createTabManager(host: HTMLElement): TabManager {
     return active >= 0 && active < tabs.length ? tabs[active].manager : null;
   }
 
-  function buildSessionData(): SessionData | null {
-    const sessionTabs: SessionTab[] = [];
+  function sessionChrome() {
+    const chrome = [];
     for (const tab of tabs) {
       const layout = tab.manager.serializeLayout();
       if (layout === null) {
         continue;
       }
       const override = overrides.get(tab.key);
-      sessionTabs.push({
+      chrome.push({
         layout,
         ...(override?.name !== undefined ? { name: override.name } : {}),
-        ...(override?.dotColor !== undefined
-          ? { dotColor: override.dotColor }
-          : {}),
+        ...(override?.dotColor !== undefined ? { dotColor: override.dotColor } : {}),
       });
     }
-    if (sessionTabs.length === 0) {
-      return null;
-    }
-    return {
-      version: SESSION_VERSION,
-      activeTab: Math.min(Math.max(active, 0), sessionTabs.length - 1),
-      tabs: sessionTabs,
-    };
+    return buildSessionData(chrome, active);
   }
 
   function persist(): void {
-    scheduleSessionSave(buildSessionData);
+    scheduleSessionSave(sessionChrome);
   }
 
   function syncViews(): void {
@@ -186,10 +152,7 @@ export function createTabManager(host: HTMLElement): TabManager {
   };
 
   /** Create + init a tab; false (and an error note) when spawning fails. */
-  async function addTab(
-    layout: SerializedNode | null,
-    cwds: readonly (string | null)[] = [],
-  ): Promise<boolean> {
+  async function addTab(layout: SerializedNode | null, cwds: readonly (string | null)[] = []): Promise<boolean> {
     const container = document.createElement("div");
     container.className = "tab-stage";
     container.style.display = "none";
@@ -247,10 +210,7 @@ export function createTabManager(host: HTMLElement): TabManager {
   }
 
   /** FR-005: one tab per Open; CWDs already resolved by the caller. */
-  async function openFromPreset(
-    layout: SerializedNode,
-    cwds: readonly (string | null)[],
-  ): Promise<boolean> {
+  async function openFromPreset(layout: SerializedNode, cwds: readonly (string | null)[]): Promise<boolean> {
     if (!(await addTab(layout, cwds))) {
       return false;
     }
@@ -260,7 +220,7 @@ export function createTabManager(host: HTMLElement): TabManager {
     return true;
   }
 
-  /** FR-012: fresh (non-polled) CWDs so a just-cd'd pane saves correctly. */
+  /** FR-012: fresh CWDs via TabMaterialize so a just-cd'd pane saves correctly. */
   async function captureActiveLayout(): Promise<{
     layout: SerializedNode;
     cwds: readonly (string | null)[];
@@ -270,10 +230,7 @@ export function createTabManager(host: HTMLElement): TabManager {
     if (!manager || layout === null) {
       return null;
     }
-    const ids = manager.paneIds();
-    const infos = await freshPaneInfo(ids);
-    const byId = new Map(infos.map((info) => [info.id, info] as const));
-    return { layout, cwds: ids.map((id) => byId.get(id)?.cwd ?? null) };
+    return capturePresetLayout(manager.paneIds(), layout);
   }
 
   function activePaneCwd(): Promise<string | null> {
@@ -311,21 +268,26 @@ export function createTabManager(host: HTMLElement): TabManager {
     selectTab(tabs.length - 1);
   }
 
-  async function closeTab(index: number): Promise<void> {
+  /** Unguarded dispose — Busy already confirmed by CloseCoordinator. */
+  async function disposeTab(index: number): Promise<void> {
     const entry = tabs[index];
     if (!entry) {
       return;
     }
-    // Snapshot BEFORE dispose/override-cleanup — every close path pushes one
+    // Snapshot BEFORE dispose — fresh CWDs (same policy as Layout preset)
     const layout = entry.manager.serializeLayout();
     if (layout !== null) {
       const override = overrides.get(entry.key);
-      closedTabs = pushClosedTab(closedTabs, {
-        layout,
-        name: override?.name ?? null,
-        dotColor: override?.dotColor ?? null,
-        cwds: captureCwds(entry.manager.paneIds(), infoByPane),
-      });
+      const cwds = await resolvePaneCwds(entry.manager.paneIds(), "fresh");
+      closedTabs = pushClosedTab(
+        closedTabs,
+        buildClosedTabSnapshot({
+          layout,
+          name: override?.name ?? null,
+          dotColor: override?.dotColor ?? null,
+          cwds,
+        }),
+      );
     }
     const closingActive = index === active;
     entry.manager.dispose();
@@ -333,7 +295,7 @@ export function createTabManager(host: HTMLElement): TabManager {
     overrides.delete(entry.key);
     prunePending(allPaneIds());
     if (tabs.length === 0) {
-      // Closing the last tab quits the app (ADR 0002). closeTabGuarded
+      // Closing the last tab quits the app (ADR 0002). CloseCoordinator
       // already ran the busy guard, so exit directly — no second dialog.
       active = -1;
       await invoke("confirm_quit");
@@ -351,6 +313,15 @@ export function createTabManager(host: HTMLElement): TabManager {
     syncViews();
     persist();
   }
+
+  const close = createCloseCoordinator({
+    confirmClose,
+    activeManager,
+    activeIndex: () => active,
+    tabAt: (index) => tabs[index],
+    indexOf: (entry) => tabs.findIndex((tab) => tab.manager === entry.manager),
+    disposeTab,
+  });
 
   /** Active pane of every tab (tab dots) + all panes of the active tab (headers). */
   function pollTargets(): number[] {
@@ -430,8 +401,7 @@ export function createTabManager(host: HTMLElement): TabManager {
     // Never fire shortcuts while typing in a text field (same approach as
     // the IME guard above) — e.g. the tab rename input in the popover.
     if (
-      (event.target instanceof HTMLInputElement ||
-        event.target instanceof HTMLTextAreaElement) &&
+      (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) &&
       !(event.target as HTMLElement).closest(".pane__term")
     ) {
       return;
@@ -455,7 +425,7 @@ export function createTabManager(host: HTMLElement): TabManager {
         void splitActive("column");
         break;
       case "close-pane":
-        void closePaneGuarded();
+        void close.closePane();
         break;
       case "focus-next":
         activeManager()?.cycleFocus(1);
@@ -470,7 +440,7 @@ export function createTabManager(host: HTMLElement): TabManager {
         void newTab();
         break;
       case "close-tab":
-        void closeTabGuarded(active);
+        void close.closeTab(active);
         break;
       case "next-tab":
         cycleTab(1);
@@ -527,48 +497,6 @@ export function createTabManager(host: HTMLElement): TabManager {
     return activeManager()?.splitActive(dir) ?? Promise.resolve();
   }
 
-  /**
-   * Cmd+W routing (iTerm2 semantics): last pane in the tab → close the tab;
-   * otherwise close the pane. The routing decision runs first, then the busy
-   * guard runs once on the final target set — exactly one dialog.
-   */
-  async function closePaneGuarded(): Promise<void> {
-    const manager = activeManager();
-    if (!manager) {
-      return;
-    }
-    if (manager.paneCount() <= 1) {
-      await closeTabGuarded(active);
-      return;
-    }
-    const paneId = manager.activePaneId();
-    if (paneId === null) {
-      return;
-    }
-    if (!(await confirmClose([paneId]))) {
-      return;
-    }
-    // Close the pane the user confirmed, not whichever is active now — a
-    // pty:exit during the dialog can move focus to a different pane.
-    await manager.closePaneById(paneId);
-  }
-
-  async function closeTabGuarded(index: number): Promise<void> {
-    const entry = tabs[index];
-    if (!entry) {
-      return;
-    }
-    if (!(await confirmClose(entry.manager.paneIds()))) {
-      return;
-    }
-    // Re-resolve after the dialog — the tab list may have shifted meanwhile
-    const currentIndex = tabs.indexOf(entry);
-    if (currentIndex === -1) {
-      return;
-    }
-    await closeTab(currentIndex);
-  }
-
   async function init(): Promise<{ hasTabs: boolean }> {
     unlisteners.push(
       await listen<OutputPayload>(EVENT_OUTPUT, (event) => {
@@ -607,15 +535,14 @@ export function createTabManager(host: HTMLElement): TabManager {
     const session = settings.value.restoreTabs ? await loadSession() : null;
     if (session !== null) {
       for (const sessionTab of session.tabs) {
-        if (!(await addTab(sessionTab.layout))) {
+        /** Session restore: layout only — CWDs are `none` (spawn at `$HOME`). */
+        if (!(await addTab(sessionTab.layout, []))) {
           continue; // spawn failed — skip its overrides too
         }
         const key = tabs[tabs.length - 1].key;
         const override: TabOverride = {
           ...(sessionTab.name !== undefined ? { name: sessionTab.name } : {}),
-          ...(sessionTab.dotColor !== undefined
-            ? { dotColor: sessionTab.dotColor }
-            : {}),
+          ...(sessionTab.dotColor !== undefined ? { dotColor: sessionTab.dotColor } : {}),
         };
         if (override.name !== undefined || override.dotColor !== undefined) {
           overrides.set(key, override);
@@ -628,9 +555,7 @@ export function createTabManager(host: HTMLElement): TabManager {
       syncViews();
       return { hasTabs: false };
     }
-    selectTab(
-      session === null ? 0 : Math.min(session.activeTab, tabs.length - 1),
-    );
+    selectTab(session === null ? 0 : Math.min(session.activeTab, tabs.length - 1));
     void poll();
     // Restore never skips the one-shot picker (FR-021 AC-3)
     void beginAgentPick(allPaneIds());
@@ -644,7 +569,7 @@ export function createTabManager(host: HTMLElement): TabManager {
     activePaneCwd,
     paneOverlayHost,
     newTab,
-    closeTab: closeTabGuarded,
+    closeTab: (index) => close.closeTab(index),
     selectTab,
     renameTab(index, name) {
       const trimmed = name?.trim() ?? "";
@@ -655,7 +580,7 @@ export function createTabManager(host: HTMLElement): TabManager {
     },
     cycleTab,
     splitActive,
-    closePane: closePaneGuarded,
+    closePane: () => close.closePane(),
     applySettings(next) {
       for (const tab of tabs) {
         tab.manager.applySettings(next);

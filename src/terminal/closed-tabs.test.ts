@@ -1,49 +1,32 @@
 import { describe, expect, it } from "vitest";
-import {
-  captureCwds,
-  MAX_CLOSED_TABS,
-  popClosedTab,
-  pushClosedTab,
-  type ClosedTabSnapshot,
-} from "./closed-tabs";
-import type { PaneProcessInfo } from "../lib/process-info";
+import { MAX_CLOSED_TABS, popClosedTab, pushClosedTab, type ClosedTabSnapshot } from "./closed-tabs";
 
 function snap(name: string): ClosedTabSnapshot {
-  return { layout: { type: "leaf" }, name, dotColor: null, cwds: [null] };
+    return { layout: { type: "leaf" }, name, dotColor: null, cwds: [null] };
 }
 
 describe("pushClosedTab / popClosedTab", () => {
-  it("pops in LIFO order without mutating the input", () => {
-    const stack = pushClosedTab(pushClosedTab([], snap("a")), snap("b"));
-    const [top, rest] = popClosedTab(stack);
-    expect(top?.name).toBe("b");
-    expect(rest.map((s) => s.name)).toEqual(["a"]);
-    expect(stack).toHaveLength(2); // no mutation
-  });
+    it("pops in LIFO order without mutating the input", () => {
+        const stack = pushClosedTab(pushClosedTab([], snap("a")), snap("b"));
+        const [top, rest] = popClosedTab(stack);
+        expect(top?.name).toBe("b");
+        expect(rest.map((s) => s.name)).toEqual(["a"]);
+        expect(stack).toHaveLength(2); // no mutation
+    });
 
-  it("caps the stack at MAX_CLOSED_TABS, dropping the oldest", () => {
-    let stack: readonly ClosedTabSnapshot[] = [];
-    for (let i = 0; i < MAX_CLOSED_TABS + 3; i += 1) {
-      stack = pushClosedTab(stack, snap(`t${i}`));
-    }
-    expect(stack).toHaveLength(MAX_CLOSED_TABS);
-    expect(stack[0].name).toBe("t3"); // oldest three dropped
-    expect(stack[stack.length - 1].name).toBe(`t${MAX_CLOSED_TABS + 2}`);
-  });
+    it("caps the stack at MAX_CLOSED_TABS, dropping the oldest", () => {
+        let stack: readonly ClosedTabSnapshot[] = [];
+        for (let i = 0; i < MAX_CLOSED_TABS + 3; i += 1) {
+            stack = pushClosedTab(stack, snap(`t${i}`));
+        }
+        expect(stack).toHaveLength(MAX_CLOSED_TABS);
+        expect(stack[0].name).toBe("t3"); // oldest three dropped
+        expect(stack[stack.length - 1].name).toBe(`t${MAX_CLOSED_TABS + 2}`);
+    });
 
-  it("pops null from an empty stack", () => {
-    const [top, rest] = popClosedTab([]);
-    expect(top).toBeNull();
-    expect(rest).toEqual([]);
-  });
-});
-
-describe("captureCwds", () => {
-  it("zips pane ids against the info map, null when unknown", () => {
-    const infoByPane = new Map<number, PaneProcessInfo>([
-      [7, { id: 7, cwd: "/tmp", process: "zsh" }],
-      [9, { id: 9, cwd: null, process: null }],
-    ]);
-    expect(captureCwds([7, 8, 9], infoByPane)).toEqual(["/tmp", null, null]);
-  });
+    it("pops null from an empty stack", () => {
+        const [top, rest] = popClosedTab([]);
+        expect(top).toBeNull();
+        expect(rest).toEqual([]);
+    });
 });

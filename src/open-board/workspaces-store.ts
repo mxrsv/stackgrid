@@ -6,7 +6,7 @@ import {
   WORKSPACES_VERSION,
   type WorkspacesData,
 } from "../lib/workspace-recents";
-import { reportPersistError } from "../presets/ui-signals";
+import { reportPersistError } from "../chrome/events";
 
 const STORE_FILE = "workspaces.json";
 const STORE_KEY = "workspaces";

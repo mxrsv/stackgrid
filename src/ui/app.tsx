@@ -19,7 +19,7 @@ import {
   boardOpen,
   editorRequest,
   saveDialogOpen,
-} from "../presets/ui-signals";
+} from "../chrome/events";
 import { OpenBoard } from "../open-board/open-board";
 import { PresetEditor } from "../presets/preset-editor";
 import {

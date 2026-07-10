@@ -10,7 +10,7 @@ import {
   type Preset,
   type PresetsData,
 } from "../lib/preset-schema";
-import { reportPersistError } from "./ui-signals";
+import { reportPersistError } from "../chrome/events";
 
 const STORE_FILE = "presets.json";
 const STORE_KEY = "presets";

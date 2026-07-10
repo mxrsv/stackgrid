@@ -3,7 +3,6 @@ import type { Settings } from "../settings/settings-schema";
 import { settings } from "../settings/settings-store";
 import {
   countLeaves,
-  expandForPane,
   leaf,
   leafIds,
   movePane,
@@ -18,14 +17,10 @@ import {
   type SerializedNode,
   type TreeNode,
 } from "../lib/split-tree";
-import {
-  nearestInDirection,
-  type FocusDirection,
-  type PaneRect,
-} from "../lib/pane-geometry";
+import { nearestInDirection, type FocusDirection, type PaneRect } from "../lib/pane-geometry";
 import { paneHeaderInfo, type PaneProcessInfo } from "../lib/process-info";
 import { shellEscapePaths } from "../lib/shell-escape";
-import { applyRatios, renderTree } from "./layout";
+import { createLayoutEngine } from "./layout-engine";
 import { createPane, type Pane, type PaneEvents } from "./pane";
 import { freshCwd } from "./pane-info";
 import { createPaneDragController, type PaneDragController } from "./pane-drag";
@@ -34,9 +29,6 @@ import { closeSearchBarForPane, openSearchBar } from "./search-bar";
 // Placeholder size at spawn — fit() after mount resizes to the real dimensions
 const INITIAL_COLS = 80;
 const INITIAL_ROWS = 24;
-
-// Minimum share the active pane gets on each split along its path (Focus Expand)
-const EXPAND_RATIO = 0.65;
 
 export interface ManagerCallbacks {
   /** Fired after any structural change (split, close, ratio commit). */
@@ -52,10 +44,7 @@ export interface TerminalManager {
    * leaves in left-to-right order (missing/null entries → $HOME). Throws when
    * any spawn fails.
    */
-  initFromLayout(
-    layout: SerializedNode,
-    cwds?: readonly (string | null)[],
-  ): Promise<void>;
+  initFromLayout(layout: SerializedNode, cwds?: readonly (string | null)[]): Promise<void>;
   show(): void;
   hide(): void;
   splitActive(dir: Direction): Promise<void>;
@@ -96,24 +85,29 @@ export interface TerminalManager {
   dispose(): void;
 }
 
-export function createTerminalManager(
-  container: HTMLElement,
-  callbacks: ManagerCallbacks,
-): TerminalManager {
+export function createTerminalManager(container: HTMLElement, callbacks: ManagerCallbacks): TerminalManager {
   const panes = new Map<number, Pane>();
   const exited = new Set<number>();
   const respawning = new Set<number>();
   let tree: TreeNode | null = null;
   let activeId: number | null = null;
-  // Zoom (tmux-style): the pane element is reparented into an overlay that
-  // covers the tab, so the flex layout underneath keeps its exact sizes and
-  // hidden panes never get resized while zoomed.
-  let zoomedId: number | null = null;
-  let zoomOverlay: HTMLElement | null = null;
 
   // Pane bar visibility is CSS-only: pane.ts always builds and populates the
   // bar (the drag ghost and anchor still read its cwd) — this class hides it.
   container.classList.toggle("pane-bar-hidden", !settings.value.showPaneBar);
+
+  const layout = createLayoutEngine(container, {
+    getPaneElement: (id) => panes.get(id)?.element,
+    mountPane: (id) => {
+      panes.get(id)?.mount();
+    },
+    fitPane: (id) => {
+      panes.get(id)?.fit();
+    },
+    focusPane: (id) => {
+      panes.get(id)?.focus();
+    },
+  });
 
   const paneEvents: PaneEvents = {
     onData(id, data) {
@@ -165,93 +159,39 @@ export function createTerminalManager(
     return tree !== null && panes.has(id) && leafIds(tree).includes(id);
   }
 
-  /** Tree used for display: expand overlay when the mode is on, else the original. */
-  function displayTree(): TreeNode | null {
+  function overlayInput() {
     if (!tree) {
       return null;
     }
-    if (!settings.value.focusExpand || panes.size <= 1 || activeId === null) {
-      return tree;
-    }
-    return expandForPane(tree, activeId, EXPAND_RATIO);
-  }
-
-  function unzoom(): void {
-    if (zoomedId === null) {
-      return;
-    }
-    const pane = panes.get(zoomedId);
-    const slot = container.querySelector<HTMLElement>(
-      `.pane-slot[data-pane-id="${zoomedId}"]`,
-    );
-    if (pane && slot) {
-      slot.appendChild(pane.element);
-    }
-    zoomOverlay?.remove();
-    zoomOverlay = null;
-    container.classList.remove("is-zoomed");
-    const restored = zoomedId;
-    zoomedId = null;
-    panes.get(restored)?.fit();
-  }
-
-  function toggleZoom(): void {
-    if (zoomedId !== null) {
-      unzoom();
-      focusActivePane();
-      return;
-    }
-    if (activeId === null || panes.size <= 1) {
-      return;
-    }
-    const pane = panes.get(activeId);
-    if (!pane) {
-      return;
-    }
-    zoomOverlay = document.createElement("div");
-    zoomOverlay.className = "zoom-overlay";
-    zoomOverlay.appendChild(pane.element);
-    container.appendChild(zoomOverlay);
-    container.classList.add("is-zoomed");
-    zoomedId = activeId;
-    pane.fit();
-    pane.focus();
-  }
-
-  function focusActivePane(): void {
-    if (activeId !== null) {
-      panes.get(activeId)?.focus();
-    }
+    return {
+      tree,
+      activeId,
+      paneCount: panes.size,
+      focusExpand: settings.value.focusExpand,
+    };
   }
 
   function render(): void {
     if (!tree) {
       return;
     }
-    // renderTree re-slots every pane element — a live zoom overlay would be
-    // left covering the tab while its pane is stolen back into the tree.
-    unzoom();
-    container.classList.toggle("has-multiple-panes", panes.size > 1);
-    // Build from the ORIGINAL tree so dividers capture original ratios as
-    // their commit baseline (onUp fires even on a click without dragging).
-    renderTree(container, tree, {
-      getPaneElement: (id) => panes.get(id)?.element,
-      isActive: (id) => id === activeId,
-      highlightActive: panes.size > 1,
+    layout.sync({
+      tree,
+      activeId,
+      paneCount: panes.size,
+      focusExpand: settings.value.focusExpand,
       onRatioCommit(path, ratio) {
-        if (tree) {
-          tree = setRatio(tree, path, ratio);
-          // Re-apply the expand overlay on top of the new committed ratio
-          applyRatios(container, displayTree());
-          callbacks.onLayoutChange();
+        if (!tree) {
+          return;
         }
+        tree = setRatio(tree, path, ratio);
+        const overlay = overlayInput();
+        if (overlay) {
+          layout.refreshOverlay(overlay);
+        }
+        callbacks.onLayoutChange();
       },
     });
-    for (const id of leafIds(tree)) {
-      panes.get(id)?.mount();
-    }
-    // Overlay the expand ratios without rebuilding (animates via CSS)
-    applyRatios(container, displayTree());
   }
 
   function setActive(id: number): void {
@@ -259,21 +199,13 @@ export function createTerminalManager(
       return;
     }
     // Moving focus while zoomed restores the layout (tmux behavior)
-    if (zoomedId !== null && zoomedId !== id) {
-      unzoom();
+    if (layout.zoomedId() !== null && layout.zoomedId() !== id) {
+      layout.unzoom();
     }
     activeId = id;
-    updateActiveClasses();
-    applyRatios(container, displayTree());
-  }
-
-  function updateActiveClasses(): void {
-    const highlight = panes.size > 1;
-    for (const slot of container.querySelectorAll<HTMLElement>(".pane-slot")) {
-      slot.classList.toggle(
-        "is-active",
-        highlight && Number(slot.dataset.paneId) === activeId,
-      );
+    const overlay = overlayInput();
+    if (overlay) {
+      layout.refreshOverlay(overlay);
     }
   }
 
@@ -288,9 +220,7 @@ export function createTerminalManager(
       return;
     }
     exited.add(id);
-    pane.writeln(
-      "\r\n\x1b[33m[Session ended — press Enter to start a new one]\x1b[0m",
-    );
+    pane.writeln("\r\n\x1b[33m[Session ended — press Enter to start a new one]\x1b[0m");
   }
 
   async function respawn(oldId: number): Promise<void> {
@@ -394,9 +324,7 @@ export function createTerminalManager(
       pane.focus();
       callbacks.onLayoutChange();
     } catch (err) {
-      panes
-        .get(targetId)
-        ?.writeln(`\r\n\x1b[31mFailed to open new pane: ${err}\x1b[0m`);
+      panes.get(targetId)?.writeln(`\r\n\x1b[31mFailed to open new pane: ${err}\x1b[0m`);
     }
   }
 
@@ -448,11 +376,8 @@ export function createTerminalManager(
     pane.focus();
   }
 
-  async function initFromLayout(
-    layout: SerializedNode,
-    cwds: readonly (string | null)[] = [],
-  ): Promise<void> {
-    const total = countLeaves(layout);
+  async function initFromLayout(layoutNode: SerializedNode, cwds: readonly (string | null)[] = []): Promise<void> {
+    const total = countLeaves(layoutNode);
     const spawned: Pane[] = [];
     try {
       for (let i = 0; i < total; i += 1) {
@@ -465,7 +390,7 @@ export function createTerminalManager(
       throw err;
     }
     tree = treeFromLayout(
-      layout,
+      layoutNode,
       spawned.map((pane) => pane.id),
     );
     activeId = spawned[0]?.id ?? null;
@@ -484,16 +409,14 @@ export function createTerminalManager(
   }
 
   function clearDropTargets(): void {
-    for (const slot of container.querySelectorAll<HTMLElement>(
-      ".pane-slot.is-drop-target",
-    )) {
+    for (const slot of container.querySelectorAll<HTMLElement>(".pane-slot.is-drop-target")) {
       slot.classList.remove("is-drop-target");
     }
   }
 
   function fileDragOver(x: number, y: number): void {
     clearDropTargets();
-    if (zoomedId !== null) {
+    if (layout.zoomedId() !== null) {
       return; // overlay covers the slots — the drop always hits the zoomed pane
     }
     slotAt(x, y)?.classList.add("is-drop-target");
@@ -507,7 +430,7 @@ export function createTerminalManager(
     clearDropTargets();
     // While zoomed the overlay covers every slot — the drop belongs to the
     // zoomed pane, not whatever slot happens to sit underneath the cursor.
-    const id = zoomedId ?? Number(slotAt(x, y)?.dataset.paneId ?? NaN);
+    const id = layout.zoomedId() ?? Number(slotAt(x, y)?.dataset.paneId ?? NaN);
     if (Number.isNaN(id)) {
       return; // dropped outside every pane (tab bar / status bar) — ignore
     }
@@ -567,7 +490,9 @@ export function createTerminalManager(
     },
     cycleFocus,
     focusDirection,
-    toggleZoom,
+    toggleZoom() {
+      layout.toggleZoom(activeId, panes.size);
+    },
     focusActive() {
       if (activeId !== null) {
         panes.get(activeId)?.focus();
@@ -591,9 +516,12 @@ export function createTerminalManager(
       for (const pane of panes.values()) {
         pane.applySettings(next);
       }
-      // Idempotent: mode off → displayTree() is the original tree, so this
-      // also restores the original layout when the toggle turns off.
-      applyRatios(container, displayTree());
+      // Idempotent: mode off → display tree is the original, so this also
+      // restores the original layout when the toggle turns off.
+      const overlay = overlayInput();
+      if (overlay) {
+        layout.refreshOverlay({ ...overlay, focusExpand: next.focusExpand });
+      }
     },
     serializeLayout() {
       return tree === null ? null : serializeTree(tree);
@@ -629,6 +557,7 @@ export function createTerminalManager(
     fileDrop,
     dispose() {
       paneDrag.dispose();
+      layout.unzoom();
       for (const pane of panes.values()) {
         invoke("kill_pty", { id: pane.id }).catch(() => {
           // Session already gone — ignore

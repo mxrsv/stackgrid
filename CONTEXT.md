@@ -25,7 +25,7 @@ The pane that currently receives keyboard input and shortcut actions within a ta
 _Avoid_: Active pane, selected pane, cursor pane
 
 **Layout**:
-The split-tree structure of panes within a tab: nested row/column splits, each with a size ratio. Preserved across session restore and closed-tab reopen; only pane IDs and PTY sessions are recreated fresh.
+The split-tree structure of panes within a tab: nested row/column splits, each with a size ratio. Preserved across session restore and closed-tab reopen; only pane IDs and PTY sessions are recreated fresh. On screen, a LayoutEngine maps the structural tree to the flex DOM (Focus Expand overlay, zoom, dividers) without changing what a Layout is.
 _Avoid_: Grid, arrangement, split count
 
 **Busy**:
@@ -39,6 +39,10 @@ _Avoid_: Directory, path, folder
 **Buffer**:
 The scrollback history above the current prompt line in a pane. Clearing the buffer (Cmd+K) drops scrollback but keeps the current prompt line; the action is destructive with no undo.
 _Avoid_: Screen, viewport, terminal output
+
+**Materialize**:
+Turning a Layout (plus optional per-pane CWDs) into a live Tab with fresh shells. Used by Open board confirm, Session restore (CWDs omitted → `$HOME`), Closed tab reopen, and Layout preset create. CWD policy is explicit: fresh, polled, none, or caller-given.
+_Avoid_: Restore, open, spawn (alone)
 
 **Closed tab snapshot**:
 An in-memory record captured when a tab closes: split layout, per-pane CWDs, tab name, and dot color. Reopening (Cmd+Shift+T) restores layout and spawns fresh shells at saved CWDs; scrollback and running processes are not restored. Max 10 entries, not persisted across restarts.

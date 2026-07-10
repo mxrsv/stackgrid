@@ -1,4 +1,5 @@
 mod agents;
+mod coordinator;
 mod info;
 mod menu;
 mod pty;
@@ -24,6 +25,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(pty::PtyState::default())
+        .manage(coordinator::WindowCoordinator::default())
         .manage(QuitState::default())
         .setup(|app| {
             menu::install(app)?;
@@ -34,6 +36,7 @@ pub fn run() {
             pty::write_pty,
             pty::resize_pty,
             pty::kill_pty,
+            coordinator::move_pane_ownership,
             info::pty_info,
             info::git_branch,
             agents::detect_agents,

@@ -1,3 +1,4 @@
+use crate::coordinator::{emit_to_owner, WindowCoordinator};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use std::{
     collections::HashMap,
@@ -8,7 +9,7 @@ use std::{
     },
     thread,
 };
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 pub const EVENT_OUTPUT: &str = "pty:output";
 pub const EVENT_EXIT: &str = "pty:exit";
@@ -97,8 +98,10 @@ fn resolve_spawn_cwd(cwd: Option<String>) -> Option<String> {
 
 #[tauri::command]
 pub fn spawn_shell(
+    window: WebviewWindow,
     app: AppHandle,
-    state: State<PtyState>,
+    state: State<'_, PtyState>,
+    coordinator: State<'_, WindowCoordinator>,
     cols: u16,
     rows: u16,
     cwd: Option<String>,
@@ -145,6 +148,8 @@ pub fn spawn_shell(
             },
         );
     }
+    // Ownership seam: pane stays tied to the spawning window until Move to window.
+    coordinator.register(id, window.label().to_string());
 
     let output_app = app.clone();
     thread::spawn(move || {
@@ -163,22 +168,42 @@ pub fn spawn_shell(
                     if data.is_empty() {
                         continue;
                     }
-                    if output_app
-                        .emit(EVENT_OUTPUT, OutputPayload { id, data })
-                        .is_err()
-                    {
-                        break;
-                    }
+                    let coordinator = output_app.state::<WindowCoordinator>();
+                    emit_to_owner(
+                        &output_app,
+                        &coordinator,
+                        id,
+                        EVENT_OUTPUT,
+                        OutputPayload { id, data },
+                    );
                 }
             }
         }
         // Stream ended mid-sequence — flush whatever is left, lossily.
         if !pending.is_empty() {
             let data = String::from_utf8_lossy(&pending).to_string();
-            let _ = output_app.emit(EVENT_OUTPUT, OutputPayload { id, data });
+            let coordinator = output_app.state::<WindowCoordinator>();
+            emit_to_owner(
+                &output_app,
+                &coordinator,
+                id,
+                EVENT_OUTPUT,
+                OutputPayload { id, data },
+            );
         }
         remove_session(&output_app, id);
-        let _ = output_app.emit(EVENT_EXIT, ExitPayload { id });
+        {
+            let coordinator = output_app.state::<WindowCoordinator>();
+            // Emit exit while ownership is still known, then clear the map.
+            emit_to_owner(
+                &output_app,
+                &coordinator,
+                id,
+                EVENT_EXIT,
+                ExitPayload { id },
+            );
+            coordinator.unregister(id);
+        }
     });
 
     thread::spawn(move || {
@@ -220,11 +245,16 @@ pub fn resize_pty(state: State<PtyState>, id: u32, cols: u16, rows: u16) -> Resu
 }
 
 #[tauri::command]
-pub fn kill_pty(state: State<PtyState>, id: u32) -> Result<(), String> {
+pub fn kill_pty(
+    state: State<'_, PtyState>,
+    coordinator: State<'_, WindowCoordinator>,
+    id: u32,
+) -> Result<(), String> {
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
     if let Some(mut session) = sessions.remove(&id) {
         let _ = session.killer.kill();
     }
+    coordinator.unregister(id);
     Ok(())
 }
 
