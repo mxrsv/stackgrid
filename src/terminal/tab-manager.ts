@@ -12,6 +12,7 @@ import { createTerminalManager, type TerminalManager } from "./terminal-manager"
 import { popClosedTab, pushClosedTab, type ClosedTabSnapshot } from "./closed-tabs";
 import { confirmClose } from "./close-guard";
 import { createCloseCoordinator } from "./close-coordinator";
+import { activeAfterClose } from "./tab-close";
 import { freshCwd } from "./pane-info";
 import { buildClosedTabSnapshot, buildSessionData, capturePresetLayout, resolvePaneCwds } from "./tab-materialize";
 import { activeTabIndex, applyTabOverride, statusInfo, tabViews, type TabOverride } from "./tabs-store";
@@ -274,7 +275,9 @@ export function createTabManager(host: HTMLElement): TabManager {
     if (!entry) {
       return;
     }
-    // Snapshot BEFORE dispose — fresh CWDs (same policy as Layout preset)
+    // Snapshot BEFORE dispose — fresh CWDs (same policy as Layout preset).
+    // The fresh pty_info is an IPC await, so resolve it before touching any
+    // tab state; the positional index can go stale across it (rapid Cmd+W).
     const layout = entry.manager.serializeLayout();
     if (layout !== null) {
       const override = overrides.get(entry.key);
@@ -289,9 +292,16 @@ export function createTabManager(host: HTMLElement): TabManager {
         }),
       );
     }
-    const closingActive = index === active;
+    // Re-derive position from the captured entry: a concurrent close during
+    // the await above may have removed/shifted it. -1 → already disposed.
+    const removeAt = tabs.indexOf(entry);
+    if (removeAt === -1) {
+      return;
+    }
+    const closingActive = removeAt === active;
+    const countBefore = tabs.length;
     entry.manager.dispose();
-    tabs.splice(index, 1);
+    tabs.splice(removeAt, 1);
     overrides.delete(entry.key);
     prunePending(allPaneIds());
     if (tabs.length === 0) {
@@ -301,12 +311,7 @@ export function createTabManager(host: HTMLElement): TabManager {
       await invoke("confirm_quit");
       return;
     }
-    if (index < active) {
-      active -= 1;
-    }
-    if (active >= tabs.length) {
-      active = tabs.length - 1;
-    }
+    active = activeAfterClose(removeAt, active, countBefore);
     if (closingActive) {
       tabs[active].manager.show();
     }
