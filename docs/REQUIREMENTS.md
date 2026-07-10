@@ -1,19 +1,14 @@
 ---
-frozen: true
-hash: dda551b9e792226d9662244835af4ed76e148bb49e60128261fc4264a739b707
-from_hash:
-  PRINCIPLES: a06e3bee0cac7feb7d51244c8d46960f939f90f54fbd4c793ae2f6abd412f401
-  PRD: 1d1b4c0c4dc5455d87bd348fa635f33d2c331cc363fd1d6abb8bb18be2c912a8
-  BUSINESS-FLOW: 5830f27c0db628695ed4f2359e04f5cb955d6d2812b5c97e881e3f4089235abb
-  ARCHITECTURE: 8ec703e3eb57216edb5446edfa5309480791400c937f3d597da3bfe6373639fc
-  UX-DESIGN: e5ff0dcfe278b0ef3de3c50aa55fadccd09673abc68d567e6c764c92563135e0
+derived: true
+derived_from: [0001, 0002, 0003, 0010, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0020, 0021, 0022, 0023]
+rendered: 2026-07-10
 version: 1
 ---
 
 # REQUIREMENTS — Stackgrid
 
 Atomic functional (FR) and non-functional (NFR) requirements for v1, distilled from the
-frozen upstream contract: `PRINCIPLES.md`, `PRD.md`, `BUSINESS-FLOW.md`,
+active ADR set, rendered into the upstream docs: `PRINCIPLES.md`, `PRD.md`, `BUSINESS-FLOW.md`,
 `ARCHITECTURE.md`, `UX-DESIGN.md`. This is the terminal artifact of the docs pipeline
 and the input contract for planning — `superpowers:writing-plans` owns all FR→task
 decomposition; this document plans nothing.
@@ -615,7 +610,7 @@ Refs: ARCH §1, D7.
 The v1 gap work must not degrade the shipped foundation.
 
 - AC-1: Focus (cycle + directional), split, drag-dock rearrange, divider resize, focus-expand, zoom, tab bar, settings, themes, Cmd+F search, file-drop → PTY, git branch in status bar, agent/busy chrome, and busy/quit guards keep working as shipped.
-- AC-2: Session chrome restore semantics remain layout-chrome-only (ADR adr/0001 stays in force).
+- AC-2: Session chrome restore semantics remain layout-chrome-only (ADR 0010 stays in force).
 
 Refs: PRD Brownfield note · ARCH §2, §11.
 
@@ -704,6 +699,6 @@ D7 → FR-043, FR-053, NFR-007 · D8 → FR-042.
 
 ## Handoff note
 
-- This contract is the terminal artifact of the docs pipeline; `requirements_version: 1`.
-- No upstream doc is `stale-deferred` — the handoff to `superpowers:writing-plans` carries no staleness warnings.
+- This contract is the terminal artifact of the docs pipeline; `version: 1` (v2 ADR-derived render — same v1 requirements, now traced to the active ADR set).
+- REQUIREMENTS renders from the active ADR set (frontmatter `derived_from`) — the handoff to `superpowers:writing-plans` carries no staleness warnings.
 - UX-DESIGN §8 defaults (last-used preset preselect, picker number hints, sidebar Preview default, swap affordances, move popover, CRUD placement) are folded into the FRs above as stated defaults; none are load-bearing for the architecture and each can change without reshaping a surface.

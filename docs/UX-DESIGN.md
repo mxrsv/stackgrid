@@ -1,10 +1,7 @@
 ---
-frozen: true
-hash: e5ff0dcfe278b0ef3de3c50aa55fadccd09673abc68d567e6c764c92563135e0
-from_hash:
-  PRINCIPLES: a06e3bee0cac7feb7d51244c8d46960f939f90f54fbd4c793ae2f6abd412f401
-  PRD: 1d1b4c0c4dc5455d87bd348fa635f33d2c331cc363fd1d6abb8bb18be2c912a8
-  BUSINESS-FLOW: 5830f27c0db628695ed4f2359e04f5cb955d6d2812b5c97e881e3f4089235abb
+derived: true
+derived_from: [0006, 0013, 0014, 0015, 0016, 0017, 0026]
+rendered: 2026-07-10
 ---
 
 # UX-DESIGN — Stackgrid
@@ -408,6 +405,6 @@ Edge cases:
 6. **Preset CRUD placement** → rename/delete on Open board cards; save-from-live and
    new-preset entries in the Window menu (`⌘⇧S` / board card).
 
-These were set as least-surprise defaults during prototype review (4–6 during the
-requirements-phase reconcile); none are load-bearing for the architecture and each can
-change without reshaping a surface.
+These were set as least-surprise defaults during prototype review (items 4–6 added
+later, in the requirements phase); none are load-bearing for the architecture and each
+can change without reshaping a surface.
