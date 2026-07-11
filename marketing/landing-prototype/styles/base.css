@@ -1,6 +1,10 @@
 :root {
   font-family:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
     sans-serif;
   color: #171717;
   background: #f4f4f4;
@@ -22,41 +26,4 @@ button {
 
 #specimen-root {
   min-height: 100vh;
-}
-
-.direction-stub {
-  display: grid;
-  min-height: 100vh;
-  place-content: center;
-  gap: 1rem;
-  padding: 5rem 1.5rem 8rem;
-  text-align: center;
-}
-
-.direction-stub > * {
-  max-width: 52rem;
-  margin: 0;
-}
-
-.direction-stub__eyebrow,
-.direction-stub__status {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-.direction-stub__status {
-  justify-self: center;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid currentColor;
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
 }

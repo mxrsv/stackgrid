@@ -1,3 +1,4 @@
+import { mountHeroMotion } from "../hero-motion.js";
 import { agentPanes, sequenceSteps } from "../product-stage.js";
 
 function renderPane(pane, paneIndex, sampleSessionLabel) {
@@ -36,11 +37,9 @@ function renderPane(pane, paneIndex, sampleSessionLabel) {
   `;
 }
 
-export function renderDirectionA(copy) {
+export function renderDirectionA(copy, locale) {
   const panes = agentPanes
-    .map((pane, index) =>
-      renderPane(pane, index, copy.sampleSessionLabel),
-    )
+    .map((pane, index) => renderPane(pane, index, copy.sampleSessionLabel))
     .join("");
   const sequence = sequenceSteps
     .map(
@@ -55,7 +54,8 @@ export function renderDirectionA(copy) {
 
   return {
     markup: `
-      <section class="direction-a">
+      <section class="direction-a" data-hero-motion="stream">
+        <div class="a-motion" data-motion="stream" aria-hidden="true"></div>
         <aside class="a-rail" aria-label="${copy.navProduct} status">
           <a class="a-rail__mark" href="/landing-prototype/?direction=A" aria-label="${copy.navProduct}">
             <span class="a-mark-grid" aria-hidden="true">
@@ -80,6 +80,11 @@ export function renderDirectionA(copy) {
               <strong>${copy.navProduct}</strong>
             </a>
             <span class="a-topbar__descriptor">Native macOS / PTY field</span>
+            <div class="a-topbar__lang" role="group" aria-label="${copy.localeLabel}">
+              <button type="button" data-locale="en" aria-pressed="${locale === "en"}">EN</button>
+              <span aria-hidden="true">/</span>
+              <button type="button" data-locale="vi" aria-pressed="${locale === "vi"}">VI</button>
+            </div>
             <a
               class="a-topbar__github"
               href="https://github.com/mxrsv/stackgrid"
@@ -146,7 +151,11 @@ export function renderDirectionA(copy) {
 
       document.documentElement.dataset.directionTreatment = "a";
 
+      const disposeMotion = mountHeroMotion(section.querySelector(".a-motion"));
+
       return () => {
+        disposeMotion();
+
         if (document.documentElement.dataset.directionTreatment === "a") {
           delete document.documentElement.dataset.directionTreatment;
         }
