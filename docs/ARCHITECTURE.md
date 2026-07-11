@@ -7,7 +7,7 @@ rendered: 2026-07-10
 
 # ARCHITECTURE — Stackgrid
 
-Single source of truth for the current and v1 target architecture. Rendered from the active ADR set (principles + product + architecture decisions) and a brownfield scan of the shipped codebase. English-only.
+Derived view of the current and v1 target architecture. Rendered from the active ADR set (principles + product + architecture decisions) and a brownfield scan of the shipped codebase. English-only.
 
 ## 1. Stack
 
