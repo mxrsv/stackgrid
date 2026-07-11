@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "prototype:landing": "vite marketing --host 127.0.0.1 --port 5173 --strictPort --open /landing-prototype/",
     "test": "vitest run",
     "tauri": "tauri"
   },
