@@ -53,7 +53,7 @@ interface TabEntry {
   readonly manager: TerminalManager;
 }
 
-/** Owns all tabs: routing, keyboard, persistence and (later) info polling. */
+/** Owns all tabs: routing, keyboard, persistence; info polling lives in PaneInfoPoller. */
 export interface TabManager {
   /** Init listeners + optional session restore; hasTabs=false → show the Open board. */
   init(): Promise<{ hasTabs: boolean }>;
@@ -140,7 +140,7 @@ export function createTabManager(
   function syncViews(): void {
     tabViews.value = tabs.map((tab) => {
       const paneId = tab.manager.activePaneId();
-      const info = paneId === null ? undefined : infoByPane.get(paneId);
+      const info = paneId === null ? undefined : poller.infoFor(paneId);
       return applyTabOverride(
         {
           key: tab.key,
@@ -154,10 +154,10 @@ export function createTabManager(
     activeTabIndex.value = active;
     const manager = activeManager();
     const paneId = manager?.activePaneId() ?? null;
-    const info = paneId === null ? undefined : infoByPane.get(paneId);
+    const info = paneId === null ? undefined : poller.infoFor(paneId);
     const process = info?.process ?? null;
     statusInfo.value = {
-      branch,
+      branch: poller.branch(),
       cwd: info?.cwd ?? null,
       agent: isAgent(process) ? process : null,
       paneCount: manager?.paneCount() ?? 0,
@@ -186,7 +186,7 @@ export function createTabManager(
     container.className = "tab-stage";
     container.style.display = "none";
     host.appendChild(container);
-    const manager = createTerminalManager(container, callbacks, pty);
+    const manager = createTerminalManager(container, callbacks, pty, deps);
     try {
       if (layout === null) {
         await manager.initFresh(cwds[0] ?? null);
@@ -260,8 +260,8 @@ export function createTabManager(
     }
     selectTab(tabs.length - 1);
     if (activate.pollAndAgentPick) {
-      void poll();
-      void beginAgentPick(tabs[tabs.length - 1].manager.paneIds());
+      void poller.poll();
+      void beginAgentPick(tabs[tabs.length - 1].manager.paneIds(), pty);
     }
     return true;
   }
@@ -399,52 +399,15 @@ export function createTabManager(
     return [...ids];
   }
 
-  async function updateBranch(): Promise<void> {
-    const paneId = activeManager()?.activePaneId() ?? null;
-    const cwd = paneId === null ? null : (infoByPane.get(paneId)?.cwd ?? null);
-    if (cwd === lastBranchCwd) {
-      return; // unchanged since the last poll — skip the git call
-    }
-    if (cwd === null) {
-      lastBranchCwd = null;
-      branch = null;
-      return;
-    }
-    try {
-      branch = await pty.gitBranch(cwd);
-      lastBranchCwd = cwd;
-    } catch (err) {
-      if (!pollWarned) {
-        console.warn("git_branch failed:", err);
-        pollWarned = true;
-      }
-    }
-  }
-
-  async function poll(): Promise<void> {
-    const ids = pollTargets();
-    if (ids.length === 0) {
-      return;
-    }
-    let infos: PaneProcessInfo[];
-    try {
-      infos = await pty.ptyInfo(ids);
-      pollWarned = false;
-    } catch (err) {
-      // Keep the last known values; warn once, never break the loop
-      if (!pollWarned) {
-        console.warn("pty_info failed:", err);
-        pollWarned = true;
-      }
-      return;
-    }
-    for (const info of infos) {
-      infoByPane.set(info.id, info);
-    }
-    activeManager()?.updatePaneInfo(infos, home);
-    await updateBranch();
-    syncViews();
-  }
+  const poller = createPaneInfoPoller({
+    pty,
+    targets: pollTargets,
+    activePaneId: () => activeManager()?.activePaneId() ?? null,
+    onUpdate(infos) {
+      activeManager()?.updatePaneInfo(infos, home);
+      syncViews();
+    },
+  });
 
   function cycleTab(step: 1 | -1): void {
     if (tabs.length < 2) {
@@ -626,7 +589,7 @@ export function createTabManager(
         }
       }
     }
-    pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
+    poller.start();
     if (tabs.length === 0) {
       // No restorable session — the App shows the Open board (FR-001)
       syncViews();
@@ -635,9 +598,9 @@ export function createTabManager(
     selectTab(
       session === null ? 0 : Math.min(session.activeTab, tabs.length - 1),
     );
-    void poll();
+    void poller.poll();
     // Restore never skips the one-shot picker (FR-021 AC-3)
-    void beginAgentPick(allPaneIds());
+    void beginAgentPick(allPaneIds(), pty);
     return { hasTabs: true };
   }
 
@@ -671,9 +634,7 @@ export function createTabManager(
     },
     dispose() {
       disposed = true;
-      if (pollTimer !== null) {
-        clearInterval(pollTimer);
-      }
+      poller.stop();
       window.removeEventListener("keydown", handleShortcut, true);
       for (const unlisten of unlisteners) {
         unlisten();

@@ -1,0 +1,190 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PaneProcessInfo } from "../lib/process-info";
+import { createPaneInfoPoller } from "./pane-info-poller";
+
+function info(
+  id: number,
+  cwd: string | null,
+  process: string | null = "zsh",
+): PaneProcessInfo {
+  return { id, cwd, process };
+}
+
+describe("createPaneInfoPoller", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("caches infos, fetches the branch and fires onUpdate", async () => {
+    const gitBranch = vi.fn().mockResolvedValue("main");
+    const onUpdate = vi.fn();
+    const poller = createPaneInfoPoller({
+      pty: { ptyInfo: async () => [info(1, "/repo")], gitBranch },
+      targets: () => [1],
+      activePaneId: () => 1,
+      onUpdate,
+    });
+
+    await poller.poll();
+
+    expect(poller.infoFor(1)?.cwd).toBe("/repo");
+    expect(poller.branch()).toBe("main");
+    expect(onUpdate).toHaveBeenCalledWith([info(1, "/repo")]);
+  });
+
+  it("skips the git call when the focused pane's CWD is unchanged", async () => {
+    const gitBranch = vi.fn().mockResolvedValue("main");
+    const poller = createPaneInfoPoller({
+      pty: { ptyInfo: async () => [info(1, "/repo")], gitBranch },
+      targets: () => [1],
+      activePaneId: () => 1,
+      onUpdate: () => {},
+    });
+
+    await poller.poll();
+    await poller.poll();
+
+    expect(gitBranch).toHaveBeenCalledTimes(1);
+  });
+
+  it("degrades on pty_info failure: keeps last-known info, warns once, no onUpdate", async () => {
+    let fail = false;
+    const onUpdate = vi.fn();
+    const poller = createPaneInfoPoller({
+      pty: {
+        async ptyInfo() {
+          if (fail) {
+            throw new Error("ipc down");
+          }
+          return [info(1, "/repo")];
+        },
+        gitBranch: async () => "main",
+      },
+      targets: () => [1],
+      activePaneId: () => 1,
+      onUpdate,
+    });
+
+    await poller.poll();
+    fail = true;
+    await poller.poll();
+    await poller.poll();
+
+    expect(poller.infoFor(1)?.cwd).toBe("/repo"); // last known survives
+    expect(poller.branch()).toBe("main");
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledTimes(1); // warn-once
+  });
+
+  it("warns again after a recovery (warn flag resets on success)", async () => {
+    let fail = true;
+    const poller = createPaneInfoPoller({
+      pty: {
+        async ptyInfo() {
+          if (fail) {
+            throw new Error("ipc down");
+          }
+          return [info(1, "/repo")];
+        },
+        gitBranch: async () => null,
+      },
+      targets: () => [1],
+      activePaneId: () => null,
+      onUpdate: () => {},
+    });
+
+    await poller.poll(); // warns
+    fail = false;
+    await poller.poll(); // recovers, resets flag
+    fail = true;
+    await poller.poll(); // warns again
+
+    expect(console.warn).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the last branch when git_branch fails, then retries next poll", async () => {
+    let fail = false;
+    const gitBranch = vi.fn().mockImplementation(async () => {
+      if (fail) {
+        throw new Error("git gone");
+      }
+      return "main";
+    });
+    let cwd = "/repo";
+    const poller = createPaneInfoPoller({
+      pty: { ptyInfo: async () => [info(1, cwd)], gitBranch },
+      targets: () => [1],
+      activePaneId: () => 1,
+      onUpdate: () => {},
+    });
+
+    await poller.poll();
+    cwd = "/other";
+    fail = true;
+    await poller.poll();
+    expect(poller.branch()).toBe("main"); // last known survives the failure
+
+    fail = false;
+    await poller.poll(); // CWD still differs from lastBranchCwd → retried
+    expect(gitBranch).toHaveBeenCalledTimes(3);
+  });
+
+  it("clears the branch when no pane is focused", async () => {
+    let paneId: number | null = 1;
+    const poller = createPaneInfoPoller({
+      pty: {
+        ptyInfo: async () => [info(1, "/repo")],
+        gitBranch: async () => "main",
+      },
+      targets: () => [1],
+      activePaneId: () => paneId,
+      onUpdate: () => {},
+    });
+
+    await poller.poll();
+    expect(poller.branch()).toBe("main");
+
+    paneId = null;
+    await poller.poll();
+    expect(poller.branch()).toBeNull();
+  });
+
+  it("does nothing when there are no targets", async () => {
+    const ptyInfo = vi.fn();
+    const poller = createPaneInfoPoller({
+      pty: { ptyInfo, gitBranch: async () => null },
+      targets: () => [],
+      activePaneId: () => null,
+      onUpdate: () => {},
+    });
+
+    await poller.poll();
+
+    expect(ptyInfo).not.toHaveBeenCalled();
+  });
+
+  it("polls on the interval after start() and stops on stop()", async () => {
+    vi.useFakeTimers();
+    const ptyInfo = vi.fn().mockResolvedValue([info(1, "/repo")]);
+    const poller = createPaneInfoPoller({
+      pty: { ptyInfo, gitBranch: async () => null },
+      targets: () => [1],
+      activePaneId: () => null,
+      onUpdate: () => {},
+      intervalMs: 100,
+    });
+
+    poller.start();
+    poller.start(); // idempotent — no second timer
+    await vi.advanceTimersByTimeAsync(250);
+    expect(ptyInfo).toHaveBeenCalledTimes(2);
+
+    poller.stop();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(ptyInfo).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+});
