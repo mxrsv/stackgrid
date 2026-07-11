@@ -1,0 +1,89 @@
+.review-switcher {
+  position: fixed;
+  z-index: 10000;
+  right: 1rem;
+  bottom: 1rem;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "marker marker locale"
+    "previous current next"
+    "directions directions directions";
+  gap: 0.5rem;
+  align-items: center;
+  min-width: min(22rem, calc(100vw - 2rem));
+  padding: 0.75rem;
+  color: #fff;
+  background: #111;
+  border: 1px solid #404040;
+  border-radius: 0.75rem;
+  box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 30%);
+  font: 0.75rem/1.2 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+}
+
+.review-switcher__marker {
+  grid-area: marker;
+  color: #b5b5b5;
+  font-size: 0.625rem;
+  letter-spacing: 0.12em;
+}
+
+.review-switcher__locale {
+  grid-area: locale;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+
+.review-switcher__previous {
+  grid-area: previous;
+}
+
+.review-switcher__current {
+  grid-area: current;
+  text-align: center;
+}
+
+.review-switcher__next {
+  grid-area: next;
+}
+
+.review-switcher__directions {
+  grid-area: directions;
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.review-switcher button {
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.5rem;
+  color: inherit;
+  background: transparent;
+  border: 1px solid #555;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+
+.review-switcher button:hover,
+.review-switcher button:focus-visible {
+  background: #303030;
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.review-switcher button[aria-pressed="true"],
+.review-switcher button[aria-current="true"] {
+  color: #111;
+  background: #fff;
+  border-color: #fff;
+}
+
+.review-switcher__dot {
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  padding: 0.2rem;
+  border-radius: 999px;
+}
