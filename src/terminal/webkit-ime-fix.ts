@@ -14,6 +14,15 @@ import type { Terminal } from "@xterm/xterm";
  * Vietnamese input (Telex tone marks, macOS dead-key accents) hits both
  * paths. Chromium hosts (VS Code, Electron) are unaffected, which is why the
  * fix is gated to WebKit-only webviews.
+ *
+ * Key-injecting Vietnamese IMEs (EVKey/OpenKey) also:
+ * - inject multi-char replacement text via keypress/`insertText` (including
+ *   ASCII tone-cancel strings like "os");
+ * - emit Backspaces then a replacement whose span can over-delete a leading
+ *   consonant cluster already committed via `_keyDown` (e.g. `vâ` + 2 BS +
+ *   `ấn`, or `trâ` + 3 BS + `ấn`);
+ * - deliver the trailing physical key (`n`) after the replacement, duplicating
+ *   a character already present in the injected text.
  */
 
 interface XtermCore {
@@ -27,6 +36,75 @@ interface XtermCore {
   coreService: { triggerDataEvent(data: string, wasUserInput: boolean): void };
   cancel(ev: Event, force?: boolean): boolean | undefined;
   _inputEvent(ev: InputEvent): boolean;
+}
+
+/** Tracks PTY-bound emissions so IME Backspace/replace bursts can be reconciled. */
+interface ImeEmitState {
+  recent: string[];
+  /** Chars removed by consecutive Backspaces, oldest→newest in reverse push order. */
+  deletedBurst: string[];
+  /** Trailing ASCII letter of a BS+replace inject; suppress one late keydown. */
+  suppressTrailing: string | null;
+  /** Identity for the armed suppress window; stale timeouts must not clear a newer arm. */
+  suppressTrailingToken: object | null;
+}
+
+const VIET_VOWELS = new Set(
+  [..."aáàảãạăắằẳẵặâấầẩẫậeéèẻẽẹêếềểễệiíìỉĩịoóòỏõọôốồổỗộơớờởỡợuúùủũụưứừửữựyýỳỷỹỵ"],
+);
+
+function isVietVowel(ch: string): boolean {
+  return VIET_VOWELS.has(ch.toLowerCase());
+}
+
+function isVietConsonant(ch: string): boolean {
+  return [...ch].length === 1 && /[a-zđ]/i.test(ch) && !isVietVowel(ch);
+}
+
+/**
+ * When IME Backspaces deleted a leading consonant cluster that is not
+ * represented in the replacement (PTY had `vâ`/`trâ`, IME replaced as if
+ * deleting from the vowel), restore the full onset.
+ */
+function consonantPrefixToRestore(
+  deletedOldestFirst: string,
+  replacement: string,
+): string {
+  const deleted = [...deletedOldestFirst];
+  const rep = [...replacement];
+  if (deleted.length === 0 || rep.length === 0) {
+    return "";
+  }
+  if (!isVietVowel(rep[0])) {
+    return "";
+  }
+  let i = 0;
+  while (i < deleted.length && isVietConsonant(deleted[i])) {
+    i += 1;
+  }
+  if (i === 0) {
+    return "";
+  }
+  return deleted.slice(0, i).join("");
+}
+
+function armSuppressTrailing(state: ImeEmitState, trailing: string): void {
+  state.suppressTrailing = trailing;
+  const token = {};
+  state.suppressTrailingToken = token;
+  // Expire after the current IME event burst so a later legitimate key that
+  // happens to match the trailing letter is not swallowed.
+  setTimeout(() => {
+    if (state.suppressTrailingToken === token) {
+      state.suppressTrailing = null;
+      state.suppressTrailingToken = null;
+    }
+  }, 0);
+}
+
+function clearSuppressTrailing(state: ImeEmitState): void {
+  state.suppressTrailing = null;
+  state.suppressTrailingToken = null;
 }
 
 /** True inside a WebKit webview that is not Chromium-based (WKWebView). */
@@ -50,6 +128,38 @@ function getCore(term: Terminal): XtermCore | null {
   return core;
 }
 
+function noteEmit(state: ImeEmitState, data: string): void {
+  const chars = [...data];
+  if (chars.length === 1 && chars[0] !== "\x7f") {
+    // Progressive single-char inject (â, ú, …) already paired with its BS.
+    state.deletedBurst = [];
+  }
+  for (const ch of chars) {
+    if (ch === "\x7f") {
+      const popped = state.recent.pop();
+      if (popped !== undefined) {
+        state.deletedBurst.push(popped);
+      }
+    } else {
+      state.recent.push(ch);
+      if (state.recent.length > 32) {
+        state.recent.splice(0, state.recent.length - 32);
+      }
+    }
+  }
+}
+
+function wrapTriggerDataEvent(core: XtermCore, state: ImeEmitState): void {
+  const original = core.coreService.triggerDataEvent.bind(core.coreService);
+  core.coreService.triggerDataEvent = (
+    data: string,
+    wasUserInput: boolean,
+  ): void => {
+    noteEmit(state, data);
+    original(data, wasUserInput);
+  };
+}
+
 /**
  * Replace `_inputEvent` so `insertText` input events emit whenever no
  * composition is active, instead of being gated on `_keyDownSeen` — the
@@ -57,7 +167,7 @@ function getCore(term: Terminal): XtermCore | null {
  * still dedupes against the keypress path, and events during an active or
  * finalizing composition are still ignored (CompositionHelper owns those).
  */
-function patchInputEvent(core: XtermCore): void {
+function patchInputEvent(core: XtermCore, state: ImeEmitState): void {
   core._inputEvent = (ev: InputEvent): boolean => {
     const helper = core._compositionHelper;
     const composing =
@@ -73,7 +183,25 @@ function patchInputEvent(core: XtermCore): void {
         return false;
       }
       core._unprocessedDeadKey = false;
-      core.coreService.triggerDataEvent(ev.data, true);
+      let data = ev.data;
+      if ([...ev.data].length > 1) {
+        const deletedOldestFirst = state.deletedBurst.slice().reverse().join("");
+        const hadDeleteBurst = deletedOldestFirst.length > 0;
+        const prefix = consonantPrefixToRestore(deletedOldestFirst, ev.data);
+        state.deletedBurst = [];
+        data = prefix + ev.data;
+        // Only arm trailing-key suppression for BS+replace bursts (the path
+        // that over-delivers the physical final letter). Plain multi-char
+        // injects must not leave a sticky suppress that can drop a later key.
+        if (hadDeleteBurst) {
+          const injectedChars = [...ev.data];
+          const trailing = injectedChars[injectedChars.length - 1] ?? null;
+          if (trailing !== null && /[a-zA-Z]/.test(trailing)) {
+            armSuppressTrailing(state, trailing);
+          }
+        }
+      }
+      core.coreService.triggerDataEvent(data, true);
       core.cancel(ev);
       return true;
     }
@@ -88,7 +216,7 @@ function patchInputEvent(core: XtermCore): void {
  * compositions that saw a `Dead`/`AltGraph` keydown are treated this way, so
  * layouts that type the same characters directly are unaffected.
  */
-function installDeadKeyGuard(term: Terminal): void {
+function installDeadKeyGuard(term: Terminal, state: ImeEmitState): void {
   const textarea = term.textarea;
   if (!textarea) {
     return;
@@ -134,6 +262,19 @@ function installDeadKeyGuard(term: Terminal): void {
   );
 
   term.attachCustomKeyEventHandler((ev: KeyboardEvent): boolean => {
+    if (ev.type === "keydown" && state.suppressTrailing !== null) {
+      // IME often fires insertText before the injection keydown (#5887). Do not
+      // clear suppressTrailing on that multi-char keydown or the late physical
+      // key will slip through.
+      if (ev.key === state.suppressTrailing) {
+        clearSuppressTrailing(state);
+        return false;
+      }
+      if ([...ev.key].length === 1) {
+        clearSuppressTrailing(state);
+      }
+    }
+
     if (
       ev.type === "keypress" &&
       commitPending &&
@@ -158,12 +299,21 @@ function installDeadKeyGuard(term: Terminal): void {
 }
 
 /**
- * True for key values that are injected replacement text rather than a real
- * key: more than one character and at least one beyond ASCII (named keys
- * like "Enter"/"Dead" are pure-ASCII words, real keys are length 1).
+ * True for keypress values that contain injected replacement text rather
+ * than one real printable key. WebKit Vietnamese IMEs can inject either
+ * accented text ("ối") or an ASCII fallback/tone-cancel result ("os").
+ * Named keys like "Enter"/"Dead" are excluded (PascalCase / non-lowercase).
+ * Only consulted for `keypress` events (see call site).
  */
 function isInjectedText(key: string): boolean {
-  return [...key].length > 1 && /[^\x00-\x7f]/.test(key);
+  const chars = [...key];
+  if (chars.length <= 1) {
+    return false;
+  }
+  if (/[^\x00-\x7f]/.test(key)) {
+    return true;
+  }
+  return /^[a-z]+$/.test(key);
 }
 
 /**
@@ -179,6 +329,13 @@ export function applyWebkitImeFix(term: Terminal): void {
     );
     return;
   }
-  patchInputEvent(core);
-  installDeadKeyGuard(term);
+  const state: ImeEmitState = {
+    recent: [],
+    deletedBurst: [],
+    suppressTrailing: null,
+    suppressTrailingToken: null,
+  };
+  wrapTriggerDataEvent(core, state);
+  patchInputEvent(core, state);
+  installDeadKeyGuard(term, state);
 }
