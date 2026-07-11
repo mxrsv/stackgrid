@@ -203,11 +203,8 @@ export function createTabManager(host: HTMLElement): TabManager {
   }
 
   async function newTab(): Promise<void> {
-    const cwd = await freshCwd(activeManager()?.activePaneId() ?? null);
-    if (!(await addTab(null, [cwd]))) {
-      return;
-    }
-    selectTab(tabs.length - 1);
+    // New tab goes through the Open board (workspace ∥ preset), same as cold start.
+    boardOpen.value = true;
   }
 
   /** FR-005: one tab per Open; CWDs already resolved by the caller. */

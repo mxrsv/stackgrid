@@ -9,6 +9,7 @@ import { resolveCwds, type Preset } from "../lib/preset-schema";
 import { settings, updateSettings } from "../settings/settings-store";
 import { resolveTheme } from "../settings/themes";
 import { createTabManager, type TabManager } from "../terminal/tab-manager";
+import { tabViews } from "../terminal/tabs-store";
 import {
   markLastUsed,
   presetsData,
@@ -223,7 +224,10 @@ export function App() {
       />
       <TabBar
         settingsOpen={panelOpen.value}
-        onSelectTab={(index) => tabsRef.current?.selectTab(index)}
+        onSelectTab={(index) => {
+          boardOpen.value = false;
+          tabsRef.current?.selectTab(index);
+        }}
         onCloseTab={(index) => void tabsRef.current?.closeTab(index)}
         onNewTab={() => void tabsRef.current?.newTab()}
         onSplitRow={() => void tabsRef.current?.splitActive("row")}
@@ -249,9 +253,10 @@ export function App() {
         <div class="stage__tabs" ref={stagesRef} />
         {boardOpen.value ? (
           <OpenBoard
-            canCancel={false}
+            canCancel={tabViews.value.length > 0}
             onCancel={() => {
-              // Unreachable while canCancel is false; multi-window plan enables it
+              boardOpen.value = false;
+              tabsRef.current?.focusActive();
             }}
             onOpen={(workspace, preset) => handleOpen(workspace, preset)}
             onNewPreset={(workspace) => {
