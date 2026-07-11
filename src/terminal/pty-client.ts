@@ -2,6 +2,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { PaneProcessInfo } from "../lib/process-info";
 
+/** Mirror of the Rust `AgentInfo` payload from `detect_agents`. */
+export interface DetectedAgent {
+  readonly name: string;
+  readonly path: string;
+}
+
 /** PTY + process-info seam used by TabManager / TerminalManager / close paths. */
 export interface PtyClient {
   spawnShell(opts: {
@@ -15,6 +21,8 @@ export interface PtyClient {
   /** Fresh pty_info; throws on IPC failure (poll keeps last-known on catch). */
   ptyInfo(ids: readonly number[]): Promise<PaneProcessInfo[]>;
   gitBranch(cwd: string): Promise<string | null>;
+  /** Agent CLIs found on the login shell's `$PATH` (allowlist order). */
+  detectAgents(): Promise<DetectedAgent[]>;
   confirmQuit(): Promise<void>;
   listenOutput(
     handler: (id: number, data: string) => void,
@@ -55,6 +63,9 @@ export function createTauriPtyClient(): PtyClient {
     gitBranch(cwd) {
       return invoke<string | null>("git_branch", { cwd });
     },
+    detectAgents() {
+      return invoke<DetectedAgent[]>("detect_agents");
+    },
     confirmQuit() {
       return invoke("confirm_quit");
     },
@@ -76,6 +87,7 @@ export function createMemoryPtyClient(
   options: {
     nextId?: number;
     infos?: ReadonlyMap<number, PaneProcessInfo>;
+    agents?: readonly DetectedAgent[];
   } = {},
 ): PtyClient & {
   readonly sessions: Map<number, { cwd: string | null }>;
@@ -109,6 +121,9 @@ export function createMemoryPtyClient(
     },
     async gitBranch() {
       return null;
+    },
+    async detectAgents() {
+      return [...(options.agents ?? [])];
     },
     async confirmQuit() {},
     async listenOutput(handler) {

@@ -7,14 +7,16 @@ import {
 } from "../settings/settings-schema";
 import { settings, updateSettings } from "../settings/settings-store";
 import type { Direction, SerializedNode } from "../lib/split-tree";
-import { isAgent, type PaneProcessInfo } from "../lib/process-info";
+import { isAgent } from "../lib/process-info";
 import { matchBinding, selectTabIndex } from "./keymap";
 import { loadSession, scheduleSessionSave } from "./session-persistence";
 import { installFileDrop } from "./file-drop";
 import {
   createTerminalManager,
   type TerminalManager,
+  type TerminalManagerDeps,
 } from "./terminal-manager";
+import { createPaneInfoPoller } from "./pane-info-poller";
 import {
   popClosedTab,
   pushClosedTab,
@@ -45,8 +47,6 @@ import type { TabDotColor } from "../lib/tab-colors";
 import { beginAgentPick } from "../agent-picker/agent-picker";
 import { prunePending } from "../agent-picker/picker-store";
 import { boardOpen, saveDialogOpen } from "../chrome/events";
-
-const POLL_INTERVAL_MS = 2000;
 
 interface TabEntry {
   readonly key: number;
@@ -93,10 +93,10 @@ export interface TabManager {
 export function createTabManager(
   host: HTMLElement,
   pty: PtyClient = defaultPtyClient,
+  deps: TerminalManagerDeps = {},
 ): TabManager {
   const tabs: TabEntry[] = [];
   const unlisteners: UnlistenFn[] = [];
-  const infoByPane = new Map<number, PaneProcessInfo>();
   // Per-tab user overrides (rename, dot color), keyed by tab key —
   // merged over process-derived values on every syncViews.
   const overrides = new Map<number, TabOverride>();
@@ -105,10 +105,6 @@ export function createTabManager(
   let nextKey = 1;
   let active = -1;
   let home = "";
-  let branch: string | null = null;
-  let lastBranchCwd: string | null = null;
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
-  let pollWarned = false;
   // dispose() can run while init()'s `await listen(...)` is still in flight
   // (e.g. a remount mid-init) — guards against pushing a listener into an
   // `unlisteners` array that's already been drained, which would leak it.

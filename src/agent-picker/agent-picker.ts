@@ -1,11 +1,14 @@
-import { invoke } from "@tauri-apps/api/core";
 import { effect } from "@preact/signals";
+import {
+  defaultPtyClient,
+  type DetectedAgent,
+  type PtyClient,
+} from "../terminal/pty-client";
 import {
   beginPick,
   detectedAgents,
   pendingPaneIds,
   resolvePane,
-  type DetectedAgent,
 } from "./picker-store";
 
 export interface PickerHost {
@@ -22,12 +25,13 @@ const AGENT_LABELS: Readonly<Record<string, string>> = {
 /** Detect agents through the login shell, then mark the panes pending. */
 export async function beginAgentPick(
   paneIds: readonly number[],
+  pty: PtyClient = defaultPtyClient,
 ): Promise<void> {
   if (paneIds.length === 0) {
     return;
   }
   try {
-    detectedAgents.value = await invoke<DetectedAgent[]>("detect_agents");
+    detectedAgents.value = await pty.detectAgents();
   } catch (err: unknown) {
     console.warn("detect_agents failed:", err);
     detectedAgents.value = []; // card degrades to Shell only (FR-025)
@@ -36,12 +40,10 @@ export async function beginAgentPick(
 }
 
 /** Pick = spawn the command immediately in the pane's shell (FR-022). */
-function pickAgent(id: number, agent: DetectedAgent): void {
-  invoke("write_pty", { id, data: `${agent.name}\r` }).catch(
-    (err: unknown) => {
-      console.error("write_pty failed:", err);
-    },
-  );
+function pickAgent(id: number, agent: DetectedAgent, pty: PtyClient): void {
+  pty.writePty(id, `${agent.name}\r`).catch((err: unknown) => {
+    console.error("write_pty failed:", err);
+  });
   resolvePane(id);
 }
 
@@ -55,6 +57,7 @@ interface CardOption {
 function buildCard(
   id: number,
   agents: readonly DetectedAgent[],
+  pty: PtyClient,
 ): HTMLElement {
   const overlay = document.createElement("div");
   overlay.className = "agent-picker";
@@ -76,7 +79,7 @@ function buildCard(
       hint: String(index + 1),
       label: AGENT_LABELS[agent.name] ?? agent.name,
       command: agent.name,
-      onPick: () => pickAgent(id, agent),
+      onPick: () => pickAgent(id, agent, pty),
     })),
     {
       hint: "0",
@@ -147,6 +150,7 @@ function buildCard(
  */
 export function installAgentPicker(
   getHost: () => PickerHost | null,
+  pty: PtyClient = defaultPtyClient,
 ): () => void {
   const cards = new Map<number, HTMLElement>();
   const disposeEffect = effect(() => {
@@ -171,16 +175,14 @@ export function installAgentPicker(
       if (host === null || host === undefined) {
         continue; // pane vanished — prune comes from the layout callback
       }
-      const overlay = buildCard(id, agents);
+      const overlay = buildCard(id, agents, pty);
       host.appendChild(overlay);
       cards.set(id, overlay);
       if (firstVisibleNew === null && host.offsetParent !== null) {
         firstVisibleNew = overlay;
       }
     }
-    firstVisibleNew
-      ?.querySelector<HTMLElement>(".agent-picker__card")
-      ?.focus();
+    firstVisibleNew?.querySelector<HTMLElement>(".agent-picker__card")?.focus();
   });
   return () => {
     disposeEffect();

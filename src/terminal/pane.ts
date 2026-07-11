@@ -167,6 +167,10 @@ export function createPane(
     }
   }
 
+  function write(data: string): void {
+    term.write(data);
+  }
+
   function applySettings(next: Settings): void {
     term.options.fontFamily = toFontStack(next.fontFamily);
     term.options.fontSize = next.fontSize;
@@ -198,7 +202,7 @@ export function createPane(
     element,
     search: searchAddon,
     mount,
-    write: (data) => term.write(data),
+    write,
     writeln: (line) => term.writeln(line),
     fit,
     clear: () => term.clear(),

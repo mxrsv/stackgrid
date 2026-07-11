@@ -7,6 +7,13 @@ import type { PtyClient } from "./pty-client";
 const INITIAL_COLS = 80;
 const INITIAL_ROWS = 24;
 
+/** Pane factory seam — real xterm in production, fakes in tests. */
+export type CreatePaneFn = (
+  id: number,
+  initial: Settings,
+  events: PaneEvents,
+) => Pane;
+
 export interface PaneLifecycle {
   readonly panes: Map<number, Pane>;
   readonly exited: Set<number>;
@@ -37,11 +44,7 @@ export function createPaneLifecycle(deps: {
   onWriteWhileExited: (id: number, data: string) => void;
   onFocus: (id: number) => void;
   /** Test seam — defaults to real createPane (xterm). */
-  createPane?: (
-    id: number,
-    initial: Settings,
-    events: PaneEvents,
-  ) => Pane;
+  createPane?: CreatePaneFn;
 }): PaneLifecycle {
   const panes = new Map<number, Pane>();
   const exited = new Set<number>();

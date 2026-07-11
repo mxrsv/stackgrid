@@ -15,11 +15,15 @@ import {
   type SerializedNode,
   type TreeNode,
 } from "../lib/split-tree";
-import { nearestInDirection, type FocusDirection, type PaneRect } from "../lib/pane-geometry";
+import {
+  nearestInDirection,
+  type FocusDirection,
+  type PaneRect,
+} from "../lib/pane-geometry";
 import { paneHeaderInfo, type PaneProcessInfo } from "../lib/process-info";
 import { shellEscapePaths } from "../lib/shell-escape";
 import { createLayoutEngine } from "./layout-engine";
-import { createPaneLifecycle } from "./pane-lifecycle";
+import { createPaneLifecycle, type CreatePaneFn } from "./pane-lifecycle";
 import { freshCwd } from "./pane-info";
 import { defaultPtyClient, type PtyClient } from "./pty-client";
 import { createPaneDragController, type PaneDragController } from "./pane-drag";
@@ -28,6 +32,12 @@ import { closeSearchBarForPane, openSearchBar } from "./search-bar";
 export interface ManagerCallbacks {
   /** Fired after any structural change (split, close, ratio commit). */
   onLayoutChange(): void;
+}
+
+/** Optional seams forwarded to PaneLifecycle — production uses the defaults. */
+export interface TerminalManagerDeps {
+  /** Test seam — defaults to real createPane (xterm). */
+  createPane?: CreatePaneFn;
 }
 
 /** One tab's worth of terminals: a split tree of panes sharing a container. */
@@ -39,7 +49,10 @@ export interface TerminalManager {
    * leaves in left-to-right order (missing/null entries → $HOME). Throws when
    * any spawn fails.
    */
-  initFromLayout(layout: SerializedNode, cwds?: readonly (string | null)[]): Promise<void>;
+  initFromLayout(
+    layout: SerializedNode,
+    cwds?: readonly (string | null)[],
+  ): Promise<void>;
   show(): void;
   hide(): void;
   splitActive(dir: Direction): Promise<void>;
@@ -84,6 +97,7 @@ export function createTerminalManager(
   container: HTMLElement,
   callbacks: ManagerCallbacks,
   pty: PtyClient = defaultPtyClient,
+  deps: TerminalManagerDeps = {},
 ): TerminalManager {
   let tree: TreeNode | null = null;
   let activeId: number | null = null;
@@ -95,6 +109,7 @@ export function createTerminalManager(
   const life = createPaneLifecycle({
     pty,
     getSettings: () => settings.value,
+    createPane: deps.createPane,
     onWriteWhileExited(id, data) {
       if (data === "\r") {
         void respawn(id);
@@ -179,7 +194,9 @@ export function createTerminalManager(
       return;
     }
     life.exited.add(id);
-    pane.writeln("\r\n\x1b[33m[Session ended — press Enter to start a new one]\x1b[0m");
+    pane.writeln(
+      "\r\n\x1b[33m[Session ended — press Enter to start a new one]\x1b[0m",
+    );
   }
 
   async function respawn(oldId: number): Promise<void> {
@@ -265,7 +282,9 @@ export function createTerminalManager(
       pane.focus();
       callbacks.onLayoutChange();
     } catch (err) {
-      life.panes.get(targetId)?.writeln(`\r\n\x1b[31mFailed to open new pane: ${err}\x1b[0m`);
+      life.panes
+        .get(targetId)
+        ?.writeln(`\r\n\x1b[31mFailed to open new pane: ${err}\x1b[0m`);
     }
   }
 
@@ -317,7 +336,10 @@ export function createTerminalManager(
     pane.focus();
   }
 
-  async function initFromLayout(layoutNode: SerializedNode, cwds: readonly (string | null)[] = []): Promise<void> {
+  async function initFromLayout(
+    layoutNode: SerializedNode,
+    cwds: readonly (string | null)[] = [],
+  ): Promise<void> {
     const total = countLeaves(layoutNode);
     const spawned: Awaited<ReturnType<typeof life.spawnPane>>[] = [];
     try {
@@ -350,7 +372,9 @@ export function createTerminalManager(
   }
 
   function clearDropTargets(): void {
-    for (const slot of container.querySelectorAll<HTMLElement>(".pane-slot.is-drop-target")) {
+    for (const slot of container.querySelectorAll<HTMLElement>(
+      ".pane-slot.is-drop-target",
+    )) {
       slot.classList.remove("is-drop-target");
     }
   }

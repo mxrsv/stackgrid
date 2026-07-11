@@ -1,10 +1,7 @@
 import { signal } from "@preact/signals";
+import type { DetectedAgent } from "../terminal/pty-client";
 
-/** Mirror of the Rust `AgentInfo` payload from `detect_agents`. */
-export interface DetectedAgent {
-  readonly name: string;
-  readonly path: string;
-}
+export type { DetectedAgent };
 
 /** Panes awaiting their one-shot agent pick for this materialization. */
 export const pendingPaneIds = signal<readonly number[]>([]);
@@ -21,9 +18,7 @@ export function resolvePane(id: number): void {
   if (!pendingPaneIds.value.includes(id)) {
     return;
   }
-  pendingPaneIds.value = pendingPaneIds.value.filter(
-    (paneId) => paneId !== id,
-  );
+  pendingPaneIds.value = pendingPaneIds.value.filter((paneId) => paneId !== id);
 }
 
 export function skipAll(): void {
