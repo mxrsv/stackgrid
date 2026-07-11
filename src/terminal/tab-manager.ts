@@ -8,7 +8,7 @@ import {
 import { settings, updateSettings } from "../settings/settings-store";
 import type { Direction, SerializedNode } from "../lib/split-tree";
 import { isAgent } from "../lib/process-info";
-import { matchBinding, selectTabIndex } from "./keymap";
+import { matchBinding, selectTabIndex, type ShortcutAction } from "./keymap";
 import { loadSession, scheduleSessionSave } from "./session-persistence";
 import { installFileDrop } from "./file-drop";
 import {
@@ -416,6 +416,40 @@ export function createTabManager(
     selectTab((active + step + tabs.length) % tabs.length);
   }
 
+  // Keymap *matching* lives in keymap.ts; this table is the dispatch half —
+  // one action, one closure. `select-tab-N` is handled via selectTabIndex.
+  const commands: Partial<Record<ShortcutAction, () => void>> = {
+    "split-row": () => void splitActive("row"),
+    "split-column": () => void splitActive("column"),
+    "close-pane": () => void close.closePane(),
+    "focus-next": () => activeManager()?.cycleFocus(1),
+    "focus-prev": () => activeManager()?.cycleFocus(-1),
+    "toggle-expand": () =>
+      updateSettings({ focusExpand: !settings.value.focusExpand }),
+    "new-tab": () => void newTab(),
+    "close-tab": () => void close.closeTab(active),
+    "next-tab": () => cycleTab(1),
+    "prev-tab": () => cycleTab(-1),
+    "zoom-in": () =>
+      updateSettings({ fontSize: clampFontSize(settings.value.fontSize + 1) }),
+    "zoom-out": () =>
+      updateSettings({ fontSize: clampFontSize(settings.value.fontSize - 1) }),
+    "zoom-reset": () => updateSettings({ fontSize: DEFAULT_SETTINGS.fontSize }),
+    "toggle-zoom-pane": () => activeManager()?.toggleZoom(),
+    "clear-buffer": () => activeManager()?.clearActive(),
+    "focus-left": () => activeManager()?.focusDirection("left"),
+    "focus-right": () => activeManager()?.focusDirection("right"),
+    "focus-up": () => activeManager()?.focusDirection("up"),
+    "focus-down": () => activeManager()?.focusDirection("down"),
+    "reopen-tab": () => void reopenTab(),
+    find: () => activeManager()?.openSearch(),
+    "save-preset": () => {
+      if (tabs.length > 0 && !boardOpen.value) {
+        saveDialogOpen.value = true;
+      }
+    },
+  };
+
   function handleShortcut(event: KeyboardEvent): void {
     // Never intercept keys the IME is still composing — keyCode 229 catches
     // WebKit events that arrive without isComposing (Vietnamese/CJK input).
@@ -442,80 +476,7 @@ export function createTabManager(
       selectTab(tabIndex); // out-of-range indexes are a no-op
       return;
     }
-    switch (action) {
-      case "split-row":
-        void splitActive("row");
-        break;
-      case "split-column":
-        void splitActive("column");
-        break;
-      case "close-pane":
-        void close.closePane();
-        break;
-      case "focus-next":
-        activeManager()?.cycleFocus(1);
-        break;
-      case "focus-prev":
-        activeManager()?.cycleFocus(-1);
-        break;
-      case "toggle-expand":
-        updateSettings({ focusExpand: !settings.value.focusExpand });
-        break;
-      case "new-tab":
-        void newTab();
-        break;
-      case "close-tab":
-        void close.closeTab(active);
-        break;
-      case "next-tab":
-        cycleTab(1);
-        break;
-      case "prev-tab":
-        cycleTab(-1);
-        break;
-      case "zoom-in":
-        updateSettings({
-          fontSize: clampFontSize(settings.value.fontSize + 1),
-        });
-        break;
-      case "zoom-out":
-        updateSettings({
-          fontSize: clampFontSize(settings.value.fontSize - 1),
-        });
-        break;
-      case "zoom-reset":
-        updateSettings({ fontSize: DEFAULT_SETTINGS.fontSize });
-        break;
-      case "toggle-zoom-pane":
-        activeManager()?.toggleZoom();
-        break;
-      case "clear-buffer":
-        activeManager()?.clearActive();
-        break;
-      case "focus-left":
-        activeManager()?.focusDirection("left");
-        break;
-      case "focus-right":
-        activeManager()?.focusDirection("right");
-        break;
-      case "focus-up":
-        activeManager()?.focusDirection("up");
-        break;
-      case "focus-down":
-        activeManager()?.focusDirection("down");
-        break;
-      case "reopen-tab":
-        void reopenTab();
-        break;
-      case "find":
-        activeManager()?.openSearch();
-        break;
-      case "save-preset":
-        if (tabs.length > 0 && !boardOpen.value) {
-          saveDialogOpen.value = true;
-        }
-        break;
-    }
+    commands[action]?.();
   }
 
   function splitActive(dir: Direction): Promise<void> {

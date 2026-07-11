@@ -1,4 +1,5 @@
 import type { Edge } from "../lib/split-tree";
+import type { PaneRect } from "../lib/pane-geometry";
 
 export interface PaneDragController {
   dispose(): void;
@@ -6,10 +7,63 @@ export interface PaneDragController {
 
 interface PaneDragOptions {
   paneCount(): number;
+  /** Pane owning a DOM node (the drag handle); null when none. */
+  paneIdForElement(el: Element): number | null;
+  /** Live slot geometry (LayoutEngine owns the slot DOM). */
+  slotRects(): readonly PaneRect[];
+  /** Ghost text for the dragged pane (its CWD label). */
+  ghostLabel(id: number): string;
   onMove(sourceId: number, targetId: number, edge: Edge): void;
 }
 
 const DRAG_THRESHOLD = 5;
+
+/** Nearest edge by normalized distance to all four edges (diagonal split). Pure. */
+export function edgeFor(rect: PaneRect, x: number, y: number): Edge {
+  const width = rect.right - rect.left;
+  const height = rect.bottom - rect.top;
+  const left = (x - rect.left) / width;
+  const right = (rect.right - x) / width;
+  const top = (y - rect.top) / height;
+  const bottom = (rect.bottom - y) / height;
+  const min = Math.min(left, right, top, bottom);
+  if (min === left) {
+    return "left";
+  }
+  if (min === right) {
+    return "right";
+  }
+  if (min === top) {
+    return "top";
+  }
+  return "bottom";
+}
+
+/**
+ * Dock target under the cursor: the hovered pane (never the source) and the
+ * edge to split on. Pure — feed it rects to test hit logic without a DOM.
+ */
+export function dropTargetAt(
+  rects: readonly PaneRect[],
+  x: number,
+  y: number,
+  sourceId: number | null,
+): { id: number; edge: Edge; rect: PaneRect } | null {
+  for (const rect of rects) {
+    if (
+      x >= rect.left &&
+      x <= rect.right &&
+      y >= rect.top &&
+      y <= rect.bottom
+    ) {
+      if (rect.id === sourceId) {
+        return null; // hovering the source itself — no dock
+      }
+      return { id: rect.id, edge: edgeFor(rect, x, y), rect };
+    }
+  }
+  return null;
+}
 
 /**
  * Drag a pane by its header bar and dock it onto an edge of another pane.
@@ -46,11 +100,11 @@ export function createPaneDragController(
     if (opts.paneCount() < 2) {
       return;
     }
-    const slot = handle.closest<HTMLElement>(".pane-slot");
-    if (!slot) {
+    const id = opts.paneIdForElement(handle);
+    if (id === null) {
       return;
     }
-    sourceId = Number(slot.dataset.paneId);
+    sourceId = id;
     pointerId = event.pointerId;
     startX = event.clientX;
     startY = event.clientY;
@@ -73,11 +127,7 @@ export function createPaneDragController(
     }
     ghost = document.createElement("div");
     ghost.className = "pane-drag-ghost";
-    const slot = container.querySelector<HTMLElement>(
-      `.pane-slot[data-pane-id="${sourceId}"]`,
-    );
-    ghost.textContent =
-      slot?.querySelector(".pane__cwd")?.textContent || "pane";
+    ghost.textContent = sourceId === null ? "pane" : opts.ghostLabel(sourceId);
     overlay = document.createElement("div");
     overlay.className = "drop-overlay";
     overlay.style.display = "none";
@@ -92,65 +142,37 @@ export function createPaneDragController(
     }
   }
 
-  /** Nearest edge by normalized distance to all four edges (diagonal split). */
-  function edgeFor(rect: DOMRect, x: number, y: number): Edge {
-    const left = (x - rect.left) / rect.width;
-    const right = (rect.right - x) / rect.width;
-    const top = (y - rect.top) / rect.height;
-    const bottom = (rect.bottom - y) / rect.height;
-    const min = Math.min(left, right, top, bottom);
-    if (min === left) {
-      return "left";
-    }
-    if (min === right) {
-      return "right";
-    }
-    if (min === top) {
-      return "top";
-    }
-    return "bottom";
-  }
-
   function hitTest(x: number, y: number): void {
-    for (const slot of container.querySelectorAll<HTMLElement>(".pane-slot")) {
-      const rect = slot.getBoundingClientRect();
-      if (
-        x >= rect.left &&
-        x <= rect.right &&
-        y >= rect.top &&
-        y <= rect.bottom
-      ) {
-        const id = Number(slot.dataset.paneId);
-        if (id === sourceId) {
-          break; // hovering the source itself — no dock
-        }
-        target = { id, edge: edgeFor(rect, x, y) };
-        showOverlay(rect, target.edge);
-        return;
-      }
+    const hit = dropTargetAt(opts.slotRects(), x, y, sourceId);
+    if (hit === null) {
+      target = null;
+      hideOverlay();
+      return;
     }
-    target = null;
-    hideOverlay();
+    target = { id: hit.id, edge: hit.edge };
+    showOverlay(hit.rect, hit.edge);
   }
 
-  function showOverlay(rect: DOMRect, edge: Edge): void {
+  function showOverlay(rect: PaneRect, edge: Edge): void {
     if (!overlay) {
       return;
     }
+    const fullWidth = rect.right - rect.left;
+    const fullHeight = rect.bottom - rect.top;
     let left = rect.left;
     let top = rect.top;
-    let width = rect.width;
-    let height = rect.height;
+    let width = fullWidth;
+    let height = fullHeight;
     if (edge === "left") {
-      width = rect.width / 2;
+      width = fullWidth / 2;
     } else if (edge === "right") {
-      left = rect.left + rect.width / 2;
-      width = rect.width / 2;
+      left = rect.left + fullWidth / 2;
+      width = fullWidth / 2;
     } else if (edge === "top") {
-      height = rect.height / 2;
+      height = fullHeight / 2;
     } else {
-      top = rect.top + rect.height / 2;
-      height = rect.height / 2;
+      top = rect.top + fullHeight / 2;
+      height = fullHeight / 2;
     }
     overlay.style.display = "block";
     overlay.style.left = `${left}px`;

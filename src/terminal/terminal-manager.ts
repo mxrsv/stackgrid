@@ -15,11 +15,7 @@ import {
   type SerializedNode,
   type TreeNode,
 } from "../lib/split-tree";
-import {
-  nearestInDirection,
-  type FocusDirection,
-  type PaneRect,
-} from "../lib/pane-geometry";
+import { nearestInDirection, type FocusDirection } from "../lib/pane-geometry";
 import { paneHeaderInfo, type PaneProcessInfo } from "../lib/process-info";
 import { shellEscapePaths } from "../lib/shell-escape";
 import { createLayoutEngine } from "./layout-engine";
@@ -303,22 +299,7 @@ export function createTerminalManager(
     if (!tree || activeId === null) {
       return;
     }
-    const rects: PaneRect[] = [];
-    for (const slot of container.querySelectorAll<HTMLElement>(".pane-slot")) {
-      const id = Number(slot.dataset.paneId);
-      if (Number.isNaN(id)) {
-        continue;
-      }
-      const r = slot.getBoundingClientRect();
-      rects.push({
-        id,
-        left: r.left,
-        top: r.top,
-        right: r.right,
-        bottom: r.bottom,
-      });
-    }
-    const target = nearestInDirection(rects, activeId, dir);
+    const target = nearestInDirection(layout.slotRects(), activeId, dir);
     if (target === null) {
       return;
     }
@@ -361,42 +342,24 @@ export function createTerminalManager(
     spawned[0]?.focus();
   }
 
-  function slotAt(x: number, y: number): HTMLElement | null {
-    for (const slot of container.querySelectorAll<HTMLElement>(".pane-slot")) {
-      const r = slot.getBoundingClientRect();
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
-        return slot;
-      }
-    }
-    return null;
-  }
-
-  function clearDropTargets(): void {
-    for (const slot of container.querySelectorAll<HTMLElement>(
-      ".pane-slot.is-drop-target",
-    )) {
-      slot.classList.remove("is-drop-target");
-    }
-  }
-
   function fileDragOver(x: number, y: number): void {
-    clearDropTargets();
     if (layout.zoomedId() !== null) {
+      layout.setDropTarget(null);
       return; // overlay covers the slots — the drop always hits the zoomed pane
     }
-    slotAt(x, y)?.classList.add("is-drop-target");
+    layout.setDropTarget(layout.paneIdAt(x, y));
   }
 
   function fileDragLeave(): void {
-    clearDropTargets();
+    layout.setDropTarget(null);
   }
 
   function fileDrop(x: number, y: number, paths: string[]): void {
-    clearDropTargets();
+    layout.setDropTarget(null);
     // While zoomed the overlay covers every slot — the drop belongs to the
     // zoomed pane, not whatever slot happens to sit underneath the cursor.
-    const id = layout.zoomedId() ?? Number(slotAt(x, y)?.dataset.paneId ?? NaN);
-    if (Number.isNaN(id)) {
+    const id = layout.zoomedId() ?? layout.paneIdAt(x, y);
+    if (id === null) {
       return; // dropped outside every pane (tab bar / status bar) — ignore
     }
     if (!life.panes.has(id) || life.exited.has(id)) {
@@ -415,6 +378,21 @@ export function createTerminalManager(
 
   const paneDrag: PaneDragController = createPaneDragController(container, {
     paneCount: () => life.panes.size,
+    paneIdForElement(el) {
+      for (const pane of life.panes.values()) {
+        if (pane.element.contains(el)) {
+          return pane.id;
+        }
+      }
+      return null;
+    },
+    slotRects: () => layout.slotRects(),
+    ghostLabel(id) {
+      return (
+        life.panes.get(id)?.element.querySelector(".pane__cwd")?.textContent ||
+        "pane"
+      );
+    },
     onMove(sourceId: number, targetId: number, edge: Edge) {
       if (!tree) {
         return;
