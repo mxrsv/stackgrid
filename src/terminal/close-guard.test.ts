@@ -6,15 +6,13 @@ import {
   isBusy,
 } from "./close-guard";
 import type { PaneProcessInfo } from "../lib/process-info";
+import { createMemoryPtyClient } from "./pty-client";
 
 const askMock = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: askMock }));
 
-const freshPaneInfoMock = vi.hoisted(() => vi.fn());
-vi.mock("./pane-info", () => ({ freshPaneInfo: freshPaneInfoMock }));
-
-function info(id: number, process: string | null): PaneProcessInfo {
-  return { id, cwd: null, process };
+function info(id: number, process: string | null, cwd: string | null = null): PaneProcessInfo {
+  return { id, cwd, process };
 }
 
 describe("isBusy", () => {
@@ -52,9 +50,31 @@ describe("busyProcesses", () => {
   });
 });
 
-describe("confirmClose re-entrancy", () => {
+describe("confirmClose with injected PtyClient", () => {
+  it("skips dialog when MemoryPtyClient reports idle shells", async () => {
+    askMock.mockClear();
+    const pty = createMemoryPtyClient({
+      infos: new Map([[1, info(1, "zsh")]]),
+    });
+    await expect(confirmClose([1], pty)).resolves.toBe(true);
+    expect(askMock).not.toHaveBeenCalled();
+  });
+
+  it("prompts when MemoryPtyClient reports a busy agent", async () => {
+    askMock.mockClear();
+    askMock.mockResolvedValue(true);
+    const pty = createMemoryPtyClient({
+      infos: new Map([[1, info(1, "claude")]]),
+    });
+    await expect(confirmClose([1], pty)).resolves.toBe(true);
+    expect(askMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a second call while a prompt is open, then resets", async () => {
-    freshPaneInfoMock.mockResolvedValue([info(1, "claude")]);
+    askMock.mockClear();
+    const pty = createMemoryPtyClient({
+      infos: new Map([[1, info(1, "claude")]]),
+    });
     let resolveAsk!: (ok: boolean) => void;
     askMock.mockReturnValue(
       new Promise<boolean>((resolve) => {
@@ -62,20 +82,18 @@ describe("confirmClose re-entrancy", () => {
       }),
     );
 
-    const first = confirmClose([1]);
-    // Let the first call get past freshPaneInfo and open the dialog
+    const first = confirmClose([1], pty);
     await Promise.resolve();
     await Promise.resolve();
 
-    await expect(confirmClose([1])).resolves.toBe(false);
+    await expect(confirmClose([1], pty)).resolves.toBe(false);
     expect(askMock).toHaveBeenCalledTimes(1);
 
     resolveAsk(true);
     await expect(first).resolves.toBe(true);
 
-    // Flag resets — the next call prompts again
     askMock.mockResolvedValue(false);
-    await expect(confirmClose([1])).resolves.toBe(false);
+    await expect(confirmClose([1], pty)).resolves.toBe(false);
     expect(askMock).toHaveBeenCalledTimes(2);
   });
 });

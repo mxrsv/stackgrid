@@ -4,8 +4,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { installQuitGuard } from "../lib/quit-guard";
 import { deriveChromeColors } from "../lib/derive-colors";
-import { countLeaves } from "../lib/split-tree";
 import { resolveCwds, type Preset } from "../lib/preset-schema";
+import { resolveInheritedCwds } from "../terminal/tab-materialize";
 import { settings, updateSettings } from "../settings/settings-store";
 import { resolveTheme } from "../settings/themes";
 import { createTabManager, type TabManager } from "../terminal/tab-manager";
@@ -166,11 +166,10 @@ export function App() {
     }
     // Live window: inherit panes resolve to the focused pane's CWD (BF-Rule 8)
     const inherit = (await tabsRef.current?.activePaneCwd()) ?? null;
-    const cwds = Array.from(
-      { length: countLeaves(preset.layout) },
-      (_, index) => preset.cwds?.[index] ?? inherit,
+    await tabsRef.current?.openFromPreset(
+      preset.layout,
+      resolveInheritedCwds(preset.layout, preset.cwds, inherit),
     );
-    await tabsRef.current?.openFromPreset(preset.layout, cwds);
   }
 
   /** ⌘⇧S / menu: capture live layout into a new or existing preset (FR-012). */

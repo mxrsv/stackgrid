@@ -1,6 +1,7 @@
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { PaneProcessInfo } from "../lib/process-info";
 import { freshPaneInfo } from "./pane-info";
+import { defaultPtyClient, type PtyClient } from "./pty-client";
 
 /**
  * Foreground process names that mean "idle shell". `pty_info` reports the
@@ -53,13 +54,14 @@ let prompting = false;
  */
 export async function confirmClose(
   paneIds: readonly number[],
+  pty: PtyClient = defaultPtyClient,
 ): Promise<boolean> {
   if (prompting) {
     return false;
   }
   prompting = true;
   try {
-    const infos = await freshPaneInfo(paneIds);
+    const infos = await freshPaneInfo(paneIds, pty);
     const names = busyProcesses(infos);
     if (names.length === 0) {
       return true;

@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { Settings } from "../settings/settings-schema";
 import { settings } from "../settings/settings-store";
 import {
@@ -7,7 +6,6 @@ import {
   leafIds,
   movePane,
   removeLeaf,
-  replaceLeaf,
   serializeTree,
   setRatio,
   splitLeaf,
@@ -21,14 +19,11 @@ import { nearestInDirection, type FocusDirection, type PaneRect } from "../lib/p
 import { paneHeaderInfo, type PaneProcessInfo } from "../lib/process-info";
 import { shellEscapePaths } from "../lib/shell-escape";
 import { createLayoutEngine } from "./layout-engine";
-import { createPane, type Pane, type PaneEvents } from "./pane";
+import { createPaneLifecycle } from "./pane-lifecycle";
 import { freshCwd } from "./pane-info";
+import { defaultPtyClient, type PtyClient } from "./pty-client";
 import { createPaneDragController, type PaneDragController } from "./pane-drag";
 import { closeSearchBarForPane, openSearchBar } from "./search-bar";
-
-// Placeholder size at spawn — fit() after mount resizes to the real dimensions
-const INITIAL_COLS = 80;
-const INITIAL_ROWS = 24;
 
 export interface ManagerCallbacks {
   /** Fired after any structural change (split, close, ratio commit). */
@@ -85,10 +80,11 @@ export interface TerminalManager {
   dispose(): void;
 }
 
-export function createTerminalManager(container: HTMLElement, callbacks: ManagerCallbacks): TerminalManager {
-  const panes = new Map<number, Pane>();
-  const exited = new Set<number>();
-  const respawning = new Set<number>();
+export function createTerminalManager(
+  container: HTMLElement,
+  callbacks: ManagerCallbacks,
+  pty: PtyClient = defaultPtyClient,
+): TerminalManager {
   let tree: TreeNode | null = null;
   let activeId: number | null = null;
 
@@ -96,68 +92,31 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
   // bar (the drag ghost and anchor still read its cwd) — this class hides it.
   container.classList.toggle("pane-bar-hidden", !settings.value.showPaneBar);
 
-  const layout = createLayoutEngine(container, {
-    getPaneElement: (id) => panes.get(id)?.element,
-    mountPane: (id) => {
-      panes.get(id)?.mount();
-    },
-    fitPane: (id) => {
-      panes.get(id)?.fit();
-    },
-    focusPane: (id) => {
-      panes.get(id)?.focus();
-    },
-  });
-
-  const paneEvents: PaneEvents = {
-    onData(id, data) {
-      if (exited.has(id)) {
-        if (data === "\r") {
-          void respawn(id);
-        }
-        return;
+  const life = createPaneLifecycle({
+    pty,
+    getSettings: () => settings.value,
+    onWriteWhileExited(id, data) {
+      if (data === "\r") {
+        void respawn(id);
       }
-      invoke("write_pty", { id, data }).catch((err: unknown) => {
-        console.error("write_pty failed:", err);
-      });
-    },
-    onResize(id, cols, rows) {
-      if (exited.has(id)) {
-        return;
-      }
-      invoke("resize_pty", { id, cols, rows }).catch(() => {
-        // Session closed mid-flight — ignore
-      });
     },
     onFocus(id) {
       setActive(id);
     },
-  };
+  });
 
-  async function spawnPane(cwd: string | null = null): Promise<Pane> {
-    const id = await invoke<number>("spawn_shell", {
-      cols: INITIAL_COLS,
-      rows: INITIAL_ROWS,
-      cwd,
-    });
-    const pane = createPane(id, settings.value, paneEvents);
-    panes.set(id, pane);
-    return pane;
-  }
-
-  // Cleans up a freshly spawned pane whose target vanished during the
-  // spawn round-trip — otherwise the PTY + xterm instance would leak
-  function discardPane(pane: Pane): void {
-    invoke("kill_pty", { id: pane.id }).catch(() => {
-      // Session already gone — ignore
-    });
-    panes.delete(pane.id);
-    pane.dispose();
-  }
-
-  function isInTree(id: number): boolean {
-    return tree !== null && panes.has(id) && leafIds(tree).includes(id);
-  }
+  const layout = createLayoutEngine(container, {
+    getPaneElement: (id) => life.panes.get(id)?.element,
+    mountPane: (id) => {
+      life.panes.get(id)?.mount();
+    },
+    fitPane: (id) => {
+      life.panes.get(id)?.fit();
+    },
+    focusPane: (id) => {
+      life.panes.get(id)?.focus();
+    },
+  });
 
   function overlayInput() {
     if (!tree) {
@@ -166,7 +125,7 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
     return {
       tree,
       activeId,
-      paneCount: panes.size,
+      paneCount: life.panes.size,
       focusExpand: settings.value.focusExpand,
     };
   }
@@ -178,7 +137,7 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
     layout.sync({
       tree,
       activeId,
-      paneCount: panes.size,
+      paneCount: life.panes.size,
       focusExpand: settings.value.focusExpand,
       onRatioCommit(path, ratio) {
         if (!tree) {
@@ -210,63 +169,44 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
   }
 
   function handleExit(id: number): void {
-    const pane = panes.get(id);
+    const pane = life.panes.get(id);
     if (!pane) {
       return;
     }
-    if (panes.size > 1) {
+    if (life.panes.size > 1) {
       // Shell exited (typed exit / process died) → auto-close that pane
       void closePane(id);
       return;
     }
-    exited.add(id);
+    life.exited.add(id);
     pane.writeln("\r\n\x1b[33m[Session ended — press Enter to start a new one]\x1b[0m");
   }
 
   async function respawn(oldId: number): Promise<void> {
-    // Guard against a second Enter while spawn_shell is still in flight
-    if (respawning.has(oldId)) {
+    if (!tree) {
       return;
     }
-    const old = panes.get(oldId);
-    if (!old || !tree) {
+    const result = await life.respawn(oldId, tree, activeId);
+    if (result === null) {
       return;
     }
-    respawning.add(oldId);
-    try {
-      const fresh = await spawnPane();
-      if (!isInTree(oldId)) {
-        discardPane(fresh);
-        return;
-      }
-      tree = replaceLeaf(tree, oldId, fresh.id);
-      panes.delete(oldId);
-      exited.delete(oldId);
-      old.dispose();
-      if (activeId === oldId) {
-        activeId = fresh.id;
-      }
-      render();
-      fresh.focus();
-    } catch (err) {
-      if (panes.has(oldId)) {
-        old.writeln(`\r\n\x1b[31mFailed to start shell: ${err}\x1b[0m`);
-      }
-    } finally {
-      respawning.delete(oldId);
+    tree = result.tree;
+    activeId = result.activeId;
+    // Mount (term.open) then focus — same order as pre-extraction respawn.
+    render();
+    if (activeId !== null) {
+      life.panes.get(activeId)?.focus();
     }
   }
 
   async function closePane(id: number): Promise<void> {
-    const pane = panes.get(id);
+    const pane = life.panes.get(id);
     if (!pane || !tree) {
       return;
     }
-    invoke("kill_pty", { id }).catch(() => {
-      // Session already ended on its own — ignore
-    });
-    panes.delete(id);
-    exited.delete(id);
+    life.killPane(id);
+    life.panes.delete(id);
+    life.exited.delete(id);
     closeSearchBarForPane(id);
     pane.dispose();
 
@@ -285,21 +225,22 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
     }
     render();
     if (activeId !== null) {
-      panes.get(activeId)?.focus();
+      life.panes.get(activeId)?.focus();
     }
     callbacks.onLayoutChange();
   }
 
   async function openInitialPane(): Promise<void> {
-    try {
-      const pane = await spawnPane();
-      tree = leaf(pane.id);
-      activeId = pane.id;
-      render();
-      pane.focus();
-    } catch (err) {
-      container.textContent = `Failed to start shell: ${err}`;
-    }
+    await life.openInitial(
+      (nextTree, nextActive) => {
+        tree = nextTree;
+        activeId = nextActive;
+        render();
+      },
+      (err) => {
+        container.textContent = `Failed to start shell: ${err}`;
+      },
+    );
   }
 
   async function splitActive(dir: Direction): Promise<void> {
@@ -309,11 +250,11 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
     const targetId = activeId;
     try {
       // Fresh lookup, not the 2s poll cache — the user may have just cd'd
-      const cwd = await freshCwd(targetId);
-      const pane = await spawnPane(cwd);
-      if (!isInTree(targetId)) {
+      const cwd = await freshCwd(targetId, pty);
+      const pane = await life.spawnPane(cwd);
+      if (!life.isInTree(tree, targetId)) {
         // Target pane closed while spawning — drop the new session
-        discardPane(pane);
+        life.discardPane(pane);
         return;
       }
       tree = splitLeaf(tree, targetId, pane.id, dir);
@@ -324,7 +265,7 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
       pane.focus();
       callbacks.onLayoutChange();
     } catch (err) {
-      panes.get(targetId)?.writeln(`\r\n\x1b[31mFailed to open new pane: ${err}\x1b[0m`);
+      life.panes.get(targetId)?.writeln(`\r\n\x1b[31mFailed to open new pane: ${err}\x1b[0m`);
     }
   }
 
@@ -336,7 +277,7 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
     const index = ids.indexOf(activeId);
     const next = ids[(index + step + ids.length) % ids.length];
     setActive(next);
-    panes.get(next)?.focus();
+    life.panes.get(next)?.focus();
   }
 
   function focusDirection(dir: FocusDirection): void {
@@ -365,11 +306,11 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
     // Route through setActive so zoom restore, active classes and expand
     // ratios are inherited rather than re-derived.
     setActive(target);
-    panes.get(target)?.focus();
+    life.panes.get(target)?.focus();
   }
 
   async function initFresh(cwd: string | null = null): Promise<void> {
-    const pane = await spawnPane(cwd);
+    const pane = await life.spawnPane(cwd);
     tree = leaf(pane.id);
     activeId = pane.id;
     render();
@@ -378,14 +319,14 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
 
   async function initFromLayout(layoutNode: SerializedNode, cwds: readonly (string | null)[] = []): Promise<void> {
     const total = countLeaves(layoutNode);
-    const spawned: Pane[] = [];
+    const spawned: Awaited<ReturnType<typeof life.spawnPane>>[] = [];
     try {
       for (let i = 0; i < total; i += 1) {
-        spawned.push(await spawnPane(cwds[i] ?? null));
+        spawned.push(await life.spawnPane(cwds[i] ?? null));
       }
     } catch (err) {
       for (const pane of spawned) {
-        discardPane(pane);
+        life.discardPane(pane);
       }
       throw err;
     }
@@ -434,22 +375,22 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
     if (Number.isNaN(id)) {
       return; // dropped outside every pane (tab bar / status bar) — ignore
     }
-    if (!panes.has(id) || exited.has(id)) {
+    if (!life.panes.has(id) || life.exited.has(id)) {
       return; // pane already exited — never write into a dead PTY
     }
     const data = shellEscapePaths(paths);
     if (data === "") {
       return;
     }
-    invoke("write_pty", { id, data }).catch((err: unknown) => {
+    pty.writePty(id, data).catch((err: unknown) => {
       console.error("write_pty failed:", err);
     });
     setActive(id);
-    panes.get(id)?.focus();
+    life.panes.get(id)?.focus();
   }
 
   const paneDrag: PaneDragController = createPaneDragController(container, {
-    paneCount: () => panes.size,
+    paneCount: () => life.panes.size,
     onMove(sourceId: number, targetId: number, edge: Edge) {
       if (!tree) {
         return;
@@ -461,7 +402,7 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
       tree = next;
       render();
       setActive(sourceId);
-      panes.get(sourceId)?.focus();
+      life.panes.get(sourceId)?.focus();
       callbacks.onLayoutChange();
     },
   });
@@ -471,11 +412,11 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
     initFromLayout,
     show() {
       container.style.display = "";
-      for (const pane of panes.values()) {
+      for (const pane of life.panes.values()) {
         pane.fit();
       }
       if (activeId !== null) {
-        panes.get(activeId)?.focus();
+        life.panes.get(activeId)?.focus();
       }
     },
     hide() {
@@ -491,21 +432,21 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
     cycleFocus,
     focusDirection,
     toggleZoom() {
-      layout.toggleZoom(activeId, panes.size);
+      layout.toggleZoom(activeId, life.panes.size);
     },
     focusActive() {
       if (activeId !== null) {
-        panes.get(activeId)?.focus();
+        life.panes.get(activeId)?.focus();
       }
     },
     clearActive() {
       if (activeId !== null) {
-        panes.get(activeId)?.clear();
+        life.panes.get(activeId)?.clear();
       }
     },
     openSearch() {
       if (activeId !== null) {
-        const pane = panes.get(activeId);
+        const pane = life.panes.get(activeId);
         if (pane) {
           openSearchBar(pane);
         }
@@ -513,7 +454,7 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
     },
     applySettings(next) {
       container.classList.toggle("pane-bar-hidden", !next.showPaneBar);
-      for (const pane of panes.values()) {
+      for (const pane of life.panes.values()) {
         pane.applySettings(next);
       }
       // Idempotent: mode off → display tree is the original, so this also
@@ -533,23 +474,23 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
       return activeId;
     },
     paneCount() {
-      return panes.size;
+      return life.panes.size;
     },
     paneElement(id) {
-      return panes.get(id)?.element ?? null;
+      return life.panes.get(id)?.element ?? null;
     },
     handleOutput(id, data) {
-      panes.get(id)?.write(data);
+      life.panes.get(id)?.write(data);
     },
     handleExit,
     updatePaneInfo(infos, home) {
       for (const info of infos) {
-        panes.get(info.id)?.setHeaderInfo(paneHeaderInfo(info, home));
+        life.panes.get(info.id)?.setHeaderInfo(paneHeaderInfo(info, home));
       }
     },
     notifyError(message) {
       if (activeId !== null) {
-        panes.get(activeId)?.writeln(`\r\n\x1b[31m${message}\x1b[0m`);
+        life.panes.get(activeId)?.writeln(`\r\n\x1b[31m${message}\x1b[0m`);
       }
     },
     fileDragOver,
@@ -558,14 +499,12 @@ export function createTerminalManager(container: HTMLElement, callbacks: Manager
     dispose() {
       paneDrag.dispose();
       layout.unzoom();
-      for (const pane of panes.values()) {
-        invoke("kill_pty", { id: pane.id }).catch(() => {
-          // Session already gone — ignore
-        });
+      life.killAll();
+      for (const pane of life.panes.values()) {
         closeSearchBarForPane(pane.id);
         pane.dispose();
       }
-      panes.clear();
+      life.panes.clear();
       container.remove();
     },
   };

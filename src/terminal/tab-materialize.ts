@@ -1,8 +1,9 @@
 import type { PaneProcessInfo } from "../lib/process-info";
 import { SESSION_VERSION, type SessionData, type SessionTab } from "../lib/session-schema";
-import type { SerializedNode } from "../lib/split-tree";
+import { countLeaves, type SerializedNode } from "../lib/split-tree";
 import type { TabDotColor } from "../lib/tab-colors";
 import { freshPaneInfo } from "./pane-info";
+import { defaultPtyClient, type PtyClient } from "./pty-client";
 import type { ClosedTabSnapshot } from "./closed-tabs";
 
 /**
@@ -43,6 +44,7 @@ export async function resolvePaneCwds(
     options: {
         polled?: ReadonlyMap<number, PaneProcessInfo>;
         provided?: readonly (string | null)[];
+        pty?: PtyClient;
     } = {},
 ): Promise<readonly (string | null)[]> {
     switch (policy) {
@@ -53,10 +55,28 @@ export async function resolvePaneCwds(
         case "polled":
             return zipPolledCwds(paneIds, options.polled ?? new Map());
         case "fresh": {
-            const infos = await freshPaneInfo(paneIds);
+            const infos = await freshPaneInfo(
+                paneIds,
+                options.pty ?? defaultPtyClient,
+            );
             return zipFreshCwds(paneIds, infos);
         }
     }
+}
+
+/**
+ * Layout preset editor (live window): each leaf uses its preset CWD when set,
+ * otherwise inherits the focused pane's CWD (BF-Rule 8).
+ */
+export function resolveInheritedCwds(
+    layout: SerializedNode,
+    presetCwds: readonly (string | null)[] | undefined,
+    inherit: string | null,
+): readonly (string | null)[] {
+    return Array.from(
+        { length: countLeaves(layout) },
+        (_, index) => presetCwds?.[index] ?? inherit,
+    );
 }
 
 /** One tab's chrome for Session persistence (no CWDs — ADR 0001). */
@@ -102,20 +122,69 @@ export function buildClosedTabSnapshot(input: {
 export async function capturePresetLayout(
     paneIds: readonly number[],
     layout: SerializedNode,
+    pty: PtyClient = defaultPtyClient,
 ): Promise<{ layout: SerializedNode; cwds: readonly (string | null)[] }> {
-    const cwds = await resolvePaneCwds(paneIds, "fresh");
+    const cwds = await resolvePaneCwds(paneIds, "fresh", { pty });
     return { layout, cwds };
 }
 
 /**
  * Whether materializing this Tab should open the one-shot Agent picker.
- * Session restore and Open board / Layout preset: yes.
- * Closed tab reopen and plain new Tab: no (picker already ran or N/A).
+ * Session restore and Open board / Layout preset: yes (batch or per-tab).
+ * Closed tab reopen: no (picker already ran).
  */
 export type AgentPickScope = "all-new-panes" | "none";
 
+/** Optional tab chrome applied under the new tab key after spawn. */
+export interface MaterializeChrome {
+    readonly name?: string;
+    readonly dotColor?: TabDotColor;
+}
+
+/**
+ * Single interface for Open board / Session / Closed tab / Layout preset.
+ * TabManager.materialize owns the implementation.
+ */
 export interface MaterializeIntent {
     readonly layout: SerializedNode | null;
     readonly cwds: readonly (string | null)[];
     readonly agentPick: AgentPickScope;
+    readonly chrome?: MaterializeChrome;
+    /**
+     * Select the new tab after spawn. Default true.
+     * Session restore batches with activate:false, then selects once.
+     */
+    readonly activate?: boolean;
+}
+
+/**
+ * Pure post-spawn policy for Materialize — tested without TabManager/DOM.
+ * Open board / preset: activate + pollAndAgentPick.
+ * Closed tab reopen: activate only.
+ * Session batch: neither (caller selects + picks once at the end).
+ */
+export function materializeAfterSpawn(intent: MaterializeIntent): {
+    selectTab: boolean;
+    pollAndAgentPick: boolean;
+} {
+    const selectTab = intent.activate !== false;
+    return {
+        selectTab,
+        pollAndAgentPick: selectTab && intent.agentPick === "all-new-panes",
+    };
+}
+
+/** Build chrome overrides from a Closed tab snapshot or Session tab. */
+export function materializeChromeFrom(
+    name: string | null | undefined,
+    dotColor: TabDotColor | null | undefined,
+): MaterializeChrome | undefined {
+    const chrome: MaterializeChrome = {
+        ...(name != null ? { name } : {}),
+        ...(dotColor != null ? { dotColor } : {}),
+    };
+    if (chrome.name === undefined && chrome.dotColor === undefined) {
+        return undefined;
+    }
+    return chrome;
 }
