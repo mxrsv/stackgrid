@@ -1,12 +1,13 @@
 ---
-frozen: true
-hash: 1d1b4c0c4dc5455d87bd348fa635f33d2c331cc363fd1d6abb8bb18be2c912a8
-from_hash:
-  PRINCIPLES: a06e3bee0cac7feb7d51244c8d46960f939f90f54fbd4c793ae2f6abd412f401
+derived: true
+derived_from:
+  [0004, 0005, 0006, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019]
+rendered: 2026-07-10
 ---
+
 # PRD — Stackgrid
 
-Product intent, primary journey, and v1 scope. Narrative FR/NFR only — atomic requirements wait for `/requirements`.
+Product intent, primary journey, and v1 scope. Narrative FR/NFR only — atomic requirements are distilled in `REQUIREMENTS.md` (requirements phase).
 
 ## Intent
 
@@ -31,7 +32,7 @@ Stackgrid is a **minimal macOS terminal for people who run AI agent CLIs** (Clau
 
 ### Resume — open the app again
 
-1. On relaunch with restore enabled, Stackgrid restores **layout chrome for every window** (tabs, splits, names, colors) — not CWDs, not running processes (PRINCIPLES + existing session ADR).
+1. On relaunch with restore enabled, Stackgrid restores **layout chrome for every window** (tabs, splits, names, colors) — not CWDs, not running processes (PRINCIPLES + ADR 0010).
 2. After restore, each pane still gets a **one-shot agent picker** (same spawn / Shell / Skip-all rules). Unpicked panes stay idle shells at `$HOME` (session restore behavior).
 
 ### Steer — rearrange attention

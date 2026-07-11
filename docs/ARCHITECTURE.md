@@ -1,17 +1,13 @@
 ---
-frozen: true
-hash: 8ec703e3eb57216edb5446edfa5309480791400c937f3d597da3bfe6373639fc
-from_hash:
-  PRINCIPLES: a06e3bee0cac7feb7d51244c8d46960f939f90f54fbd4c793ae2f6abd412f401
-  PRD: 1d1b4c0c4dc5455d87bd348fa635f33d2c331cc363fd1d6abb8bb18be2c912a8
-  BUSINESS-FLOW: 5830f27c0db628695ed4f2359e04f5cb955d6d2812b5c97e881e3f4089235abb
+derived: true
+derived_from:
+  [0001, 0002, 0003, 0005, 0007, 0010, 0012, 0020, 0021, 0022, 0023, 0024, 0025]
+rendered: 2026-07-10
 ---
 
 # ARCHITECTURE — Stackgrid
 
-Single source of truth for the current and v1 target architecture. Distilled from frozen `PRINCIPLES`, `PRD`, and `BUSINESS-FLOW`, plus a brownfield scan of the shipped codebase. English-only.
-
-**Freeze status:** ready-to-freeze. Do not stamp `frozen` / `hash` / `from_hash` here — reconverge after the sibling UX-DESIGN branch lands.
+Derived view of the current and v1 target architecture. Rendered from the active ADR set (principles + product + architecture decisions) and a brownfield scan of the shipped codebase. English-only.
 
 ## 1. Stack
 
@@ -27,6 +23,8 @@ Single source of truth for the current and v1 target architecture. Distilled fro
 
 **Pattern:** hybrid. Preact owns chrome; `TabManager` / `TerminalManager` / `Pane` own imperative terminal surfaces and talk to Rust over Tauri IPC.
 
+**Stack ADR:** `docs/decisions/0025-v1-stack-tauri-preact-xterm.md` — the stack is the v1 foundation but **revisable** (not a non-negotiable; Electron not forbidden).
+
 ## 2. Brownfield vs net-new
 
 ### Shipped (keep)
@@ -34,7 +32,7 @@ Single source of truth for the current and v1 target architecture. Distilled fro
 - Real PTY + login shell (`$SHELL -l`) via `portable-pty` (`src-tauri/src/pty.rs`)
 - Single-window Window → Tab → Pane hierarchy
 - Split, drag-dock rearrange, divider resize, focus cycle / directional focus, focus-expand, zoom
-- Session chrome restore (`session.json` layout only — ADR 0001)
+- Session chrome restore (`session.json` layout only — ADR 0010)
 - In-memory closed-tab stack with CWDs (max 10)
 - Agent/busy chrome from foreground process name (`claude` / `codex` / `gemini`)
 - Themes + settings persist; git branch in status bar; file-drop → PTY; Cmd+F search; busy/quit guards
@@ -115,7 +113,9 @@ Each decision lists the chosen approach and the alternatives rejected during arc
 **Rejected:**
 
 - _Logical UUID pane-id separate from PTY id_ — double-key every IPC; v1 does not need identity across respawn/restart.
-- _Persist pane-ids in session chrome_ — meaningless under fresh-shell restore; conflicts with ADR 0001 intent.
+- _Persist pane-ids in session chrome_ — meaningless under fresh-shell restore; conflicts with ADR 0010 intent.
+
+**ADR:** `docs/decisions/0020-pane-id-equals-pty-id.md`
 
 ### D3 — Session chrome + restore-all-windows
 
@@ -162,6 +162,8 @@ PresetsData v1 (conceptual)
 - _Embed presets in `settings.json`_ — mixes preferences with layout templates.
 - _One file per preset on disk_ — unnecessary given plugin-store; weaker atomic overwrite.
 
+**ADR:** `docs/decisions/0021-preset-persistence-presets-json.md`
+
 ### D5 — Sidebar data plane
 
 **Chosen: Rust reads file + shell-outs `git`; frontend renders only.**
@@ -180,6 +182,8 @@ PresetsData v1 (conceptual)
 - _Frontend fs plugin for reads + Rust git_ — extra capability surface, two I/O paths.
 - _Embed libgit2/gitoxide_ — heavy; inconsistent with existing `git_branch` shell-out.
 
+**ADR:** `docs/decisions/0022-sidebar-data-plane.md`
+
 ### D6 — Agent PATH detect + spawn
 
 **Chosen: hardcoded allowlist + Rust PATH lookup; pick spawns immediately.**
@@ -195,6 +199,8 @@ PresetsData v1 (conceptual)
 - _Heuristic scan of all PATH binaries_ — noisy, slow, un-minimal.
 - _User-configurable agent list in settings_ — deferred (PRD Later).
 
+**ADR:** `docs/decisions/0023-agent-path-detect-allowlist.md`
+
 ### D7 — Signals / module-store at multi-window scale
 
 **Chosen: per-webview signals + plugin-store reload via app events.**
@@ -209,13 +215,15 @@ PresetsData v1 (conceptual)
 - _Lift all UI state into Rust_ — rewrite; fights imperative xterm layer.
 - _SharedWorker / BroadcastChannel between webviews_ — unreliable under WKWebView/Tauri; still need Rust for PTY ownership.
 
+**ADR:** `docs/decisions/0024-signals-module-store-multi-window.md`
+
 ### D8 — Quit semantics (product amendment)
 
 **Chosen: last tab of a window closes that window; app quits when no windows remain (or explicit Quit).**
 
-Supersedes single-window ADR 0002 behavior. Busy guard still applies on close paths only (never on swap/move).
+Supersedes single-window pre-pipeline quit behavior. Busy guard still applies on close paths only (never on swap/move).
 
-**ADR:** `docs/decisions/0003-last-window-close-quits-app.md` (supersedes `docs/adr/0002-last-tab-close-quits-app.md`)
+**ADR:** `docs/decisions/0003-last-window-close-quits-app.md` (replaces pre-pipeline `docs/adr/0002-last-tab-close-quits-app.md`)
 
 ## 6. Data flows (main journeys)
 
@@ -339,22 +347,30 @@ Restore / preset materialize: spawn N shells, `treeFromLayout(serialized, ids)` 
 
 ## 11. ADR index
 
-| ADR                                                  | Topic                              | Relation                         |
-| ---------------------------------------------------- | ---------------------------------- | -------------------------------- |
-| `docs/adr/0001-session-restore-without-cwd.md`       | Session chrome without CWD         | Still in force (PRINCIPLES)      |
-| `docs/adr/0002-last-tab-close-quits-app.md`          | Single-window quit                 | **Superseded** by decisions/0003 |
-| `docs/decisions/0001-rust-pty-window-coordinator.md` | Rust ownership + targeted PTY IPC  | New (architecture phase)         |
-| `docs/decisions/0002-multi-window-session-chrome.md` | Single multi-window `session.json` | New                              |
-| `docs/decisions/0003-last-window-close-quits-app.md` | Quit = last window of app          | New; supersedes adr/0002         |
+| ADR                                                            | Topic                              | Kind / relation                        |
+| -------------------------------------------------------------- | ---------------------------------- | -------------------------------------- |
+| `docs/decisions/0001-rust-pty-window-coordinator.md`           | Rust ownership + targeted PTY IPC  | architecture (D1)                      |
+| `docs/decisions/0002-multi-window-session-chrome.md`           | Single multi-window `session.json` | architecture (D3)                      |
+| `docs/decisions/0003-last-window-close-quits-app.md`           | Quit = last window of app          | architecture (D8); replaces adr/0002   |
+| `docs/decisions/0020-pane-id-equals-pty-id.md`                 | Pane-id ≡ PTY id                   | architecture (D2)                      |
+| `docs/decisions/0021-preset-persistence-presets-json.md`       | Separate `presets.json`            | architecture (D4)                      |
+| `docs/decisions/0022-sidebar-data-plane.md`                    | Rust reads + git shell-out         | architecture (D5)                      |
+| `docs/decisions/0023-agent-path-detect-allowlist.md`           | Allowlist PATH detect + spawn      | architecture (D6)                      |
+| `docs/decisions/0024-signals-module-store-multi-window.md`     | Per-webview signals + reload       | architecture (D7)                      |
+| `docs/decisions/0025-v1-stack-tauri-preact-xterm.md`           | v1 stack (revisable)               | architecture (§1)                      |
+| `docs/decisions/0005-macos-only-v1.md`                         | macOS only                         | principle (constrains stack)           |
+| `docs/decisions/0007-real-pty-login-shell.md`                  | Real PTY + login shell             | principle (PTY registry)               |
+| `docs/decisions/0010-session-restore-layout-chrome-not-cwd.md` | Session chrome without CWD         | principle (session schema)             |
+| `docs/decisions/0012-multi-window-workspace-model.md`          | Multi-window product model         | product (drives coordinator + session) |
+| `docs/adr/0001-session-restore-without-cwd.md`                 | Pre-pipeline session-chrome        | history; absorbed by ADR 0010          |
+| `docs/adr/0002-last-tab-close-quits-app.md`                    | Pre-pipeline single-window quit    | history; replaced by ADR 0003          |
 
-Rationale lives in ADRs; this document records the chosen shape only.
+Rationale lives in the ADRs; this document records the chosen shape only.
 
-## 12. Completeness check (pre-freeze)
+## 12. Completeness check
 
 Against PRINCIPLES: agent-CLI first, macOS, mouse+keyboard, real PTY, local-by-default, MIT, session-chrome-not-CWD — all reflected in seams and persistence.
 
 Against PRD / BUSINESS-FLOW journeys: Open board → materialize → picker; restore-all + picker; swap; move-across-window; sidebar; presets — each has a data flow and owning layer.
 
-Against brownfield: shipped modules named; net-new called out; no silent rewrite of ADR 0001.
-
-**Not done in this phase:** freeze stamps, `PIPELINE.lock` advance, `CONTEXT.md` compact, UX-DESIGN (sibling branch). Reconverge owns those.
+Against brownfield: shipped modules named; net-new called out; session-chrome-without-CWD (ADR 0010) preserved. Some net-new modules (Rust coordinator, tab-materialize / layout-engine / close-coordinator seams) are actively landing in the codebase; this document tracks the decisions, not a code snapshot — see `CONTEXT.md` for current implementation state.

@@ -1,9 +1,9 @@
 ---
-frozen: true
-hash: 5830f27c0db628695ed4f2359e04f5cb955d6d2812b5c97e881e3f4089235abb
-from_hash:
-  PRINCIPLES: a06e3bee0cac7feb7d51244c8d46960f939f90f54fbd4c793ae2f6abd412f401
+derived: true
+derived_from: [0003, 0007, 0008, 0010, 0012, 0013, 0014, 0015, 0016, 0017, 0018]
+rendered: 2026-07-10
 ---
+
 # BUSINESS-FLOW — Stackgrid
 
 States, rules, and invariants for v1 product behavior. Complements `PRD.md`; does not replace PRINCIPLES.
@@ -12,54 +12,54 @@ States, rules, and invariants for v1 product behavior. Complements `PRD.md`; doe
 
 ### Application
 
-| State | Meaning |
-| --- | --- |
-| **Cold launch** | App starting; may load persisted multi-window session chrome if restore is enabled and data exists. |
-| **Open board** | User must choose workspace + layout preset before a real layout is shown. Entered on New Window, missing/disabled session restore, or empty session. |
-| **Running** | One or more windows exist with tabs/panes backed by PTYs. |
-| **Quitting** | App exiting after last window is gone or explicit Quit. |
+| State           | Meaning                                                                                                                                              |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Cold launch** | App starting; may load persisted multi-window session chrome if restore is enabled and data exists.                                                  |
+| **Open board**  | User must choose workspace + layout preset before a real layout is shown. Entered on New Window, missing/disabled session restore, or empty session. |
+| **Running**     | One or more windows exist with tabs/panes backed by PTYs.                                                                                            |
+| **Quitting**    | App exiting after last window is gone or explicit Quit.                                                                                              |
 
 ### Window
 
-| State | Meaning |
-| --- | --- |
+| State                 | Meaning                                                                        |
+| --------------------- | ------------------------------------------------------------------------------ |
 | **Open-board window** | New window showing Open board; no working tabs yet (or equivalent pre-layout). |
-| **Active window** | Has ≥1 tab; participates in session chrome persistence. |
-| **Closing** | Last tab of this window closed → window closes; other windows unaffected. |
+| **Active window**     | Has ≥1 tab; participates in session chrome persistence.                        |
+| **Closing**           | Last tab of this window closed → window closes; other windows unaffected.      |
 
 ### Tab / layout
 
-| State | Meaning |
-| --- | --- |
-| **Materializing** | Preset (or restore) applied; panes spawning shells at resolved CWDs. |
+| State                  | Meaning                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Materializing**      | Preset (or restore) applied; panes spawning shells at resolved CWDs.                                                |
 | **Agent-pick pending** | After materialize or session restore: panes await agent/Shell/Skip-all. One-shot per pane for that materialization. |
-| **Live** | Normal use: focus, split, swap, drag-dock, move across windows. |
-| **Preset editing** | Mini layout mock open for designing a preset (not the live PTY layout). |
+| **Live**               | Normal use: focus, split, swap, drag-dock, move across windows.                                                     |
+| **Preset editing**     | Mini layout mock open for designing a preset (not the live PTY layout).                                             |
 
 ### Pane
 
-| State | Meaning |
-| --- | --- |
-| **Idle shell** | Foreground is idle shell (or session-ended limbo) — not busy. |
-| **Busy** | Foreground process is not an idle shell (agent or other). |
+| State            | Meaning                                                                    |
+| ---------------- | -------------------------------------------------------------------------- |
+| **Idle shell**   | Foreground is idle shell (or session-ended limbo) — not busy.              |
+| **Busy**         | Foreground process is not an idle shell (agent or other).                  |
 | **Agent-styled** | Foreground process name matches a recognized agent — header/badge styling. |
-| **Picker** | Overlay/chooser visible for agent vs Shell (during agent-pick pending). |
+| **Picker**       | Overlay/chooser visible for agent vs Shell (during agent-pick pending).    |
 
 ### Sidebar
 
-| State | Meaning |
-| --- | --- |
-| **Closed** | Default. |
-| **Open (preview)** | Showing file content; Markdown rendered when applicable. |
-| **Open (diff)** | Showing git diff for the file when git context exists. |
-| **Blocked** | Path missing/unresolvable — toast/error; sidebar stays closed. |
+| State              | Meaning                                                        |
+| ------------------ | -------------------------------------------------------------- |
+| **Closed**         | Default.                                                       |
+| **Open (preview)** | Showing file content; Markdown rendered when applicable.       |
+| **Open (diff)**    | Showing git diff for the file when git context exists.         |
+| **Blocked**        | Path missing/unresolvable — toast/error; sidebar stays closed. |
 
 ### Preset store
 
-| State | Meaning |
-| --- | --- |
-| **Empty / populated** | Named presets on disk (split tree + optional per-pane CWDs). |
-| **Saving / renaming / deleting / overwriting** | User-managed CRUD transitions. |
+| State                                          | Meaning                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------ |
+| **Empty / populated**                          | Named presets on disk (split tree + optional per-pane CWDs). |
+| **Saving / renaming / deleting / overwriting** | User-managed CRUD transitions.                               |
 
 ## Rules
 
@@ -74,7 +74,7 @@ States, rules, and invariants for v1 product behavior. Complements `PRD.md`; doe
 ### CWD resolution
 
 6. When opening from a preset: pane CWD = preset pane CWD if set; else **workspace folder** chosen on the Open board.
-7. Session restore spawn CWD = `$HOME` (or existing restore contract) — presets do not rewrite `session.json`.
+7. Session restore spawn CWD = `$HOME` (ADR 0010) — presets do not rewrite `session.json`.
 8. New split / new tab at runtime inherits focused pane CWD (existing behavior).
 9. Closed-tab reopen may restore CWDs **in memory only** (existing behavior).
 

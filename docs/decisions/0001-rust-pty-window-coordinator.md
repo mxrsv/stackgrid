@@ -1,8 +1,13 @@
+---
+id: 0001
+title: "Rust PTY / window coordinator"
+date: 2026-07-09
+kind: architecture
+affects: [ARCHITECTURE, REQUIREMENTS]
+supersedes: []
+---
+
 # ADR 0001 — Rust PTY / window coordinator
-
-## Status
-
-Accepted (architecture phase; ADR-early — ARCHITECTURE not yet frozen).
 
 ## Context
 
@@ -17,3 +22,7 @@ Keep the Rust `PtyState` registry keyed by pane-id (PTY id). Add an app-level Ru
 - New IPC for ownership changes and targeted event delivery.
 - Frontend per-window managers stay responsible for layout trees and xterm attachment only.
 - Closing a window disposes only PTYs still owned by that window (subject to busy close guards).
+
+## Options rejected
+
+- Broadcast every `pty:output` / `pty:exit` event to all webviews (status quo) — causes cross-window races and orphaned PTYs once panes move between windows.
