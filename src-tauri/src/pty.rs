@@ -244,6 +244,38 @@ pub fn resize_pty(state: State<PtyState>, id: u32, cols: u16, rows: u16) -> Resu
         .map_err(|e| e.to_string())
 }
 
+/// How long a foreground job gets to react to SIGHUP (save swap, flush state)
+/// before the group is SIGKILLed.
+#[cfg(target_os = "macos")]
+const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Tears down everything living on a pane's PTY, not just the login shell:
+/// SIGKILL on the shell's own pid leaves grandchildren (agent CLIs, editors)
+/// running, holding the slave fd open and leaking the reader thread. The
+/// foreground job gets SIGHUP first so it can shut down cleanly, then is
+/// SIGKILLed after `grace` in case it ignores hangups; the shell's group has
+/// nothing to save and dies immediately.
+#[cfg(target_os = "macos")]
+fn terminate_process_groups(
+    fg_pgid: Option<i32>,
+    shell_pgid: Option<i32>,
+    grace: std::time::Duration,
+) {
+    let fg = fg_pgid.filter(|pgid| *pgid > 1);
+    let shell = shell_pgid.filter(|pgid| *pgid > 1);
+    if let Some(pgid) = fg {
+        unsafe { libc::killpg(pgid, libc::SIGHUP) };
+        thread::spawn(move || {
+            thread::sleep(grace);
+            // ESRCH on an already-gone group is the normal case here.
+            unsafe { libc::killpg(pgid, libc::SIGKILL) };
+        });
+    }
+    if let Some(pgid) = shell {
+        unsafe { libc::killpg(pgid, libc::SIGKILL) };
+    }
+}
+
 #[tauri::command]
 pub fn kill_pty(
     state: State<'_, PtyState>,
@@ -252,6 +284,13 @@ pub fn kill_pty(
 ) -> Result<(), String> {
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
     if let Some(mut session) = sessions.remove(&id) {
+        #[cfg(target_os = "macos")]
+        terminate_process_groups(
+            session.master.process_group_leader(),
+            session.child_pid.map(|pid| pid as i32),
+            KILL_GRACE,
+        );
+        // Portable fallback; ESRCH once the group kill has already landed.
         let _ = session.killer.kill();
     }
     coordinator.unregister(id);
@@ -310,6 +349,122 @@ mod tests {
     fn resolve_spawn_cwd_accepts_an_existing_dir() {
         let dir = std::env::temp_dir().to_string_lossy().into_owned();
         assert_eq!(super::resolve_spawn_cwd(Some(dir.clone())), Some(dir));
+    }
+
+    #[cfg(target_os = "macos")]
+    mod terminate_process_groups {
+        use super::super::terminate_process_groups;
+        use std::os::unix::process::CommandExt;
+        use std::process::{Child, Command};
+        use std::time::{Duration, Instant};
+
+        /// Spawns `/bin/sh -c <script>` as the leader of a fresh process
+        /// group, standing in for a shell (or its foreground job) on the PTY.
+        fn spawn_in_own_group(script: &str) -> Child {
+            Command::new("/bin/sh")
+                .arg("-c")
+                .arg(script)
+                .process_group(0)
+                .spawn()
+                .expect("spawn test process")
+        }
+
+        fn exits_within(child: &mut Child, timeout: Duration) -> bool {
+            let deadline = Instant::now() + timeout;
+            while Instant::now() < deadline {
+                if child.try_wait().expect("try_wait").is_some() {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            false
+        }
+
+        #[test]
+        fn sigkills_the_shell_group_even_when_hup_is_ignored() {
+            let mut child = spawn_in_own_group("trap '' HUP; sleep 300");
+            let pgid = child.id() as i32;
+            // Grace far beyond the assertion window: only the immediate
+            // shell-group SIGKILL can make this pass.
+            terminate_process_groups(None, Some(pgid), Duration::from_secs(30));
+            assert!(
+                exits_within(&mut child, Duration::from_secs(1)),
+                "shell process group survived kill"
+            );
+        }
+
+        #[test]
+        fn hangs_up_the_foreground_group_without_waiting_for_the_grace() {
+            let mut child = spawn_in_own_group("sleep 300");
+            let pgid = child.id() as i32;
+            terminate_process_groups(Some(pgid), None, Duration::from_secs(30));
+            assert!(
+                exits_within(&mut child, Duration::from_secs(1)),
+                "foreground group did not receive SIGHUP"
+            );
+        }
+
+        /// The audited leak: SIGKILL on the shell pid alone left HUP-ignoring
+        /// descendants holding the slave fd, so the reader thread never saw
+        /// EOF. Exercises the same calls kill_pty makes, on a real PTY.
+        #[test]
+        fn kill_path_frees_the_pty_reader_even_with_hup_ignoring_children() {
+            use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+            use std::io::Read;
+
+            let pair = native_pty_system()
+                .openpty(PtySize {
+                    rows: 24,
+                    cols: 80,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                })
+                .expect("openpty");
+            let mut cmd = CommandBuilder::new("/bin/sh");
+            cmd.arg("-c");
+            cmd.arg("trap '' HUP; sleep 300");
+            let mut child = pair.slave.spawn_command(cmd).expect("spawn shell");
+            drop(pair.slave);
+            let mut reader = pair.master.try_clone_reader().expect("clone reader");
+
+            // Let sh install the trap before signals arrive.
+            std::thread::sleep(Duration::from_millis(200));
+            terminate_process_groups(
+                pair.master.process_group_leader(),
+                child.process_id().map(|pid| pid as i32),
+                Duration::from_secs(30),
+            );
+
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => continue,
+                    }
+                }
+                let _ = tx.send(());
+            });
+            assert!(
+                rx.recv_timeout(Duration::from_secs(3)).is_ok(),
+                "PTY reader never saw EOF — descendants still hold the slave fd"
+            );
+            let _ = child.wait();
+        }
+
+        #[test]
+        fn escalates_a_hup_ignoring_foreground_group_to_sigkill() {
+            let mut child = spawn_in_own_group("trap '' HUP; sleep 300");
+            // Let sh install the trap before the HUP arrives.
+            std::thread::sleep(Duration::from_millis(200));
+            let pgid = child.id() as i32;
+            terminate_process_groups(Some(pgid), None, Duration::from_millis(200));
+            assert!(
+                exits_within(&mut child, Duration::from_secs(3)),
+                "HUP-ignoring foreground group was never SIGKILLed"
+            );
+        }
     }
 
     #[test]
