@@ -37,10 +37,33 @@ export function busyProcesses(infos: readonly PaneProcessInfo[]): string[] {
   return names;
 }
 
-export function confirmMessage(names: readonly string[]): string {
+/** Dialog copy for the two busy-guard surfaces: close paths and quit. */
+export interface ConfirmCopy {
+  readonly title: string;
+  readonly okLabel: string;
+  /** Verb in the question — "Close anyway?" / "Quit anyway?". */
+  readonly action: string;
+}
+
+const CLOSE_COPY: ConfirmCopy = {
+  title: "Close Terminal",
+  okLabel: "Close",
+  action: "Close",
+};
+
+export const QUIT_COPY: ConfirmCopy = {
+  title: "Quit Stackgrid",
+  okLabel: "Quit",
+  action: "Quit",
+};
+
+export function confirmMessage(
+  names: readonly string[],
+  action: string = "Close",
+): string {
   return names.length === 1
-    ? `${names[0]} is still running. Close anyway?`
-    : `These processes are still running: ${names.join(", ")}. Close anyway?`;
+    ? `${names[0]} is still running. ${action} anyway?`
+    : `These processes are still running: ${names.join(", ")}. ${action} anyway?`;
 }
 
 let prompting = false;
@@ -55,6 +78,7 @@ let prompting = false;
 export async function confirmClose(
   paneIds: readonly number[],
   pty: PtyClient = defaultPtyClient,
+  copy: ConfirmCopy = CLOSE_COPY,
 ): Promise<boolean> {
   if (prompting) {
     return false;
@@ -67,10 +91,10 @@ export async function confirmClose(
       return true;
     }
     try {
-      return await ask(confirmMessage(names), {
-        title: "Close Terminal",
+      return await ask(confirmMessage(names, copy.action), {
+        title: copy.title,
         kind: "warning",
-        okLabel: "Close",
+        okLabel: copy.okLabel,
         cancelLabel: "Cancel",
       });
     } catch (err: unknown) {

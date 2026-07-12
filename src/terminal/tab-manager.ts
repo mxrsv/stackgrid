@@ -9,7 +9,11 @@ import { settings, updateSettings } from "../settings/settings-store";
 import type { Direction, SerializedNode } from "../lib/split-tree";
 import { isAgent } from "../lib/process-info";
 import { matchBinding, selectTabIndex, type ShortcutAction } from "./keymap";
-import { loadSession, scheduleSessionSave } from "./session-persistence";
+import {
+  flushPendingSaves,
+  loadSession,
+  scheduleSessionSave,
+} from "./session-persistence";
 import { installFileDrop } from "./file-drop";
 import {
   createTerminalManager,
@@ -83,6 +87,8 @@ export interface TabManager {
   setTabDotColor(index: number, color: TabDotColor | null): void;
   cycleTab(step: 1 | -1): void;
   splitActive(dir: Direction): Promise<void>;
+  /** Every pane id across every tab (quit-path busy guard). */
+  allPaneIds(): number[];
   /** Close the focused pane (busy-guarded); last pane in tab closes the tab. */
   closePane(): Promise<void>;
   applySettings(next: Settings): void;
@@ -364,6 +370,11 @@ export function createTabManager(
       // Closing the last tab quits the app (ADR 0002). CloseCoordinator
       // already ran the busy guard, so exit directly — no second dialog.
       active = -1;
+      try {
+        await flushPendingSaves();
+      } catch (err: unknown) {
+        console.warn("Flush before quit failed:", err);
+      }
       await pty.confirmQuit();
       return;
     }
@@ -584,6 +595,7 @@ export function createTabManager(
     },
     cycleTab,
     splitActive,
+    allPaneIds,
     closePane: () => close.closePane(),
     applySettings(next) {
       for (const tab of tabs) {

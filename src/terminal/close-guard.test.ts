@@ -4,6 +4,7 @@ import {
   confirmClose,
   confirmMessage,
   isBusy,
+  QUIT_COPY,
 } from "./close-guard";
 import type { PaneProcessInfo } from "../lib/process-info";
 import { createMemoryPtyClient } from "./pty-client";
@@ -11,7 +12,11 @@ import { createMemoryPtyClient } from "./pty-client";
 const askMock = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: askMock }));
 
-function info(id: number, process: string | null, cwd: string | null = null): PaneProcessInfo {
+function info(
+  id: number,
+  process: string | null,
+  cwd: string | null = null,
+): PaneProcessInfo {
   return { id, cwd, process };
 }
 
@@ -98,10 +103,31 @@ describe("confirmClose with injected PtyClient", () => {
   });
 });
 
+describe("confirmClose dialog copy", () => {
+  it("uses the quit copy on the quit path (FR-042 AC-3)", async () => {
+    askMock.mockClear();
+    askMock.mockResolvedValue(true);
+    const pty = createMemoryPtyClient({
+      infos: new Map([[1, info(1, "claude")]]),
+    });
+    await confirmClose([1], pty, QUIT_COPY);
+    expect(askMock).toHaveBeenCalledWith(
+      "claude is still running. Quit anyway?",
+      expect.objectContaining({ title: "Quit Stackgrid", okLabel: "Quit" }),
+    );
+  });
+});
+
 describe("confirmMessage", () => {
   it("names the single busy process", () => {
     expect(confirmMessage(["claude"])).toBe(
       "claude is still running. Close anyway?",
+    );
+  });
+
+  it("uses the provided action verb", () => {
+    expect(confirmMessage(["claude"], "Quit")).toBe(
+      "claude is still running. Quit anyway?",
     );
   });
 

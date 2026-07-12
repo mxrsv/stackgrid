@@ -6,6 +6,7 @@ import {
   type Settings,
   type TerminalColors,
 } from "./settings-schema";
+import { reportPersistError } from "../chrome/events";
 
 const STORE_FILE = "settings.json";
 const STORE_KEY = "settings";
@@ -32,8 +33,10 @@ export async function initSettings(): Promise<void> {
 }
 
 function persist(next: Settings): void {
-  store?.set(STORE_KEY, next).catch((err: unknown) => {
-    console.warn("Failed to save settings:", err);
+  store?.set(STORE_KEY, next).catch(() => {
+    reportPersistError(
+      "Couldn't save settings — changes may not survive a relaunch.",
+    );
   });
 }
 
@@ -51,6 +54,15 @@ export function updateColorOverride(
   const { [key]: _removed, ...rest } = settings.value.colorOverrides;
   const colorOverrides = value === undefined ? rest : { ...rest, [key]: value };
   updateSettings({ colorOverrides });
+}
+
+/**
+ * Forces the plugin-store's debounced autosave to disk — quit paths call
+ * this so a just-changed setting survives the process exiting within the
+ * autosave window.
+ */
+export async function flushSettingsSave(): Promise<void> {
+  await store?.save();
 }
 
 export function resetSettings(): void {

@@ -18,6 +18,7 @@ import {
 import { nearestInDirection, type FocusDirection } from "../lib/pane-geometry";
 import { paneHeaderInfo, type PaneProcessInfo } from "../lib/process-info";
 import { shellEscapePaths } from "../lib/shell-escape";
+import { reportPersistError } from "../chrome/events";
 import { createLayoutEngine } from "./layout-engine";
 import { createPaneLifecycle, type CreatePaneFn } from "./pane-lifecycle";
 import { freshCwd } from "./pane-info";
@@ -369,8 +370,10 @@ export function createTerminalManager(
     if (data === "") {
       return;
     }
-    pty.writePty(id, data).catch((err: unknown) => {
-      console.error("write_pty failed:", err);
+    pty.writePty(id, data).catch(() => {
+      reportPersistError(
+        "Couldn't send input to the terminal — the session may have ended.",
+      );
     });
     setActive(id);
     life.panes.get(id)?.focus();

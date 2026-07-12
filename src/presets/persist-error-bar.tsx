@@ -3,9 +3,9 @@ import { persistError } from "../chrome/events";
 
 const AUTO_DISMISS_MS = 6000;
 
-/** Surfaces a silent store.set/save() failure (presets, workspaces recents)
- * so the user knows a change may not survive a relaunch — see persist()
- * in presets-store.ts / recordWorkspaceOpen() in workspaces-store.ts. */
+/** Surfaces an otherwise-silent background failure — store.set/save()
+ * (presets, workspaces recents, settings) and PTY input writes — so the
+ * user knows a change may not have landed. */
 export function PersistErrorBar() {
   useEffect(() => {
     if (persistError.value === null) {

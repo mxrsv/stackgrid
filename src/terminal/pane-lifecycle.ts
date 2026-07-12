@@ -1,4 +1,5 @@
 import type { Settings } from "../settings/settings-schema";
+import { reportPersistError } from "../chrome/events";
 import { leaf, leafIds, replaceLeaf, type TreeNode } from "../lib/split-tree";
 import { createPane, type Pane, type PaneEvents } from "./pane";
 import type { PtyClient } from "./pty-client";
@@ -57,8 +58,10 @@ export function createPaneLifecycle(deps: {
         deps.onWriteWhileExited(id, data);
         return;
       }
-      deps.pty.writePty(id, data).catch((err: unknown) => {
-        console.error("write_pty failed:", err);
+      deps.pty.writePty(id, data).catch(() => {
+        reportPersistError(
+          "Couldn't send input to the terminal — the session may have ended.",
+        );
       });
     },
     onResize(id, cols, rows) {

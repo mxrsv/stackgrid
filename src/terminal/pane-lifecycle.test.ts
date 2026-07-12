@@ -4,8 +4,12 @@ import { DEFAULT_SETTINGS, type Settings } from "../settings/settings-schema";
 import { createPaneLifecycle } from "./pane-lifecycle";
 import type { Pane, PaneEvents } from "./pane";
 import { createMemoryPtyClient } from "./pty-client";
+import { persistError } from "../chrome/events";
 
-function fakePane(id: number, events: PaneEvents): Pane & { focusCalls: number } {
+function fakePane(
+  id: number,
+  events: PaneEvents,
+): Pane & { focusCalls: number } {
   const focusCalls = { n: 0 };
   const pane: Pane & { focusCalls: number } = {
     id,
@@ -72,6 +76,30 @@ describe("createPaneLifecycle respawn", () => {
     expect(result?.tree).toEqual(leaf(11));
     expect(life.panes.has(10)).toBe(false);
     expect(life.panes.has(11)).toBe(true);
+  });
+});
+
+describe("createPaneLifecycle write failures", () => {
+  it("surfaces a failed keystroke write to the user", async () => {
+    persistError.value = null;
+    const pty = {
+      ...createMemoryPtyClient({ nextId: 1 }),
+      writePty: vi.fn().mockRejectedValue(new Error("session gone")),
+    };
+    const life = createPaneLifecycle({
+      pty,
+      getSettings: () => DEFAULT_SETTINGS as Settings,
+      onWriteWhileExited() {},
+      onFocus() {},
+      createPane(id, _settings, events) {
+        return fakePane(id, events);
+      },
+    });
+    const pane = await life.spawnPane();
+    life.paneEvents.onData(pane.id, "x");
+    await vi.waitFor(() => {
+      expect(persistError.value).toContain("input");
+    });
   });
 });
 

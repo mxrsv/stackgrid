@@ -3,6 +3,9 @@ import { useSignal, useSignalEffect } from "@preact/signals";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { installQuitGuard } from "../lib/quit-guard";
+import { confirmClose, QUIT_COPY } from "../terminal/close-guard";
+import { flushPendingSaves } from "../terminal/session-persistence";
+import { defaultPtyClient } from "../terminal/pty-client";
 import { deriveChromeColors } from "../lib/derive-colors";
 import { resolveCwds, type Preset } from "../lib/preset-schema";
 import { resolveInheritedCwds } from "../terminal/tab-materialize";
@@ -16,11 +19,7 @@ import {
   savePreset,
 } from "../presets/presets-store";
 import { recordWorkspaceOpen } from "../open-board/workspaces-store";
-import {
-  boardOpen,
-  editorRequest,
-  saveDialogOpen,
-} from "../chrome/events";
+import { boardOpen, editorRequest, saveDialogOpen } from "../chrome/events";
 import { OpenBoard } from "../open-board/open-board";
 import { PresetEditor } from "../presets/preset-editor";
 import {
@@ -66,7 +65,18 @@ export function App() {
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
-    installQuitGuard()
+    installQuitGuard({
+      // Quit is busy-guarded like every close path (FR-042 AC-3): silent
+      // when all panes are idle, one confirm when anything is running.
+      confirmQuit: () => {
+        const manager = tabsRef.current;
+        return manager
+          ? confirmClose(manager.allPaneIds(), defaultPtyClient, QUIT_COPY)
+          : Promise.resolve(true);
+      },
+      flush: flushPendingSaves,
+      quit: () => defaultPtyClient.confirmQuit(),
+    })
       .then((fn) => {
         unlisten = fn;
       })
