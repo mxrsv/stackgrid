@@ -88,14 +88,22 @@ export function App() {
 
   useEffect(() => {
     const unsubs: UnlistenFn[] = [];
-    void listen("menu:save-preset", () => {
+    listen("menu:save-preset", () => {
       if (!boardOpen.value) {
         saveDialogOpen.value = true;
       }
-    }).then((fn) => unsubs.push(fn));
-    void listen("menu:new-preset", () => {
+    })
+      .then((fn) => unsubs.push(fn))
+      .catch((err: unknown) => {
+        console.error("Failed to listen for menu:save-preset:", err);
+      });
+    listen("menu:new-preset", () => {
       editorRequest.value = { source: "live" };
-    }).then((fn) => unsubs.push(fn));
+    })
+      .then((fn) => unsubs.push(fn))
+      .catch((err: unknown) => {
+        console.error("Failed to listen for menu:new-preset:", err);
+      });
     return () => unsubs.forEach((fn) => fn());
   }, []);
 

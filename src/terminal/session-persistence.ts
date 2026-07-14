@@ -1,6 +1,7 @@
 import { Store } from "@tauri-apps/plugin-store";
 import { validateSession, type SessionData } from "../lib/session-schema";
 import { flushSettingsSave } from "../settings/settings-store";
+import { reportPersistError } from "../chrome/events";
 
 const SESSION_FILE = "session.json";
 const SESSION_KEY = "session";
@@ -51,7 +52,11 @@ async function writeSession(build: () => SessionData | null): Promise<void> {
     await store.set(SESSION_KEY, data);
     await store.save();
   } catch (err: unknown) {
+    // Layout/tab state may silently fail to land on disk otherwise — mirror
+    // settings/presets/workspaces so the user learns before they quit and
+    // lose the last ≤500ms of changes for good.
     console.warn("Failed to save session:", err);
+    reportPersistError("Layout wasn't saved to disk");
   }
 }
 
