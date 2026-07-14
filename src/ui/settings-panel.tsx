@@ -1,3 +1,4 @@
+import { useEffect } from "preact/hooks";
 import {
   resetSettings,
   settings,
@@ -9,11 +10,16 @@ import {
   COLOR_KEYS,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
+  type TabBarPosition,
   type TerminalColors,
 } from "../settings/settings-schema";
 import { getPreset, THEME_PRESETS } from "../settings/themes";
-import { ColorField } from "./controls/color-field";
-import { FontSelect } from "./controls/font-select";
+import { ConfigGroup, ConfigRow, ToggleRow } from "./controls/config-row";
+import { ColorRow } from "./controls/color-row";
+import { FontRow } from "./controls/font-row";
+import { EditorRow } from "./controls/editor-row";
+
+const TAB_BAR_CHOICES: readonly TabBarPosition[] = ["left", "top"];
 
 const COLOR_LABELS: Record<keyof TerminalColors, string> = {
   background: "Background",
@@ -31,8 +37,37 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const current = settings.value;
   const preset = getPreset(current.themeId);
 
+  // Escape closes the panel — unless the key is headed for a terminal,
+  // which owns its own Escape (vim, fzf, …).
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".xterm")) {
+        return;
+      }
+      onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
   const stepFontSize = (delta: number): void => {
     updateSettings({ fontSize: clampFontSize(current.fontSize + delta) });
+  };
+
+  const cycleTheme = (): void => {
+    const index = THEME_PRESETS.findIndex(
+      (themePreset) => themePreset.id === current.themeId,
+    );
+    const next = THEME_PRESETS[(index + 1) % THEME_PRESETS.length];
+    // Switching theme clears previous color overrides
+    updateSettings({ themeId: next.id, colorOverrides: {} });
   };
 
   return (
@@ -42,159 +77,136 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       aria-hidden={!open}
     >
       <header class="panel__head">
-        <h2 class="panel__title">Settings</h2>
+        <h2 class="panel__path">
+          <b>~</b>/stackgrid/settings
+        </h2>
         <button
           type="button"
-          class="panel__x"
+          class="panel__esc"
           aria-label="Close settings"
           onClick={onClose}
         >
-          ✕
+          esc
         </button>
       </header>
 
       <div class="panel__body">
-        <section class="panel__sec">
-          <h3 class="panel__sec-title">Theme</h3>
-          <div class="theme-grid">
-            {THEME_PRESETS.map((themePreset) => (
+        <ConfigGroup label="appearance" />
+        <ConfigRow label="Theme" desc="terminal palette">
+          <button
+            type="button"
+            class="cfg-btn"
+            title="Next theme"
+            aria-label={`Theme: ${preset.label}. Switch to next theme`}
+            onClick={cycleTheme}
+          >
+            <span
+              class="cfg-swatch"
+              style={{
+                background: preset.theme.background,
+                borderColor: preset.theme.blue,
+              }}
+            />
+            {preset.id}
+            <span class="cfg-btn__hint">↹</span>
+          </button>
+        </ConfigRow>
+        <FontRow
+          value={current.fontFamily}
+          onChange={(fontFamily) => updateSettings({ fontFamily })}
+        />
+        <ConfigRow label="Font size">
+          <span class="cfg-btn cfg-step" role="group" aria-label="Font size">
+            <button
+              type="button"
+              class="cfg-step__btn"
+              aria-label="Decrease font size"
+              disabled={current.fontSize <= FONT_SIZE_MIN}
+              onClick={() => stepFontSize(-1)}
+            >
+              −
+            </button>
+            <span class="cfg-step__val">{current.fontSize}px</span>
+            <button
+              type="button"
+              class="cfg-step__btn"
+              aria-label="Increase font size"
+              disabled={current.fontSize >= FONT_SIZE_MAX}
+              onClick={() => stepFontSize(1)}
+            >
+              +
+            </button>
+          </span>
+        </ConfigRow>
+
+        <ConfigGroup label="colors" />
+        {COLOR_KEYS.map((key) => (
+          <ColorRow
+            key={key}
+            label={COLOR_LABELS[key]}
+            value={current.colorOverrides[key] ?? preset.theme[key]}
+            overridden={current.colorOverrides[key] !== undefined}
+            onChange={(hex) => updateColorOverride(key, hex)}
+            onClear={() => updateColorOverride(key, undefined)}
+          />
+        ))}
+
+        <ConfigGroup label="behavior" />
+        <EditorRow
+          value={current.editorId}
+          command={current.editorCommand}
+          onChange={(editorId) => updateSettings({ editorId })}
+          onCommandChange={(editorCommand) => updateSettings({ editorCommand })}
+        />
+        <ConfigRow label="Tab bar position" desc="workspace list placement">
+          <span
+            class="cfg-btn cfg-seg"
+            role="group"
+            aria-label="Tab bar position"
+          >
+            {TAB_BAR_CHOICES.map((choice) => (
               <button
-                key={themePreset.id}
+                key={choice}
                 type="button"
-                class={`theme-chip ${
-                  themePreset.id === current.themeId ? "is-active" : ""
+                class={`cfg-seg__btn ${
+                  current.tabBarPosition === choice ? "is-active" : ""
                 }`}
-                onClick={() =>
-                  // Switching theme clears previous color overrides
-                  updateSettings({
-                    themeId: themePreset.id,
-                    colorOverrides: {},
-                  })
-                }
+                aria-pressed={current.tabBarPosition === choice}
+                onClick={() => updateSettings({ tabBarPosition: choice })}
               >
-                <span
-                  class="theme-chip__swatch"
-                  style={{
-                    background: themePreset.theme.background,
-                    borderColor: themePreset.theme.blue,
-                  }}
-                />
-                {themePreset.label}
+                {choice}
               </button>
             ))}
-          </div>
-        </section>
+          </span>
+        </ConfigRow>
+        <ToggleRow
+          label="Show pane bar"
+          desc="pane name bar inside splits"
+          checked={current.showPaneBar}
+          onToggle={() => updateSettings({ showPaneBar: !current.showPaneBar })}
+        />
+        <ToggleRow
+          label="Restore tabs"
+          desc="reopen tabs on launch"
+          checked={current.restoreTabs}
+          onToggle={() => updateSettings({ restoreTabs: !current.restoreTabs })}
+        />
 
-        <section class="panel__sec">
-          <h3 class="panel__sec-title">Font</h3>
-          <FontSelect
-            value={current.fontFamily}
-            onChange={(fontFamily) => updateSettings({ fontFamily })}
-          />
-          <div class="field">
-            <span class="field__label">Font size</span>
-            <div class="stepper">
-              <button
-                type="button"
-                class="stepper__button"
-                aria-label="Decrease font size"
-                disabled={current.fontSize <= FONT_SIZE_MIN}
-                onClick={() => stepFontSize(-1)}
-              >
-                −
-              </button>
-              <span class="stepper__value">{current.fontSize}</span>
-              <button
-                type="button"
-                class="stepper__button"
-                aria-label="Increase font size"
-                disabled={current.fontSize >= FONT_SIZE_MAX}
-                onClick={() => stepFontSize(1)}
-              >
-                +
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel__sec">
-          <h3 class="panel__sec-title">Colors</h3>
-          {COLOR_KEYS.map((key) => (
-            <ColorField
-              key={key}
-              label={COLOR_LABELS[key]}
-              value={current.colorOverrides[key] ?? preset.theme[key]}
-              overridden={current.colorOverrides[key] !== undefined}
-              onChange={(hex) => updateColorOverride(key, hex)}
-              onClear={() => updateColorOverride(key, undefined)}
-            />
-          ))}
-        </section>
-
-        <section class="panel__sec">
-          <h3 class="panel__sec-title">Panes</h3>
-          <div class="field">
-            <span class="field__label">Show pane bar</span>
-            <div class="segmented" role="radiogroup" aria-label="Show pane bar">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={current.showPaneBar}
-                class={`segmented__option ${current.showPaneBar ? "is-active" : ""}`}
-                onClick={() => updateSettings({ showPaneBar: true })}
-              >
-                On
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={!current.showPaneBar}
-                class={`segmented__option ${current.showPaneBar ? "" : "is-active"}`}
-                onClick={() => updateSettings({ showPaneBar: false })}
-              >
-                Off
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel__sec">
-          <h3 class="panel__sec-title">Tabs</h3>
-          <div class="field">
-            <span class="field__label">Restore on launch</span>
-            <div
-              class="segmented"
-              role="radiogroup"
-              aria-label="Restore tabs on launch"
-            >
-              <button
-                type="button"
-                role="radio"
-                aria-checked={current.restoreTabs}
-                class={`segmented__option ${current.restoreTabs ? "is-active" : ""}`}
-                onClick={() => updateSettings({ restoreTabs: true })}
-              >
-                On
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={!current.restoreTabs}
-                class={`segmented__option ${current.restoreTabs ? "" : "is-active"}`}
-                onClick={() => updateSettings({ restoreTabs: false })}
-              >
-                Off
-              </button>
-            </div>
-          </div>
-        </section>
+        <ConfigGroup label="danger" />
+        <ConfigRow
+          label="Restore defaults"
+          desc="theme, font, colors, behavior"
+          danger
+        >
+          <button
+            type="button"
+            class="cfg-btn cfg-btn--danger"
+            onClick={resetSettings}
+          >
+            ↺ reset
+          </button>
+        </ConfigRow>
       </div>
-
-      <footer class="panel__footer">
-        <button type="button" class="btn-reset" onClick={resetSettings}>
-          Restore defaults
-        </button>
-      </footer>
     </aside>
   );
 }

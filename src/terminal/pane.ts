@@ -1,13 +1,14 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
-import { WebLinksAddon } from "@xterm/addon-web-links";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { FONT_FALLBACK, type Settings } from "../settings/settings-schema";
 import { applyWebkitImeFix, isWebKitWebView } from "./webkit-ime-fix";
 import { installImeTrace } from "./ime-trace";
 import { resolveTheme } from "../settings/themes";
 import type { PaneHeaderInfo } from "../lib/process-info";
+import { createLinkProvider } from "./link-provider";
+import { paneCwd } from "./pane-cwd";
 
 export interface PaneEvents {
   onData(id: number, data: string): void;
@@ -95,9 +96,15 @@ export function createPane(
 
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
-  term.loadAddon(new WebLinksAddon());
   const searchAddon = new SearchAddon();
   term.loadAddon(searchAddon);
+
+  // ⌘+click opens URLs in the browser and file paths in the editor. This
+  // replaces WebLinksAddon: that one underlines and activates on a plain
+  // click, which an agent TUI needs for its own mouse handling.
+  const linkProvider = term.registerLinkProvider(
+    createLinkProvider(term, { getCwd: () => paneCwd(id) }),
+  );
 
   // xterm core measures cell width with a Unicode 6 table and no grapheme
   // clustering, so Vietnamese combining marks (NFD "ố" = o + ◌̂ + ◌́) are
@@ -193,6 +200,7 @@ export function createPane(
       clearTimeout(resizeTimer);
     }
     observer.disconnect();
+    linkProvider.dispose();
     term.dispose();
     element.remove();
   }

@@ -2,6 +2,7 @@ import type { Settings } from "../settings/settings-schema";
 import { reportPersistError } from "../chrome/events";
 import { leaf, leafIds, replaceLeaf, type TreeNode } from "../lib/split-tree";
 import { createPane, type Pane, type PaneEvents } from "./pane";
+import { clearPaneCwd, setPaneCwd } from "./pane-cwd";
 import type { PtyClient } from "./pty-client";
 
 // Placeholder size at spawn — fit() after mount resizes to the real dimensions
@@ -85,6 +86,9 @@ export function createPaneLifecycle(deps: {
     });
     const pane = makePane(id, deps.getSettings(), paneEvents);
     panes.set(id, pane);
+    // Seed the link provider's cwd — the pty_info poll only refreshes it 2s
+    // later, and a path clicked before then would resolve against the wrong dir.
+    setPaneCwd(id, cwd);
     return pane;
   }
 
@@ -93,6 +97,7 @@ export function createPaneLifecycle(deps: {
       // Session already gone — ignore
     });
     panes.delete(pane.id);
+    clearPaneCwd(pane.id);
     pane.dispose();
   }
 
@@ -136,6 +141,7 @@ export function createPaneLifecycle(deps: {
       const nextTree = replaceLeaf(tree, oldId, fresh.id);
       panes.delete(oldId);
       exited.delete(oldId);
+      clearPaneCwd(oldId);
       old.dispose();
       // Caller must focus after layout mount/render — term.open() runs in mount().
       return {

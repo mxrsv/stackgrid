@@ -21,6 +21,7 @@ import { shellEscapePaths } from "../lib/shell-escape";
 import { reportPersistError } from "../chrome/events";
 import { createLayoutEngine } from "./layout-engine";
 import { createPaneLifecycle, type CreatePaneFn } from "./pane-lifecycle";
+import { clearPaneCwd, setPaneCwd } from "./pane-cwd";
 import { freshCwd } from "./pane-info";
 import { defaultPtyClient, type PtyClient } from "./pty-client";
 import { createPaneDragController, type PaneDragController } from "./pane-drag";
@@ -221,6 +222,7 @@ export function createTerminalManager(
     life.killPane(id);
     life.panes.delete(id);
     life.exited.delete(id);
+    clearPaneCwd(id);
     closeSearchBarForPane(id);
     pane.dispose();
 
@@ -490,7 +492,16 @@ export function createTerminalManager(
     handleExit,
     updatePaneInfo(infos, home) {
       for (const info of infos) {
-        life.panes.get(info.id)?.setHeaderInfo(paneHeaderInfo(info, home));
+        const pane = life.panes.get(info.id);
+        if (!pane) {
+          continue;
+        }
+        pane.setHeaderInfo(paneHeaderInfo(info, home));
+        // The header shows a tildified cwd; the link provider needs the raw
+        // one to resolve the relative paths an agent prints.
+        if (info.cwd !== null) {
+          setPaneCwd(info.id, info.cwd);
+        }
       }
     },
     notifyError(message) {
@@ -506,6 +517,7 @@ export function createTerminalManager(
       layout.unzoom();
       life.killAll();
       for (const pane of life.panes.values()) {
+        clearPaneCwd(pane.id);
         closeSearchBarForPane(pane.id);
         pane.dispose();
       }

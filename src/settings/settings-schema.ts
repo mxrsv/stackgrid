@@ -1,9 +1,14 @@
+import { isEditorId, type EditorId } from "../lib/editor-command";
+
 export interface TerminalColors {
   background: string;
   foreground: string;
   cursor: string;
   selectionBackground: string;
 }
+
+/** `left` = workspace sidebar (default), `top` = the classic horizontal bar. */
+export type TabBarPosition = "top" | "left";
 
 export interface Settings {
   fontFamily: string;
@@ -13,6 +18,11 @@ export interface Settings {
   restoreTabs: boolean;
   focusExpand: boolean;
   showPaneBar: boolean;
+  tabBarPosition: TabBarPosition;
+  /** Editor launched by Cmd+click on a file path in a terminal. */
+  editorId: EditorId;
+  /** Command template used when `editorId` is `custom` (empty until set). */
+  editorCommand: string;
 }
 
 export const FONT_SIZE_MIN = 10;
@@ -35,9 +45,18 @@ export const DEFAULT_SETTINGS: Settings = {
   restoreTabs: true,
   focusExpand: false,
   showPaneBar: false,
+  tabBarPosition: "left",
+  editorId: "vscode",
+  editorCommand: "",
 };
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+const TAB_BAR_POSITIONS: readonly TabBarPosition[] = ["top", "left"];
+
+function isTabBarPosition(value: unknown): value is TabBarPosition {
+  return TAB_BAR_POSITIONS.includes(value as TabBarPosition);
+}
 
 export function isHexColor(value: unknown): value is string {
   return typeof value === "string" && HEX_COLOR.test(value);
@@ -94,5 +113,15 @@ export function validateSettings(raw: unknown): Settings {
       typeof source.showPaneBar === "boolean"
         ? source.showPaneBar
         : DEFAULT_SETTINGS.showPaneBar,
+    tabBarPosition: isTabBarPosition(source.tabBarPosition)
+      ? source.tabBarPosition
+      : DEFAULT_SETTINGS.tabBarPosition,
+    editorId: isEditorId(source.editorId)
+      ? source.editorId
+      : DEFAULT_SETTINGS.editorId,
+    editorCommand:
+      typeof source.editorCommand === "string"
+        ? source.editorCommand
+        : DEFAULT_SETTINGS.editorCommand,
   };
 }

@@ -1,6 +1,7 @@
 mod agents;
 mod coordinator;
 mod info;
+mod links;
 mod menu;
 mod pty;
 
@@ -41,6 +42,8 @@ pub fn run() {
             info::git_branch,
             agents::detect_agents,
             agents::dirs_exist,
+            links::resolve_paths,
+            links::open_editor,
             confirm_quit
         ])
         .build(tauri::generate_context!())
