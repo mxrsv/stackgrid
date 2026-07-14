@@ -34,20 +34,31 @@ export const MAX_CANDIDATES_PER_LINE = 24;
 const URL_RE =
   /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~[\]`()<>]/g;
 
-// One path segment. Spaces are not included: an unquoted path with a space is
-// ambiguous in terminal output, so it is left alone (VS Code does the same).
-const SEG = String.raw`[A-Za-z0-9_.+@%~$-]+`;
+// Characters a path segment is made of. Spaces are not included: an unquoted
+// path with a space is ambiguous in terminal output, so it is left alone
+// (VS Code does the same).
+// The `-` stays escaped: it is interpolated into character classes that append
+// more characters after it, where a bare trailing `-` would become a range.
+const SEG_CHAR = String.raw`A-Za-z0-9_.+@%~$\-`;
+const SEG = `[${SEG_CHAR}]+`;
 // Either a slashed path (`/a/b`, `~/a`, `./a`, `src/a`) or a bare filename
 // with an extension (`pane.ts`). A bare word with no dot is never a candidate.
 const SLASHED = String.raw`(?:${SEG})?(?:/${SEG})+/?`;
 const BARE = String.raw`${SEG}\.[A-Za-z][A-Za-z0-9]{0,9}`;
 const SUFFIX = String.raw`(?::(\d+))?(?::(\d+))?`;
-// The lookbehind stops matches starting mid-token (e.g. the `com/a` inside a
-// URL, or the `2.1` inside `v0.2.1`).
-const PATH_RE = new RegExp(
-  String.raw`(?<![\w/~.$-])(${SLASHED}|${BARE})${SUFFIX}`,
-  "g",
-);
+// A candidate may only start at a token boundary, so a match never begins in
+// the middle of a longer token. This is a *consumed* group rather than a
+// lookbehind: JavaScriptCore only learned lookbehind in Safari 16.4, and
+// tauri.conf declares support down to macOS 10.15 — a lookbehind there throws
+// SyntaxError while the module is being evaluated, which takes the whole app
+// down, not just the links. Consuming the boundary is safe because a separator
+// can never be part of a path (it is outside SEG by construction), so two
+// adjacent candidates can never fight over the same character.
+// It also keeps matching linear: on a run of SEG characters every start
+// position past the first fails on the boundary immediately, instead of
+// backtracking through the run.
+const BOUNDARY = `(?:^|[^${SEG_CHAR}/])`;
+const PATH_RE = new RegExp(`(${BOUNDARY})(${SLASHED}|${BARE})${SUFFIX}`, "g");
 
 /** A sentence-final dot is punctuation, never part of the path. */
 function trimTrailingDots(path: string): string {
@@ -87,24 +98,32 @@ function matchPaths(source: string): LinkCandidate[] {
   const out: LinkCandidate[] = [];
   PATH_RE.lastIndex = 0;
   for (let m = PATH_RE.exec(source); m !== null; m = PATH_RE.exec(source)) {
-    const line = toInt(m[2]);
-    const col = toInt(m[3]);
-    const rawPath = m[1] ?? "";
+    // m[1] is the consumed boundary character — it belongs to neither the
+    // candidate's text nor its range.
+    const boundary = m[1] ?? "";
+    const rawPath = m[2] ?? "";
+    const line = toInt(m[3]);
+    const col = toInt(m[4]);
     // Only trim when nothing follows the path — `foo.:12` cannot occur, so a
     // trailing dot here is always sentence punctuation.
     const path = line === null ? trimTrailingDots(rawPath) : rawPath;
     if (path === "") {
       continue;
     }
-    const text = m[0].slice(0, m[0].length - (rawPath.length - path.length));
+    const matched = m[0].slice(boundary.length);
+    const text = matched.slice(
+      0,
+      matched.length - (rawPath.length - path.length),
+    );
+    const start = m.index + boundary.length;
     out.push({
       kind: "path",
       text,
       target: path,
       line,
       col,
-      start: m.index,
-      end: m.index + text.length,
+      start,
+      end: start + text.length,
     });
   }
   return out;

@@ -73,6 +73,31 @@ describe("extractLinkCandidates", () => {
     expect(source.slice(file.start, file.end)).toBe(file.text);
   });
 
+  it("finds a candidate on either side of a separator", () => {
+    // The boundary character is consumed by the match, so the two candidates
+    // must not fight over the comma between them.
+    const found = extractLinkCandidates("a.ts,b.ts");
+    expect(found.map((c) => c.target)).toEqual(["a.ts", "b.ts"]);
+    expect(found[1].start).toBe(5);
+  });
+
+  it("does not start a candidate inside a longer token", () => {
+    expect(extractLinkCandidates("build+src/foo.ts")).toEqual([
+      expect.objectContaining({ target: "build+src/foo.ts" }),
+    ]);
+  });
+
+  it("stays linear on a long run of path characters", () => {
+    // These runs used to backtrack quadratically (~85ms at 8k) — provideLinks
+    // is synchronous on the UI thread, so a `%%%%` separator or a `@@@` diff
+    // header would stutter the hover.
+    for (const char of ["+", "@", "%", "a", "."]) {
+      const started = performance.now();
+      extractLinkCandidates(char.repeat(8000));
+      expect(performance.now() - started).toBeLessThan(20);
+    }
+  });
+
   it("caps the number of candidates", () => {
     const source = Array.from({ length: 40 }, (_, i) => `f${i}.ts`).join(" ");
     expect(extractLinkCandidates(source, 5)).toHaveLength(5);

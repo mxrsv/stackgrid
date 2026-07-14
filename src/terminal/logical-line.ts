@@ -33,7 +33,11 @@ export interface CellSpan {
 
 export interface LogicalLine {
   readonly text: string;
-  /** `spans[i]` is where `text[i]` sits — same length as `text`. */
+  /**
+   * `spans[i]` is the cell holding `text[i]`, indexed by UTF-16 code unit so
+   * it lines up with regex match indices. Invariant: `spans.length ===
+   * text.length` (both halves of a surrogate pair share the same cell).
+   */
   readonly spans: readonly CellSpan[];
 }
 
@@ -74,8 +78,12 @@ export function readLogicalLine(
       // A blank cell reads as "" — keep it as a space so indices stay aligned
       // with the cells and so a path never fuses with the next word.
       const chars = cell.getChars() || " ";
-      for (const char of chars) {
-        text += char;
+      text += chars;
+      // One span per UTF-16 code unit, not per code point: the regex that
+      // consumes `text` reports code-unit indices, so an astral character (an
+      // emoji — agents print them constantly) must push *two* spans or every
+      // span after it points at the wrong cell.
+      for (let unit = 0; unit < chars.length; unit += 1) {
         spans.push({ x, y, width });
       }
     }
