@@ -9,6 +9,7 @@ import {
   serializeTree,
   setRatio,
   splitLeaf,
+  swapLeaves,
   treeFromLayout,
   type Direction,
   type Edge,
@@ -405,6 +406,20 @@ export function createTerminalManager(
       const next = movePane(tree, sourceId, targetId, edge);
       if (next === tree) {
         return; // no-op: invalid ids, or source/target closed mid-drag
+      }
+      tree = next;
+      render();
+      setActive(sourceId);
+      life.panes.get(sourceId)?.focus();
+      callbacks.onLayoutChange();
+    },
+    onSwap(sourceId: number, targetId: number) {
+      if (!tree) {
+        return;
+      }
+      const next = swapLeaves(tree, sourceId, targetId);
+      if (next === tree) {
+        return; // no-op: same pane, or one closed mid-drag
       }
       tree = next;
       render();

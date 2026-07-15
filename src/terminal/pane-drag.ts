@@ -14,7 +14,12 @@ interface PaneDragOptions {
   /** Ghost text for the dragged pane (its CWD label). */
   ghostLabel(id: number): string;
   onMove(sourceId: number, targetId: number, edge: Edge): void;
+  /** Cmd held on drop: swap the two panes' positions instead of docking. */
+  onSwap(sourceId: number, targetId: number): void;
 }
+
+/** Dock lands on an edge; swap covers the whole target pane. */
+type DropEdge = Edge | "full";
 
 const DRAG_THRESHOLD = 5;
 
@@ -83,7 +88,12 @@ export function createPaneDragController(
   let dragging = false;
   let ghost: HTMLElement | null = null;
   let overlay: HTMLElement | null = null;
-  let target: { id: number; edge: Edge } | null = null;
+  let target: { id: number; edge: DropEdge } | null = null;
+  // "swap" while Cmd is held; toggles live on keydown/keyup mid-drag.
+  let mode: "dock" | "swap" = "dock";
+  // Last cursor position — lets a Cmd change re-run the hit test in place.
+  let lastX = 0;
+  let lastY = 0;
 
   function onPointerDown(event: PointerEvent): void {
     if (event.button !== 0) {
@@ -113,6 +123,7 @@ export function createPaneDragController(
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerCancel);
     window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
   }
 
   function beginDrag(): void {
@@ -149,11 +160,13 @@ export function createPaneDragController(
       hideOverlay();
       return;
     }
-    target = { id: hit.id, edge: hit.edge };
-    showOverlay(hit.rect, hit.edge);
+    // Swap ignores the edge — the whole target pane is the drop zone.
+    const edge: DropEdge = mode === "swap" ? "full" : hit.edge;
+    target = { id: hit.id, edge };
+    showOverlay(hit.rect, edge);
   }
 
-  function showOverlay(rect: PaneRect, edge: Edge): void {
+  function showOverlay(rect: PaneRect, edge: DropEdge): void {
     if (!overlay) {
       return;
     }
@@ -163,7 +176,9 @@ export function createPaneDragController(
     let top = rect.top;
     let width = fullWidth;
     let height = fullHeight;
-    if (edge === "left") {
+    if (edge === "full") {
+      // whole pane — the full rect set above already covers it
+    } else if (edge === "left") {
       width = fullWidth / 2;
     } else if (edge === "right") {
       left = rect.left + fullWidth / 2;
@@ -174,6 +189,7 @@ export function createPaneDragController(
       top = rect.top + fullHeight / 2;
       height = fullHeight / 2;
     }
+    overlay.classList.toggle("is-swap", edge === "full");
     overlay.style.display = "block";
     overlay.style.left = `${left}px`;
     overlay.style.top = `${top}px`;
@@ -200,6 +216,9 @@ export function createPaneDragController(
       }
       beginDrag();
     }
+    mode = event.metaKey ? "swap" : "dock";
+    lastX = event.clientX;
+    lastY = event.clientY;
     moveGhost(event.clientX, event.clientY);
     hitTest(event.clientX, event.clientY);
   }
@@ -213,7 +232,12 @@ export function createPaneDragController(
     const src = sourceId;
     cleanup();
     if (wasDragging && dropTarget && src !== null) {
-      opts.onMove(src, dropTarget.id, dropTarget.edge);
+      // The overlay the user saw decides the action: "full" = swap.
+      if (dropTarget.edge === "full") {
+        opts.onSwap(src, dropTarget.id);
+      } else {
+        opts.onMove(src, dropTarget.id, dropTarget.edge);
+      }
     }
   }
 
@@ -228,7 +252,26 @@ export function createPaneDragController(
     if (event.key === "Escape" && dragging) {
       event.preventDefault();
       cleanup();
+      return;
     }
+    syncMode(event);
+  }
+
+  function onKeyUp(event: KeyboardEvent): void {
+    syncMode(event);
+  }
+
+  /** Follow the live Cmd state; re-hit-test in place so the overlay flips. */
+  function syncMode(event: KeyboardEvent): void {
+    if (!dragging) {
+      return;
+    }
+    const next: "dock" | "swap" = event.metaKey ? "swap" : "dock";
+    if (next === mode) {
+      return;
+    }
+    mode = next;
+    hitTest(lastX, lastY);
   }
 
   function cleanup(): void {
@@ -243,12 +286,16 @@ export function createPaneDragController(
     window.removeEventListener("pointerup", onPointerUp);
     window.removeEventListener("pointercancel", onPointerCancel);
     window.removeEventListener("keydown", onKeyDown, true);
+    window.removeEventListener("keyup", onKeyUp, true);
     container.classList.remove("is-pane-dragging");
     ghost?.remove();
     overlay?.remove();
     ghost = null;
     overlay = null;
     target = null;
+    mode = "dock";
+    lastX = 0;
+    lastY = 0;
     sourceId = null;
     pointerId = null;
     dragging = false;

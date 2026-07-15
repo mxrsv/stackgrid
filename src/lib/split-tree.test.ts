@@ -9,6 +9,7 @@ import {
   serializeTree,
   setRatio,
   splitLeaf,
+  swapLeaves,
   treeFromLayout,
   type SerializedNode,
 } from "./split-tree";
@@ -139,6 +140,57 @@ describe("movePane", () => {
   it("does not mutate the original tree", () => {
     const snapshot = JSON.parse(JSON.stringify(twoRow));
     movePane(twoRow, 1, 2, "bottom");
+    expect(twoRow).toEqual(snapshot);
+  });
+});
+
+describe("swapLeaves", () => {
+  // Two panes side by side: { split row, a: leaf 1, b: leaf 2 }
+  const twoRow = splitLeaf(leaf(1), 1, 2, "row");
+
+  it("swaps two leaves, keeping dir/ratio and shape", () => {
+    const tree = setRatio(twoRow, [], 0.3); // ratio must survive the swap
+    expect(swapLeaves(tree, 1, 2)).toEqual({
+      kind: "split",
+      dir: "row",
+      ratio: 0.3,
+      a: leaf(2),
+      b: leaf(1),
+    });
+  });
+
+  it("swaps only the two target leaves in a nested tree", () => {
+    // row( leaf 1, column( leaf 2, leaf 3 ) )
+    let tree = splitLeaf(leaf(1), 1, 2, "row");
+    tree = splitLeaf(tree, 2, 3, "column");
+    // Swap 1 and 3 → row( leaf 3, column( leaf 2, leaf 1 ) ); leaf 2 untouched.
+    expect(swapLeaves(tree, 1, 3)).toEqual({
+      kind: "split",
+      dir: "row",
+      ratio: 0.5,
+      a: leaf(3),
+      b: {
+        kind: "split",
+        dir: "column",
+        ratio: 0.5,
+        a: leaf(2),
+        b: leaf(1),
+      },
+    });
+  });
+
+  it("returns the same tree reference when idA === idB", () => {
+    expect(swapLeaves(twoRow, 1, 1)).toBe(twoRow);
+  });
+
+  it("returns the same tree reference when an id is not in the tree", () => {
+    expect(swapLeaves(twoRow, 1, 99)).toBe(twoRow);
+    expect(swapLeaves(twoRow, 99, 2)).toBe(twoRow);
+  });
+
+  it("does not mutate the original tree", () => {
+    const snapshot = JSON.parse(JSON.stringify(twoRow));
+    swapLeaves(twoRow, 1, 2);
     expect(twoRow).toEqual(snapshot);
   });
 });

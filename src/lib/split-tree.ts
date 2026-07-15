@@ -139,6 +139,38 @@ export function replaceLeaf(
   };
 }
 
+/**
+ * Swap the positions of leaves `idA` and `idB`, keeping every split's
+ * `dir`/`ratio` and the overall tree shape — only the two pane ids trade
+ * places. Returns the old tree BY REFERENCE when the swap is a no-op
+ * (idA === idB, or either id is not in the tree) — matches `movePane`.
+ */
+export function swapLeaves(node: TreeNode, idA: number, idB: number): TreeNode {
+  if (idA === idB) {
+    return node;
+  }
+  const ids = leafIds(node);
+  if (!ids.includes(idA) || !ids.includes(idB)) {
+    return node;
+  }
+  return swapRec(node, idA, idB);
+}
+
+function swapRec(node: TreeNode, idA: number, idB: number): TreeNode {
+  if (node.kind === "leaf") {
+    return node.paneId === idA
+      ? leaf(idB)
+      : node.paneId === idB
+        ? leaf(idA)
+        : node;
+  }
+  return {
+    ...node,
+    a: swapRec(node.a, idA, idB),
+    b: swapRec(node.b, idA, idB),
+  };
+}
+
 /** Pane ids in left→right, top→bottom order. */
 export function leafIds(node: TreeNode): number[] {
   return node.kind === "leaf"

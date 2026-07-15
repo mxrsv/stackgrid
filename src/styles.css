@@ -1315,6 +1315,14 @@ body,
     height 0.08s ease;
 }
 
+/* Cmd-drag swap: a dashed full-pane overlay, distinct from the solid
+   half-edge dock preview so "trade places" reads apart from "dock here". */
+.drop-overlay.is-swap {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 90%, white);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 /* ── File drop target ────────────────────────────────────── */
 
 .pane-slot.is-drop-target .pane {
