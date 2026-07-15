@@ -1,5 +1,6 @@
 mod agents;
 mod coordinator;
+mod images;
 mod info;
 mod links;
 mod menu;
@@ -42,6 +43,8 @@ pub fn run() {
             info::git_branch,
             agents::detect_agents,
             agents::dirs_exist,
+            images::read_image_as_data_url,
+            images::scan_workspace_favicon,
             links::resolve_paths,
             links::open_editor,
             confirm_quit

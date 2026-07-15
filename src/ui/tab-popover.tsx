@@ -15,8 +15,13 @@ interface TabPopoverProps {
   /** Current overrides — null means "derived from process". */
   name: string | null;
   dotColor: TabDotColor | null;
+  /** True when this workspace has a user-set custom logo (enables Remove). */
+  hasLogo?: boolean;
   onRename(name: string | null): void;
   onPickColor(color: TabDotColor | null): void;
+  /** Logo actions — only the sidebar wires these; absent hides the Logo row. */
+  onSetLogo?(): void;
+  onRemoveLogo?(): void;
   onClose(): void;
 }
 
@@ -103,6 +108,33 @@ export function TabPopover(props: TabPopoverProps) {
           />
         ))}
       </div>
+      {props.onSetLogo && (
+        <>
+          <div class="tab-popover__label">Logo</div>
+          <div
+            class="tab-popover__logo"
+            role="group"
+            aria-label="Workspace logo"
+          >
+            <button
+              type="button"
+              class="tab-popover__logo-btn"
+              onClick={props.onSetLogo}
+            >
+              Set logo…
+            </button>
+            {props.hasLogo && (
+              <button
+                type="button"
+                class="tab-popover__logo-btn"
+                onClick={props.onRemoveLogo}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

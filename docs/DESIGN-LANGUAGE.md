@@ -1,0 +1,183 @@
+# DESIGN-LANGUAGE — Stackgrid chrome
+
+Canonical rulebook for all **chrome UI** (settings panel, and — as they are
+reworked — tab bar, status bar, pane bar, search bar, overlays). The settings
+panel is the reference implementation. Extends `UX-DESIGN.md` §1; **where the
+two conflict, this document wins** (known supersede: no uppercase anywhere —
+UX-DESIGN's "tracked caps" section titles are retired).
+
+Rules are numbered so they can be cited (`DL-3.2`). An agent editing chrome UI
+must run the checklist in §9 before calling the work done.
+
+## 0. Identity
+
+> Stackgrid chrome reads like a well-kept config file: quiet rows of
+> key → value set in the terminal's own colors. The terminal is the content;
+> chrome recedes.
+
+Everything below exists to serve that sentence and the app's founding
+constraint: **consume as few machine resources as possible.**
+
+## 1. Hard constraints (resource frugality)
+
+- **DL-1.1** No new runtime dependencies for chrome UI. CSS + Preact only.
+- **DL-1.2** Animate only `transform`, `opacity`, `color`, `border-color`,
+  `background-color`. Max duration 300ms. No infinite / looping animations.
+  Nothing animates while the user is idle.
+- **DL-1.3** Banned: **blurred/offset** `box-shadow` (the app is a flat system —
+  depth comes from background steps and 1px hairlines), `backdrop-filter`,
+  `filter`, JS animation loops (`requestAnimationFrame`) for chrome, timers that
+  exist only to drive visuals. `box-shadow: inset 0 0 0 1px <color>` is
+  permitted — it is a hairline, not a shadow (it paints no blur and costs no
+  compositing layer).
+- **DL-1.4** Prefer native inputs (`<select>`, `<input type="color">`) overlaid
+  invisibly on a styled pill over custom dropdown/picker widgets — zero JS,
+  zero extra DOM, free accessibility.
+- **DL-1.5** Honor `prefers-reduced-motion: reduce`: chrome transitions are
+  disabled, panels appear instantly.
+
+## 2. Tokens
+
+Single source of truth: `:root` in `src/styles.css`. Theme colors are injected
+from the active terminal theme (`--bg --fg --accent --red --green --yellow
+--magenta --cyan`); everything else derives via `color-mix`:
+
+| token                                              | role                               |
+| -------------------------------------------------- | ---------------------------------- |
+| `--chrome-1` / `--chrome-2`                        | background steps for bars / panels |
+| `--input-bg`                                       | recessed input surfaces            |
+| `--hair` / `--hair-strong`                         | 1px structural hairlines           |
+| `--text-primary` / `--text-muted` / `--text-faint` | text hierarchy                     |
+| `--ui-font` / `--mono`                             | prose / data typefaces             |
+
+- **DL-2.1** Components never hardcode colors. Every color routes through a
+  token, or comes from the live theme object (e.g. swatches previewing a
+  theme's own colors).
+- **DL-2.2** The theme drives everything: switching theme must restyle all
+  chrome with zero component changes.
+
+## 3. Color roles (strict)
+
+- **DL-3.1** `--accent` marks **interactive or active** only: hover/focus
+  borders, focus ring, active markers, affordance hints. Never a decorative
+  fill, never large areas.
+- **DL-3.2** `--green` means only _on / enabled / success_. `--red` means only
+  _danger / destructive / error_. Never decoration.
+- **DL-3.3** Structure comes from `--hair` hairlines and background steps —
+  not from color, not from shadows.
+- **DL-3.4** Text hierarchy: `--text-primary` for keys and values,
+  `--text-muted` for secondary value text (e.g. hex codes), `--text-faint` for
+  descriptions, group labels, hints, disabled states.
+
+## 4. Typography
+
+- **DL-4.1** `--ui-font` for prose: keys, descriptions.
+- **DL-4.2** `--mono` for **data**: every configurable value, group labels,
+  paths, keyboard hints. Values always get `font-variant-numeric:
+tabular-nums`.
+- **DL-4.3** **No uppercase anywhere.** No `text-transform`. Letter-spacing on
+  mono labels stays ≤ 0.06em.
+- **DL-4.4** Sizes (px): group label 10.5 · key 12.5 · description 10.5 ·
+  value 11.5 · panel title 12. Keys sentence-case, descriptions and values
+  lowercase.
+
+## 5. The one control: config row
+
+Every setting is a **row**: key (+ optional one-line description) on the left,
+exactly **one interactive value** on the right. No other widget genres — no
+segmented controls, checkbox lists, chip grids, sliders, or boxed steppers.
+
+```
+cfg-group                     ← group label (mono, faint, lowercase)
+cfg-row
+├─ cfg-row__key
+│  ├─ cfg-row__label          ← ui-font 12.5px primary
+│  └─ cfg-row__desc           ← ui-font 10.5px faint (optional)
+└─ cfg-row__value             ← right-aligned slot
+   └─ cfg-btn …               ← the single interactive pill
+```
+
+- **DL-5.1** Row hover: 2px left accent bar + 4% `--fg` wash. Nothing else.
+- **DL-5.2** The pill (`.cfg-btn`): mono value inside a 1px `--hair` border,
+  radius 6px. Hover → `--hair-strong` border. Focus-visible → 2px `--accent`
+  outline (app-wide convention). Disabled → `--text-faint`.
+- **DL-5.3** Affordance glyphs (`↹` cycle, `▾` menu, `…` picker, `↺` reset)
+  live inside the pill as `--text-faint`, turning `--accent` on pill hover.
+
+## 6. Value kinds (closed set)
+
+Extend **this table first** before inventing a new kind; a value that doesn't
+fit is a design decision, not an implementation detail.
+
+| kind     | looks like                   | interaction                           |
+| -------- | ---------------------------- | ------------------------------------- |
+| `cycle`  | `▪ tokyo-night ↹`            | click advances to the next option     |
+| `menu`   | `JetBrains Mono ▾`           | invisible native `<select>` overlay   |
+| `step`   | `− 14px +` in one pill       | −/+ zones inside the pill             |
+| `color`  | `▪ #16161e`                  | invisible native color input overlay  |
+| `picker` | `custom …`                   | opens a native OS dialog (file/image) |
+| `toggle` | `on` (green) / `off` (faint) | click flips; `role="switch"`          |
+| `action` | `↺ reset` (red for danger)   | click runs the action                 |
+
+`picker` differs from `menu`: its source is a native OS dialog (e.g. an image
+file), not a fixed `<select>` list. Its value reads `default` / `custom`; a
+custom pick shows the `↺` clear button (DL-6.1); any failure shows inline via
+`.cfg-custom--error` (DL-6.2).
+
+- **DL-6.1** An overridden-from-default value may show a small `↺` clear
+  button beside the pill — the only permitted second element in a value slot.
+- **DL-6.2** A `menu` whose option list can't cover every case (font family,
+  editor command) may open an **inline text row** under its own row
+  (`.cfg-custom`) — never a modal, never a second pill. A `picker` surfaces its
+  errors the same way, via `.cfg-custom--error`.
+- **DL-6.3** Every text field uses `CommitInput`
+  (`src/ui/controls/commit-input.tsx`): the draft lives in local state and
+  commits on blur/Enter. A store-controlled `value={…}` input in the panel is a
+  data-loss bug — the panel never unmounts, so any app re-render rewrites the
+  DOM value and wipes what the user was typing.
+- **DL-6.4** A pill holding several buttons (`step`) puts the focus ring on the
+  focused button, not the pill; a pill wrapping one invisible native input
+  (`menu`, `color`) puts it on the pill via `:focus-within`.
+
+## 7. Motion budget (chrome)
+
+- Panel slide-over: `transform` + `opacity`, 0.28s ease-out cubic (existing).
+- State changes (hover/active): 0.13s ease.
+- Nothing else moves. See DL-1.2 / DL-1.5.
+
+## 8. Copy
+
+- English UI. Keys sentence-case (`Show pane bar`); descriptions terse and
+  lowercase (`reopen tabs on launch`); values lowercase mono (`on`, `off`,
+  theme ids as written in code).
+- A control says what happens; no vague labels.
+
+## 9. Agent checklist (anti-drift)
+
+Before shipping any chrome UI change:
+
+1. Is it expressible as a config row (§5) using an existing value kind (§6)?
+   If not — propose an edit to this document first, then implement. (This has
+   already been violated once: a segmented control was added for "Tab bar
+   position" and had to be rewritten as a `cycle`.)
+2. Every color maps to a role in §3; no hardcoded hex (DL-2.1).
+3. Any animation fits the budget in §7 and the constraints in §1. Reduced-motion
+   is handled **by scope** (`.panel *`), never by an allowlist of class names —
+   an allowlist silently misses the next class.
+4. No uppercase, values in `--mono` (§4).
+5. Text fields go through `CommitInput` (DL-6.3). Never bind a store value
+   straight into `<input value=…>` inside the panel.
+6. Eye-review on a rendered screenshot before calling it done — a green build
+   proves nothing about design.
+
+## 10. Migration status (what does NOT comply yet)
+
+This document is the target, not a description of the whole app. Only the
+settings panel has been reworked. Known survivors, to be fixed as each surface
+is reworked — **do not "fix" them opportunistically inside an unrelated change**:
+
+| where                                                                              | violates            | note                                  |
+| ---------------------------------------------------------------------------------- | ------------------- | ------------------------------------- |
+| `.tab-popover__label`                                                              | DL-4.3 (uppercase)  | rework with the tab popover           |
+| `.search-bar`                                                                      | DL-1.3 (box-shadow) | real blurred shadow — drop            |
+| `.workspace-row.is-selected`, `.preset-chip.is-selected`, `.mock-pane.is-selected` | —                   | inset hairlines, allowed under DL-1.3 |

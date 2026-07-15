@@ -31,6 +31,7 @@
   --titlebar-h: 26px;
   --tabbar-h: 33px;
   --status-h: 28px;
+  --sidebar-w: 200px;
   --radius: 10px;
 }
 
@@ -64,6 +65,216 @@ body,
 
 .titlebar {
   background: var(--bg);
+}
+
+/* ── Sidebar shell: titlebar / [sidebar | stage] / status ── */
+
+.window--sidebar {
+  /* Taller titlebar: it hosts the chrome actions in this mode. */
+  --titlebar-h: 34px;
+  grid-template-rows: var(--titlebar-h) 1fr var(--status-h);
+  grid-template-columns: var(--sidebar-w) 1fr;
+}
+
+.window--sidebar > .titlebar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.window--sidebar > .stage {
+  grid-column: 2;
+}
+
+.window--sidebar > .status {
+  grid-column: 1 / -1;
+}
+
+.wsbar {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--chrome-1);
+  border-right: 1px solid var(--hair);
+}
+
+.wsbar__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.wsitem {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 6px 7px 9px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  min-width: 0;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease;
+}
+
+.wsitem:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+.wsitem.is-active {
+  color: var(--text-primary);
+  background: var(--tab-active-bg);
+}
+
+/* Dropping an image onto a row sets that workspace's logo. */
+.wsitem.is-drag-over {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* Per-workspace logo: custom image, else favicon, else a letter avatar.
+   A small badge in the corner lights while an agent runs in the tab. */
+.wsitem__logo {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.wsitem__logo-img,
+.wsitem__logo-letter {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+.wsitem__logo-letter {
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+}
+/* Agent-busy badge, pinned to the logo's bottom-right corner. The 2px ring
+   (a border in the row's background color) cuts it out from the logo. */
+.wsitem__logo-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--chrome-1);
+  box-sizing: border-box;
+}
+.wsitem.is-active .wsitem__logo-badge {
+  border-color: var(--tab-active-bg);
+}
+
+.wsitem__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.wsitem__label {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Head-ellipsis: the tail of a path carries the information, so an RTL
+   container puts the "…" on the left. The text itself is LTR — the component
+   prefixes a LEFT-TO-RIGHT MARK so the leading "~" (a neutral character)
+   does not get flipped to the far end of the line. */
+.wsitem__path {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+.wsitem__close {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: none;
+  padding: 0;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    opacity 0.14s ease,
+    background 0.14s ease,
+    color 0.14s ease;
+}
+
+.wsitem:hover .wsitem__close,
+.wsitem.is-active .wsitem__close {
+  opacity: 1;
+}
+
+.wsitem__close:hover {
+  background: color-mix(in srgb, var(--red) 22%, transparent);
+  color: var(--red);
+}
+
+.wsbar__add {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 2px;
+  padding: 7px 6px 7px 9px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-faint);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.wsbar__add:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--text-primary);
+}
+
+.wsbar__add-glyph {
+  width: 7px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  line-height: 1;
 }
 
 /* ── Tab bar ─────────────────────────────────────────────── */
@@ -318,21 +529,33 @@ body,
   transition: none;
 }
 
+/* A 1px hairline between panes — no gap. The grab zone is widened past the
+   visible line with a pseudo-element so a 1px line stays easy to drag. */
 .split__divider {
-  flex: 0 0 6px;
-  border-radius: 3px;
-  background: transparent;
+  position: relative;
+  flex: 0 0 1px;
+  background: var(--hair);
   transition: background 0.15s ease;
+}
+
+.split__divider::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
 }
 
 .split--row > .split__divider {
   cursor: col-resize;
-  margin: 0 1px;
+}
+.split--row > .split__divider::after {
+  inset: 0 -3px;
 }
 
 .split--column > .split__divider {
   cursor: row-resize;
-  margin: 1px 0;
+}
+.split--column > .split__divider::after {
+  inset: -3px 0;
 }
 
 .split__divider:hover,
@@ -363,15 +586,14 @@ body,
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: var(--radius);
-  border: 1px solid var(--hair);
   background: var(--bg);
-  transition: border-color 0.18s ease;
+  transition: box-shadow 0.18s ease;
 }
 
-/* Active pane (only when >1 pane): accent-tinted border, no glow */
+/* Active pane (only when >1 pane): an inset accent hairline, no border box
+   and no radius — panes sit flush, separated only by the 1px dividers. */
 .pane-slot.is-active .pane {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 .pane__bar {
@@ -659,52 +881,73 @@ body,
   transform: translateX(calc(100% + 20px));
   opacity: 0;
   pointer-events: none;
+  /* visibility (not just opacity) — it takes the closed panel's buttons and
+     native inputs out of the tab order, matching aria-hidden. Delayed so the
+     slide-out still plays. */
+  visibility: hidden;
   transition:
     transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.28s ease;
+    opacity 0.28s ease,
+    visibility 0s linear 0.28s;
 }
 
 .panel.is-open {
   transform: translateX(0);
   opacity: 1;
   pointer-events: auto;
+  visibility: visible;
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.28s ease,
+    visibility 0s;
 }
 
 .panel__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px 12px;
+  padding: 12px 16px;
   flex-shrink: 0;
+  border-bottom: 1px solid var(--hair);
 }
 
-.panel__title {
+.panel__path {
   margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-
-.panel__x {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.panel__x:hover {
-  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 400;
   color: var(--text-primary);
+}
+
+.panel__path b {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.panel__esc {
+  border: 1px solid var(--hair);
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition:
+    color 0.13s ease,
+    border-color 0.13s ease;
+}
+
+.panel__esc:hover {
+  color: var(--text-primary);
+  border-color: var(--hair-strong);
 }
 
 .panel__body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  padding-bottom: 12px;
 }
 
 /* Settings panel scrollbar: thin, transparent, follows the theme */
@@ -721,86 +964,205 @@ body,
   border-radius: 3px;
 }
 
-.panel__sec {
-  padding: 12px 16px;
-  border-top: 1px solid var(--hair);
+/* ── Config rows: the one control (docs/DESIGN-LANGUAGE.md §5–6) ── */
+
+.cfg-group {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  padding: 16px 16px 6px;
 }
 
-.panel__sec-title {
-  margin: 0 0 10px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.13em;
+.cfg-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-left: 2px solid transparent;
+  transition:
+    background 0.13s ease,
+    border-left-color 0.13s ease;
+}
+
+.cfg-row:hover {
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  border-left-color: var(--accent);
+}
+
+.cfg-row__key {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.cfg-row__label {
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+
+.cfg-row__label--danger {
+  color: var(--red);
+}
+
+.cfg-row__desc {
+  font-size: 10.5px;
   color: var(--text-faint);
 }
 
-.panel__footer {
-  padding: 14px 16px;
-  border-top: 1px solid var(--hair);
-  flex-shrink: 0;
-}
-
-.theme-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.theme-chip {
+.cfg-row__value {
+  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 9px;
-  cursor: pointer;
-  border: 1px solid var(--hair);
-  background: var(--input-bg);
-  font-size: 11.5px;
-  color: var(--text-muted);
-  font-family: var(--ui-font);
-  transition:
-    border-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.theme-chip:hover {
-  color: var(--text-primary);
-}
-
-.theme-chip.is-active {
-  border-color: var(--accent);
-  color: var(--text-primary);
-}
-
-/* Swatch outline uses a real border (accent via inline style) — flat rule */
-.theme-chip__swatch {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  flex-shrink: 0;
-  border: 2px solid transparent;
-}
-
-/* ── Form controls ───────────────────────────────────────── */
-
-.field {
-  display: flex;
-  flex-direction: column;
   gap: 6px;
-  margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
-.field:last-child {
-  margin-bottom: 0;
+/* The value pill — every interactive value wears this skin (DL-5.2) */
+.cfg-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition:
+    color 0.13s ease,
+    border-color 0.13s ease;
 }
 
-.field__label {
-  font-size: 12px;
+.cfg-btn:hover {
+  border-color: var(--hair-strong);
+}
+
+.cfg-btn:hover .cfg-btn__hint {
+  color: var(--accent);
+}
+
+/* The pill itself is the focus target only when it IS the control (a button, or
+   a pill wrapping one invisible native input). A pill holding several buttons
+   (step) delegates the ring to whichever button is focused — else the keyboard
+   user can't tell which one Enter would press. */
+.cfg-btn:focus-visible,
+.cfg-btn--overlay:focus-within,
+.cfg-step__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.cfg-btn__hint {
+  color: var(--text-faint);
+  transition: color 0.13s ease;
+}
+
+.cfg-btn__hex {
   color: var(--text-muted);
 }
 
-.select,
+.cfg-btn__text {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cfg-btn--on {
+  color: var(--green);
+}
+
+.cfg-btn--off {
+  color: var(--text-faint);
+}
+
+.cfg-btn--danger {
+  color: var(--red);
+}
+
+.cfg-btn--danger:hover {
+  border-color: color-mix(in srgb, var(--red) 45%, transparent);
+}
+
+/* Invisible native input stretched over the pill (menu / color kinds, DL-1.4) */
+.cfg-btn--overlay input,
+.cfg-btn--overlay select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.cfg-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid var(--hair-strong);
+  flex-shrink: 0;
+}
+
+/* step kind: −/+ zones inside one pill */
+.cfg-step {
+  padding: 0;
+}
+
+.cfg-step__btn {
+  border: none;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent);
+  padding: 3px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.cfg-step__btn:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.cfg-step__val {
+  min-width: 4ch;
+  text-align: center;
+}
+
+/* Clear-override button — the only permitted second element in a value slot (DL-6.1) */
+.cfg-clear {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.cfg-clear:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* Inline row under a menu/picker row: the custom-font field, or a picker error */
+.cfg-custom {
+  padding: 2px 16px 6px;
+}
+
+/* picker error (DL-3.2: --red = error only) */
+.cfg-custom--error {
+  font-family: var(--ui-font);
+  font-size: 10.5px;
+  color: var(--red);
+}
+
 .text-input {
   appearance: none;
   width: 100%;
@@ -814,167 +1176,26 @@ body,
   font-size: 12.5px;
 }
 
-.select {
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
-    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
-  background-position:
-    calc(100% - 16px) 55%,
-    calc(100% - 11px) 55%;
-  background-size:
-    5px 5px,
-    5px 5px;
-  background-repeat: no-repeat;
-}
-
-.select:focus-visible,
 .text-input:focus-visible {
   outline: none;
   border-color: var(--accent);
 }
 
-.stepper {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  border: 1px solid var(--hair-strong);
-  border-radius: 8px;
-  background: var(--input-bg);
-  width: fit-content;
+.text-input--mono {
+  font-family: var(--mono);
+  font-size: 11.5px;
 }
 
-.stepper__button {
-  width: 28px;
-  height: 26px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 14px;
-  cursor: pointer;
-  border-radius: 7px;
-}
-
-.stepper__button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--accent);
-}
-
-.stepper__button:disabled {
-  color: var(--text-faint);
-  cursor: default;
-}
-
-.stepper__value {
-  min-width: 28px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-  font-size: 12.5px;
-}
-
-.color-field {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.color-field__label {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.color-field__controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.color-field__swatch {
-  width: 26px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid var(--hair-strong);
-  border-radius: 6px;
-  background: transparent;
-  cursor: pointer;
-}
-
-.color-field__swatch::-webkit-color-swatch-wrapper {
-  padding: 2px;
-}
-
-.color-field__swatch::-webkit-color-swatch {
-  border: none;
-  border-radius: 4px;
-}
-
-.color-field__hex {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.color-field__clear {
-  border: none;
-  background: transparent;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 13px;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-}
-
-.color-field__clear:hover {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-}
-
-.segmented {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--hair-strong);
-  border-radius: 9px;
-  background: var(--input-bg);
-  width: fit-content;
-}
-
-.segmented__option {
-  border: none;
-  padding: 4px 14px;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
-}
-
-.segmented__option.is-active {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--text-primary);
-}
-
-.btn-reset {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--hair-strong);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  transition:
-    color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.btn-reset:hover {
-  color: var(--text-primary);
-  border-color: var(--text-muted);
+/* Reduced motion: kill every chrome transition by scope, not by an allowlist —
+   an allowlist silently misses each new class (DL-1.5). */
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .panel *,
+  .tabbar *,
+  .wsbar *,
+  .status * {
+    transition: none;
+  }
 }
 
 /* ── Tab options popover ─────────────────────────────────── */
@@ -1024,6 +1245,25 @@ body,
 .tab-popover__swatch.is-active {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+.tab-popover__logo {
+  display: flex;
+  gap: 6px;
+}
+.tab-popover__logo-btn {
+  font: inherit;
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--hair-strong);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.13s ease;
+}
+.tab-popover__logo-btn:hover {
+  border-color: var(--accent);
 }
 
 /* ── Pane drag-dock ──────────────────────────────────────── */
@@ -1083,13 +1323,14 @@ body,
   outline-offset: -2px;
 }
 
-/* ---------- Open board (UX §2) ---------- */
+/* ---------- Open board (UX §2) — logo panel + right controls ---------- */
 .open-board {
   position: absolute;
   inset: 0;
   z-index: 30;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 520px;
+  min-height: 0;
   background: var(--bg);
   color: var(--text-primary);
   outline: none;
@@ -1105,77 +1346,110 @@ body,
     transform: none;
   }
 }
-.open-board__header {
-  padding: 24px 28px 12px;
-  border-bottom: 1px solid var(--hair);
-}
-.open-board__header h1 {
-  font-size: 16px;
-  margin: 0 0 4px;
-}
-.open-board__header p {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-.open-board__columns {
-  flex: 1;
+
+/* Center column: the dev's logo on a plain field; the whole panel drops. */
+.board-logo {
+  position: relative;
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  border-right: 1px solid var(--hair);
+  overflow: hidden;
+}
+.board-logo.is-drag-over {
+  outline: 1px dashed var(--accent);
+  outline-offset: -16px;
+}
+.board-logo__mark {
+  width: 96px;
+  height: 96px;
+  fill: var(--text-faint);
+  opacity: 0.55;
+}
+.board-logo__img {
+  width: min(300px, 40vh);
+  height: min(300px, 40vh);
+  object-fit: cover;
+  border-radius: 50%;
+}
+.board-logo__hint {
+  position: absolute;
+  bottom: 24px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.board-logo__error {
+  position: absolute;
+  bottom: 24px;
+  font-size: 11px;
+  color: var(--red);
+}
+
+/* Right column: recent → layout → agent, stacked over the footer. */
+.board-side {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
 }
-.open-board__col {
+.board-side__scroll {
   flex: 1;
-  padding: 16px 24px;
+  min-height: 0;
   overflow-y: auto;
+  padding: 12px 20px;
 }
-
-/* Open board column scrollbar: thin, transparent, follows the theme */
-.open-board__col::-webkit-scrollbar {
+.board-side__scroll::-webkit-scrollbar,
+.preset-chips::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
-
-.open-board__col::-webkit-scrollbar-track {
+.board-side__scroll::-webkit-scrollbar-track,
+.preset-chips::-webkit-scrollbar-track {
   background: transparent;
 }
-
-.open-board__col::-webkit-scrollbar-thumb {
+.board-side__scroll::-webkit-scrollbar-thumb,
+.preset-chips::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--fg) 25%, transparent);
   border-radius: 3px;
 }
-
-.open-board__col + .open-board__col {
-  border-left: 1px solid var(--hair);
+.board-group {
+  padding: 12px 0;
 }
-.open-board__col.is-focused .open-board__col-title {
-  color: var(--accent);
+.board-group + .board-group {
+  border-top: 1px solid var(--hair);
 }
-.open-board__col-title {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin: 0 0 12px;
+.board-group__title {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
 }
-.open-board__col-title span {
+.board-group__title span {
   color: var(--text-faint);
-  text-transform: none;
-  letter-spacing: 0;
 }
+.board-group.is-focused .board-group__title {
+  color: var(--accent);
+}
+
 .workspace-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 .workspace-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   width: 100%;
+  min-height: 44px;
+  padding: 7px 10px;
   text-align: left;
-  padding: 8px 10px;
-  min-height: 40px;
   border: 0;
   border-radius: 8px;
   background: none;
@@ -1194,30 +1468,59 @@ body,
   opacity: 0.45;
   cursor: default;
 }
+.workspace-row__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
 .workspace-row__name {
-  font-size: 13px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .workspace-row__name em {
   color: var(--yellow);
   font-style: normal;
   font-size: 11px;
 }
-.workspace-row__path {
-  grid-column: 1;
+.workspace-row__time {
+  flex: none;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-faint);
 }
-.workspace-row__time {
-  grid-row: 1;
-  grid-column: 2;
-  font-size: 11px;
+.workspace-row__sub {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.workspace-row__path {
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
   color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-row__combo {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+.workspace-row__combo.is-stale {
+  color: var(--text-faint);
+  text-decoration: line-through;
 }
 .workspace-open-folder {
   margin-top: 10px;
   width: 100%;
-  padding: 10px;
+  padding: 9px;
   border-radius: 8px;
   border: 1px dashed var(--hair-strong);
   background: none;
@@ -1230,81 +1533,128 @@ body,
   border-color: var(--accent);
   color: var(--text-primary);
 }
-.workspace-picked {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-muted);
-  margin: 8px 2px 0;
+/* Layout presets: horizontally-scrolling mini-thumb chips. */
+.preset-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
 }
-.preset-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-.preset-card {
+.preset-chip {
+  position: relative;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px;
-  border-radius: 10px;
+  gap: 5px;
+  width: 76px;
+  padding: 6px;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
   background: var(--chrome-1);
-  cursor: pointer;
-  border: 0;
   color: inherit;
+  cursor: pointer;
   font: inherit;
   text-align: left;
-  position: relative;
 }
-.preset-card:hover {
+.preset-chip:hover {
   background: var(--chrome-2);
 }
-.preset-card.is-selected {
+.preset-chip.is-selected {
+  border-color: transparent;
   box-shadow: inset 0 0 0 1px var(--accent);
 }
-.preset-card--new {
+.preset-chip .preset-thumb {
+  height: 28px;
+  width: 100%;
+}
+.preset-chip__name {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.preset-chip--new {
   align-items: center;
   justify-content: center;
+  min-height: 56px;
+  border-style: dashed;
+  border-color: var(--hair-strong);
   background: none;
-  border: 1px dashed var(--hair-strong);
   color: var(--text-muted);
-  min-height: 96px;
+  font-size: 12px;
 }
-.preset-card--new:hover {
+.preset-chip--new:hover {
   border-color: var(--accent);
   color: var(--text-primary);
 }
-.preset-card__name {
-  font-size: 13px;
-}
-.preset-card__meta {
-  font-size: 11px;
-  color: var(--text-faint);
-}
-.preset-card__rename {
+.preset-chip__rename {
+  width: 100%;
   font: inherit;
-  font-size: 13px;
+  font-size: 10.5px;
   background: var(--input-bg);
   color: inherit;
   border: 1px solid var(--accent);
   border-radius: 4px;
-  padding: 2px 6px;
+  padding: 1px 4px;
 }
-.preset-card__confirm {
+.preset-chip__confirm {
+  position: absolute;
+  inset: 0;
   display: flex;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
-  font-size: 11px;
-  color: var(--yellow);
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
 }
-.preset-card__confirm button {
+.preset-chip__confirm button {
   font: inherit;
-  font-size: 11px;
+  font-size: 10px;
   background: var(--chrome-2);
   color: inherit;
   border: 1px solid var(--hair-strong);
   border-radius: 4px;
-  padding: 1px 8px;
+  padding: 1px 6px;
   cursor: pointer;
+}
+
+/* Agent: one row of chips; digit keys 1/2/3/0 pick. */
+.agent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  background: var(--chrome-1);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.agent-chip:hover {
+  background: var(--chrome-2);
+}
+.agent-chip.is-selected {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.agent-chip.is-shell {
+  color: var(--text-muted);
+}
+.agent-chip kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  border: 1px solid var(--hair-strong);
+  border-radius: 4px;
+  padding: 0 4px;
 }
 .preset-thumb {
   height: 56px;
@@ -1333,28 +1683,35 @@ body,
   flex: 1;
   background: var(--chrome-2);
 }
-.open-board__footer {
+.board-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 24px;
+  gap: 12px;
+  padding: 12px 20px;
   border-top: 1px solid var(--hair);
 }
-.open-board__summary {
-  font-size: 12px;
+.board-footer__summary {
+  min-width: 0;
+  font-size: 11.5px;
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.open-board__summary strong {
+.board-footer__summary strong {
   color: var(--text-primary);
+  font-weight: 600;
 }
-.open-board__summary.is-warning {
+.board-footer__summary.is-warning {
   color: var(--yellow);
 }
-.open-board__actions {
+.board-footer__actions {
   display: flex;
   gap: 8px;
+  flex: none;
 }
-.open-board__actions button {
+.board-footer__actions button {
   font: inherit;
   font-size: 12px;
   padding: 6px 16px;
@@ -1364,11 +1721,11 @@ body,
   color: var(--text-primary);
   cursor: pointer;
 }
-.open-board__actions button:disabled {
+.board-footer__actions button:disabled {
   opacity: 0.4;
   cursor: default;
 }
-.open-board__actions button.is-primary {
+.board-footer__actions button.is-primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--bg);
@@ -1614,108 +1971,6 @@ body,
   color: var(--bg);
 }
 
-/* ---------- Agent picker (UX §4) ---------- */
-.agent-picker {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
-  animation: rise-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.agent-picker__card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 240px;
-  max-width: 85%;
-  padding: 12px;
-  background: var(--chrome-1);
-  border: 1px solid var(--hair-strong);
-  border-radius: 12px;
-  outline: none;
-}
-.agent-picker__card h1 {
-  font-size: 12px;
-  margin: 0;
-  color: var(--text-primary);
-}
-.agent-picker__card p {
-  font-size: 10px;
-  margin: 0 0 6px;
-  color: var(--text-faint);
-}
-.agent-picker__option {
-  display: grid;
-  grid-template-columns: 18px 1fr auto;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  text-align: left;
-}
-.agent-picker__option:hover,
-.agent-picker__option.is-focused {
-  background: var(--chrome-2);
-}
-.agent-picker__option.is-shell {
-  border-top: 1px solid var(--hair);
-  border-radius: 0 0 6px 6px;
-  margin-top: 4px;
-  padding-top: 8px;
-}
-.agent-picker__option kbd {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-faint);
-  border: 1px solid var(--hair-strong);
-  border-radius: 4px;
-  padding: 0 4px;
-  text-align: center;
-}
-.agent-picker__option code {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-faint);
-}
-.skip-all-bar {
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 25;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 12px;
-  background: var(--chrome-1);
-  border: 1px solid var(--hair-strong);
-  border-radius: 8px;
-  font-size: 11px;
-  color: var(--text-muted);
-  animation: rise-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.skip-all-bar button {
-  font: inherit;
-  font-size: 11px;
-  padding: 3px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--hair-strong);
-  background: none;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-.skip-all-bar button:hover {
-  border-color: var(--accent);
-}
 .persist-error-bar {
   position: absolute;
   bottom: 40px;

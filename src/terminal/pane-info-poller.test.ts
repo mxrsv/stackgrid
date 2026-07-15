@@ -35,6 +35,25 @@ describe("createPaneInfoPoller", () => {
     expect(onUpdate).toHaveBeenCalledWith([info(1, "/repo")]);
   });
 
+  it("prune forgets panes that are gone and keeps the live ones", async () => {
+    const poller = createPaneInfoPoller({
+      pty: {
+        ptyInfo: async () => [info(1, "/a"), info(2, "/b"), info(3, "/c")],
+        gitBranch: async () => null,
+      },
+      targets: () => [1, 2, 3],
+      activePaneId: () => 1,
+      onUpdate: () => {},
+    });
+    await poller.poll();
+
+    poller.prune([1, 3]);
+
+    expect(poller.infoFor(1)?.cwd).toBe("/a");
+    expect(poller.infoFor(2)).toBeUndefined();
+    expect(poller.infoFor(3)?.cwd).toBe("/c");
+  });
+
   it("skips the git call when the focused pane's CWD is unchanged", async () => {
     const gitBranch = vi.fn().mockResolvedValue("main");
     const poller = createPaneInfoPoller({

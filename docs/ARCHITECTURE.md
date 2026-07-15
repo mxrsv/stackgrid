@@ -9,17 +9,29 @@ rendered: 2026-07-10
 
 Derived view of the current and v1 target architecture. Rendered from the active ADR set (principles + product + architecture decisions) and a brownfield scan of the shipped codebase. English-only.
 
+> **0.4.0 supersede (current implementation).** Session persistence and the
+> per-pane agent-picker overlay were **removed**. The Open board is now the sole
+> entry point; quitting drops all tabs and the app reopens on the board, where
+> the user restores folders from Recents. The board's chosen agent is launched
+> by typing `<agent>\r` into each new pane's interactive shell once it is ready
+> (module `terminal/agent-launch.ts`), never spawned from Rust. `session.json`,
+> `session-schema`, `session-persistence`, `agent-picker/`, and
+> `settings.restoreTabs` are gone; a new `logo.json` store (Rust command
+> `read_image_as_data_url`) holds the app logo as a data URL. Where the sections
+> below still describe session restore / the agent picker as live behavior, this
+> note wins for the current code — those passages record earlier ADR decisions.
+
 ## 1. Stack
 
-| Layer           | Choice                                         | Notes                                                                     |
-| --------------- | ---------------------------------------------- | ------------------------------------------------------------------------- |
-| Shell           | Tauri 2 (macOS only)                           | Overlay titlebar; unsigned v1 OK                                          |
-| Backend         | Rust, thin                                     | `portable-pty`, `libc` process introspection, shell-out `git`             |
-| UI framework    | Preact 10                                      | Chrome only (tab bar, status bar, settings, Open board, sidebar, pickers) |
-| Reactivity      | `@preact/signals`                              | Per-webview module signals                                                |
-| Terminal render | xterm.js 6 + Fit / Search / Unicode / WebLinks | Imperative DOM — never inside Preact’s tree                               |
-| Persist         | `@tauri-apps/plugin-store`                     | `settings.json`, `session.json`, `presets.json`                           |
-| Dialogs         | `@tauri-apps/plugin-dialog`                    | Busy/quit confirms                                                        |
+| Layer           | Choice                                         | Notes                                                                                       |
+| --------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Shell           | Tauri 2 (macOS only)                           | Overlay titlebar; unsigned v1 OK                                                            |
+| Backend         | Rust, thin                                     | `portable-pty`, `libc` process introspection, shell-out `git`                               |
+| UI framework    | Preact 10                                      | Chrome only (tab bar, status bar, settings, Open board, sidebar, pickers)                   |
+| Reactivity      | `@preact/signals`                              | Per-webview module signals                                                                  |
+| Terminal render | xterm.js 6 + Fit / Search / Unicode / WebLinks | Imperative DOM — never inside Preact’s tree                                                 |
+| Persist         | `@tauri-apps/plugin-store`                     | `settings.json`, `presets.json`, `workspaces.json`, `logo.json` (no `session.json` — 0.4.0) |
+| Dialogs         | `@tauri-apps/plugin-dialog`                    | Busy/quit confirms                                                                          |
 
 **Pattern:** hybrid. Preact owns chrome; `TabManager` / `TerminalManager` / `Pane` own imperative terminal surfaces and talk to Rust over Tauri IPC.
 
@@ -32,7 +44,6 @@ Derived view of the current and v1 target architecture. Rendered from the active
 - Real PTY + login shell (`$SHELL -l`) via `portable-pty` (`src-tauri/src/pty.rs`)
 - Single-window Window → Tab → Pane hierarchy
 - Split, drag-dock rearrange, divider resize, focus cycle / directional focus, focus-expand, zoom
-- Session chrome restore (`session.json` layout only — ADR 0010)
 - In-memory closed-tab stack with CWDs (max 10)
 - Agent/busy chrome from foreground process name (`claude` / `codex` / `gemini`)
 - Themes + settings persist; git branch in status bar; file-drop → PTY; Cmd+F search; busy/quit guards
@@ -41,10 +52,10 @@ Derived view of the current and v1 target architecture. Rendered from the active
 
 - Multi-window create / move-join / restore-all
 - Pane swap (exchange two leaves; PTYs follow ids)
-- Open board (workspace ∥ layout preset)
+- Open board (workspace ∥ layout preset ∥ agent), sole entry point (0.4.0)
 - Layout presets CRUD + mini mock → new tab
-- Post-materialize / post-restore one-shot agent picker
-- PATH allowlist detect + immediate spawn on pick
+- Agent launch: type the board's chosen agent into every new pane's shell on first output (0.4.0; replaces the removed per-pane agent picker)
+- PATH allowlist detect on the board
 - File sidebar: Cmd+click path → preview (+ Markdown) + git diff
 
 ## 3. Layer / module map
@@ -61,8 +72,8 @@ src/
   main.tsx / ui/  Preact chrome (App, tab bar, status bar, settings)
   terminal/       imperative domain: TabManager, TerminalManager, Pane, layout, keymap
   settings/       settings schema + store + color themes
-  lib/            pure: split-tree, session-schema, process-info, geometry, …
-  (v1) open-board/, presets/, sidebar/, agent-picker/   new chrome modules
+  lib/            pure: split-tree, process-info, workspace-recents, geometry, …
+  open-board/, presets/, sidebar/   chrome modules; agent launch in terminal/agent-launch.ts
 ```
 
 **Ownership today:** one `TabManager` per webview owns tabs; each tab has a `TerminalManager` (`tree` + `Map<paneId, Pane>`); Rust `PtyState` owns live PTYs.
@@ -77,7 +88,7 @@ These are product/architecture invariants — both sibling docs assume the same 
 2. **Layout = split-tree of pane-ids.** A webview attaches xterm to a PTY by id (`write_pty` / `pty:output` / resize / kill).
 3. **Swap** = exchange two pane-ids in the tree; PTY sessions are untouched.
 4. **Move-across-window** = remove pane-id from window A’s tree, insert into window B’s tree; PTY keeps running in the registry; coordinator updates ownership.
-5. **`session.json` = chrome only** (per-window tab trees, names, colors, window set). No CWD, no process identity.
+5. **`session.json` = chrome + `workspacePath`** (per-window tab trees, names, colors, window set, and the workspace each tab belongs to). Still no per-pane CWD and no process identity. Restore spawns every pane of a tab at that tab's `workspacePath` — a tab labelled with a repo whose shell sits in `$HOME` would be lying; tabs from files that predate the field have no workspace and still fall back to `$HOME`.
 6. **Layout preset = separate artifact** (tree + optional per-pane CWD map).
 
 ## 5. Decisions (chosen + rejected)
@@ -292,20 +303,22 @@ Cmd+click filepath token in pane output
 | Tab list + overrides + closed-tab stack | Per-window `TabManager`       | Window lifetime (closed-tab RAM only) |
 | Tab bar / status signals                | Per-webview `@preact/signals` | Webview lifetime                      |
 | Settings                                | `settings.json` + signals     | Disk + reload events                  |
-| Session chrome                          | `session.json` v2             | Disk; chrome only                     |
+| Session chrome                          | `session.json` v2             | Disk; chrome + `workspacePath`        |
 | Layout presets                          | `presets.json`                | Disk; separate from session           |
 | Agent picker pending                    | Per-pane ephemeral UI flag    | One-shot after materialize/restore    |
 | Sidebar open + content                  | Per-window UI state           | Until closed                          |
 
 ## 8. Artifact persistence
 
-| Artifact                | File / place      | Contains                                                     | Does not contain                    |
-| ----------------------- | ----------------- | ------------------------------------------------------------ | ----------------------------------- |
-| Settings                | `settings.json`   | theme, font, restoreTabs, …                                  | layouts, CWDs                       |
-| Session                 | `session.json` v2 | window set, per-window tab trees, names, colors, active tabs | CWD, PTY ids, processes, scrollback |
-| Presets                 | `presets.json`    | named layouts + optional CWD maps                            | live session, window set            |
-| Closed tabs             | in-memory stack   | layout + CWDs + chrome                                       | disk                                |
-| Built-in default preset | code constant     | single-pane, no CWD                                          | —                                   |
+| Artifact                | File / place         | Contains                                                 | Does not contain                           |
+| ----------------------- | -------------------- | -------------------------------------------------------- | ------------------------------------------ |
+| Settings                | `settings.json`      | theme, font, tab bar position, editor, …                 | layouts, CWDs, restoreTabs (removed 0.4.0) |
+| Workspace recents       | `workspaces.json` v2 | recent folders + each folder's last layout + agent combo | live tabs, PTY ids, scrollback             |
+| App logo                | `logo.json`          | the app logo as a data URL (empty = default mark)        | the original image path                    |
+| Presets                 | `presets.json`       | named layouts + optional CWD maps                        | live tabs, workspace recents               |
+| Closed tabs             | in-memory stack      | layout + CWDs + chrome                                   | disk                                       |
+| ~~Session~~             | ~~`session.json`~~   | removed in 0.4.0 — no tab/pane restore across launches   | —                                          |
+| Built-in default preset | code constant        | single-pane, no CWD                                      | —                                          |
 
 ## 9. IPC catalog
 

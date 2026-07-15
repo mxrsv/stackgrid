@@ -1,10 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
+import { homeDir } from "@tauri-apps/api/path";
 import { useSignal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
 import { open } from "@tauri-apps/plugin-dialog";
 import { countLeaves } from "../lib/split-tree";
 import { isBuiltIn, type Preset } from "../lib/preset-schema";
 import { folderName, formatRelativeTime } from "../lib/workspace-recents";
+import type { AgentChoice, RecentWorkspace } from "../lib/workspace-recents";
+import { tildify } from "../lib/process-info";
+import { defaultPtyClient, type DetectedAgent } from "../terminal/pty-client";
 import {
   boardPresets,
   deletePreset,
@@ -12,17 +16,44 @@ import {
   renamePreset,
 } from "../presets/presets-store";
 import { workspacesData } from "./workspaces-store";
+import { LogoPanel } from "./logo-panel";
 import { PresetThumb } from "../presets/preset-thumb";
 
 export interface OpenBoardProps {
   canCancel: boolean;
   onCancel(): void;
   /** Resolves to false on failure (e.g. PTY spawn error) — board stays up. */
-  onOpen(workspace: string, preset: Preset): Promise<boolean>;
+  onOpen(
+    workspace: string,
+    preset: Preset,
+    agent: AgentChoice,
+  ): Promise<boolean>;
   onNewPreset(workspace: string | null): void;
 }
 
-type BoardColumn = "workspace" | "preset";
+type BoardSection = "workspace" | "layout" | "agent";
+
+/** Human names for allowlisted agent binaries (chip label). */
+const AGENT_LABELS: Readonly<Record<string, string>> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  gemini: "Gemini CLI",
+};
+
+function agentLabel(name: string): string {
+  return AGENT_LABELS[name] ?? name;
+}
+
+/** Resolve a remembered/selected agent against what is actually on `$PATH`. */
+function resolveAgentChoice(
+  choice: AgentChoice | undefined,
+  agents: readonly DetectedAgent[],
+): AgentChoice {
+  if (choice == null) {
+    return null; // undefined (never recorded) or explicit Shell only
+  }
+  return agents.some((agent) => agent.name === choice) ? choice : null;
+}
 
 export function OpenBoard({
   canCancel,
@@ -32,11 +63,20 @@ export function OpenBoard({
 }: OpenBoardProps) {
   const recents = workspacesData.value.recents;
   const presets = boardPresets();
-  const selectedPath = useSignal<string | null>(recents[0]?.path ?? null);
+  const home = useSignal("");
+  const first = recents[0];
+  const selectedPath = useSignal<string | null>(first?.path ?? null);
   const selectedPresetId = useSignal<string>(
-    presetsData.value.lastUsedId ?? presets[0].id,
+    (first?.lastPresetId && presets.some((p) => p.id === first.lastPresetId)
+      ? first.lastPresetId
+      : presetsData.value.lastUsedId) ?? presets[0].id,
   );
-  const column = useSignal<BoardColumn>("workspace");
+  // Raw remembered/selected choice; the *effective* agent is this resolved
+  // against detected agents, so a late detect() or a stale memory can't launch
+  // something that is not on $PATH.
+  const selectedAgent = useSignal<AgentChoice>(first?.lastAgent ?? null);
+  const agents = useSignal<readonly DetectedAgent[]>([]);
+  const section = useSignal<BoardSection>("workspace");
   const missing = useSignal<ReadonlySet<string>>(new Set());
   const renamingId = useSignal<string | null>(null);
   const renameValue = useSignal("");
@@ -46,6 +86,20 @@ export function OpenBoard({
 
   useEffect(() => {
     containerRef.current?.focus();
+    defaultPtyClient
+      .detectAgents()
+      .then((found) => {
+        agents.value = found;
+      })
+      .catch((err: unknown) => {
+        console.warn("detect_agents failed:", err);
+        agents.value = []; // board degrades to Shell only (FR-025)
+      });
+    homeDir()
+      .then((dir) => {
+        home.value = dir;
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -53,65 +107,123 @@ export function OpenBoard({
     if (paths.length === 0) {
       return;
     }
+    let cancelled = false;
     invoke<boolean[]>("dirs_exist", { paths })
       .then((flags) => {
-        missing.value = new Set(paths.filter((_, index) => !flags[index]));
+        if (!cancelled) {
+          missing.value = new Set(paths.filter((_, index) => !flags[index]));
+        }
       })
-      .catch((err: unknown) => {
-        console.warn("dirs_exist failed:", err);
-      });
+      .catch((err: unknown) => console.warn("dirs_exist failed:", err));
+    return () => {
+      cancelled = true;
+    };
   }, [recents]);
 
   const selectedPreset =
     presets.find((preset) => preset.id === selectedPresetId.value) ??
     presets[0];
+  const effectiveAgent = resolveAgentChoice(selectedAgent.value, agents.value);
   const workspaceValid =
     selectedPath.value !== null && !missing.value.has(selectedPath.value);
+
+  // A just-picked folder that is not in Recents yet shows as a live entry at
+  // the top of the list (selected), rather than a separate line — it only
+  // lands in `workspaces.json` once the user actually opens it.
+  const pickedPath = selectedPath.value;
+  const displayRecents: readonly RecentWorkspace[] =
+    pickedPath !== null && !recents.some((r) => r.path === pickedPath)
+      ? [{ path: pickedPath, lastOpenedAt: Date.now() }, ...recents]
+      : recents;
+
+  /** Apply a recent's remembered combo when it is picked (still overridable). */
+  function selectWorkspace(path: string): void {
+    selectedPath.value = path;
+    section.value = "workspace";
+    const entry = recents.find((recent) => recent.path === path);
+    if (
+      entry?.lastPresetId &&
+      presets.some((p) => p.id === entry.lastPresetId)
+    ) {
+      selectedPresetId.value = entry.lastPresetId;
+    }
+    selectedAgent.value = entry?.lastAgent ?? null;
+  }
 
   async function pickFolder(): Promise<void> {
     try {
       const picked = await open({ directory: true, multiple: false });
       if (typeof picked === "string") {
         selectedPath.value = picked;
+        selectedAgent.value = null; // a fresh folder has no remembered agent
       }
     } catch (err: unknown) {
       console.warn("Folder picker failed:", err);
     }
   }
 
-  /** Guards against a second Open (button/Enter/double-click) firing while
-   * the first one is still spawning panes — that would materialize two tabs
-   * from one confirm. Only resets on failure; success unmounts the board. */
+  /** Guards a second Open (button/Enter/double-click) during the first spawn. */
   async function confirmOpen(): Promise<void> {
     if (!workspaceValid || selectedPath.value === null || opening.value) {
       return;
     }
     opening.value = true;
-    const ok = await onOpen(selectedPath.value, selectedPreset);
+    const ok = await onOpen(selectedPath.value, selectedPreset, effectiveAgent);
     if (!ok) {
       opening.value = false;
     }
   }
 
-  function moveSelection(step: 1 | -1): void {
-    if (column.value === "workspace") {
-      const selectable = recents.filter((r) => !missing.value.has(r.path));
-      if (selectable.length === 0) {
-        return;
-      }
-      const index = selectable.findIndex(
-        (r) => r.path === selectedPath.value,
-      );
-      const next =
-        selectable[
-          (index + step + selectable.length) % selectable.length
-        ];
-      selectedPath.value = next.path;
+  function moveWorkspace(step: 1 | -1): void {
+    const selectable = displayRecents.filter((r) => !missing.value.has(r.path));
+    if (selectable.length === 0) {
       return;
     }
+    const index = selectable.findIndex((r) => r.path === selectedPath.value);
+    const next =
+      selectable[(index + step + selectable.length) % selectable.length];
+    selectWorkspace(next.path);
+  }
+
+  function movePreset(step: 1 | -1): void {
     const index = presets.findIndex((p) => p.id === selectedPresetId.value);
     const next = presets[(index + step + presets.length) % presets.length];
     selectedPresetId.value = next.id;
+  }
+
+  function moveAgent(step: 1 | -1): void {
+    // Options are [agent0 … agentN, Shell only]; index N === Shell only.
+    const options: AgentChoice[] = [
+      ...agents.value.map((agent) => agent.name),
+      null,
+    ];
+    const current =
+      effectiveAgent === null
+        ? options.length - 1
+        : options.indexOf(effectiveAgent);
+    const next = options[(current + step + options.length) % options.length];
+    selectedAgent.value = next;
+  }
+
+  function cycleSection(step: 1 | -1): void {
+    const order: BoardSection[] = ["workspace", "layout", "agent"];
+    const index = order.indexOf(section.value);
+    section.value = order[(index + step + order.length) % order.length];
+  }
+
+  function pickAgentByDigit(key: string): boolean {
+    if (key === "0") {
+      selectedAgent.value = null;
+      section.value = "agent";
+      return true;
+    }
+    const index = Number(key) - 1;
+    if (index >= 0 && index < agents.value.length) {
+      selectedAgent.value = agents.value[index].name;
+      section.value = "agent";
+      return true;
+    }
+    return false;
   }
 
   function startRename(preset: Preset): void {
@@ -136,18 +248,22 @@ export function OpenBoard({
     if (event.target instanceof HTMLInputElement) {
       return; // rename input owns its keys (Enter/Esc handled inline)
     }
+    if (/^[0-9]$/.test(event.key) && pickAgentByDigit(event.key)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     switch (event.key) {
       case "ArrowUp":
-        moveSelection(-1);
+        step(-1);
         break;
       case "ArrowDown":
-        moveSelection(1);
+        step(1);
         break;
       case "ArrowLeft":
       case "ArrowRight":
       case "Tab":
-        column.value =
-          column.value === "workspace" ? "preset" : "workspace";
+        cycleSection(event.key === "ArrowLeft" || event.shiftKey ? -1 : 1);
         break;
       case "Enter":
         void confirmOpen();
@@ -167,13 +283,17 @@ export function OpenBoard({
         }
         break;
       case "r":
-        if (column.value === "preset") {
+        if (section.value === "layout") {
           startRename(selectedPreset);
+        } else {
+          return;
         }
         break;
       case "Backspace":
-        if (column.value === "preset" && !isBuiltIn(selectedPreset)) {
+        if (section.value === "layout" && !isBuiltIn(selectedPreset)) {
           confirmDeleteId.value = selectedPreset.id;
+        } else {
+          return;
         }
         break;
       default:
@@ -183,6 +303,16 @@ export function OpenBoard({
     event.stopPropagation();
   }
 
+  function step(dir: 1 | -1): void {
+    if (section.value === "workspace") {
+      moveWorkspace(dir);
+    } else if (section.value === "layout") {
+      movePreset(dir);
+    } else {
+      moveAgent(dir);
+    }
+  }
+
   return (
     <div
       class="open-board"
@@ -190,165 +320,219 @@ export function OpenBoard({
       onKeyDown={handleKeyDown}
       ref={containerRef}
     >
-      <header class="open-board__header">
-        <h1>New window</h1>
-        <p>Pick a workspace folder and a layout — then open a tab.</p>
-      </header>
-      <div class="open-board__columns">
-        <section
-          class={`open-board__col ${column.value === "workspace" ? "is-focused" : ""}`}
-        >
-          <h2 class="open-board__col-title">
-            Workspace <span>recent folders</span>
-          </h2>
-          <ul class="workspace-list">
-            {recents.map((recent) => {
-              const gone = missing.value.has(recent.path);
-              return (
-                <li key={recent.path}>
-                  <button
-                    class={`workspace-row ${recent.path === selectedPath.value ? "is-selected" : ""} ${gone ? "is-missing" : ""}`}
-                    disabled={gone}
-                    onClick={() => {
-                      selectedPath.value = recent.path;
-                      column.value = "workspace";
-                    }}
-                  >
-                    <span class="workspace-row__name">
-                      {folderName(recent.path)}
-                      {gone ? <em> — missing</em> : null}
+      <LogoPanel />
+      <div class="board-side">
+        <div class="board-side__scroll">
+          <section
+            class={`board-group ${section.value === "workspace" ? "is-focused" : ""}`}
+          >
+            <h2 class="board-group__title">
+              Workspace <span>recent</span>
+            </h2>
+            <ul class="workspace-list">
+              {displayRecents.map((recent) => {
+                const gone = missing.value.has(recent.path);
+                const preset = presets.find(
+                  (p) => p.id === recent.lastPresetId,
+                );
+                const agentGone =
+                  typeof recent.lastAgent === "string" &&
+                  !agents.value.some((a) => a.name === recent.lastAgent);
+                return (
+                  <li key={recent.path}>
+                    <button
+                      class={`workspace-row ${recent.path === selectedPath.value ? "is-selected" : ""} ${gone ? "is-missing" : ""}`}
+                      disabled={gone}
+                      onClick={() => selectWorkspace(recent.path)}
+                    >
+                      <span class="workspace-row__head">
+                        <span class="workspace-row__name">
+                          {folderName(recent.path)}
+                          {gone ? <em> — missing</em> : null}
+                        </span>
+                        <span class="workspace-row__time">
+                          {formatRelativeTime(recent.lastOpenedAt, Date.now())}
+                        </span>
+                      </span>
+                      <span class="workspace-row__sub">
+                        <span class="workspace-row__path">
+                          {home.value === ""
+                            ? recent.path
+                            : tildify(recent.path, home.value)}
+                        </span>
+                        {preset || recent.lastAgent !== undefined ? (
+                          <span
+                            class={`workspace-row__combo ${agentGone ? "is-stale" : ""}`}
+                          >
+                            {preset ? preset.name : "—"}
+                            {" · "}
+                            {recent.lastAgent == null
+                              ? "Shell"
+                              : agentLabel(recent.lastAgent)}
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <button
+              class="workspace-open-folder"
+              onClick={() => void pickFolder()}
+            >
+              ＋ Open folder…
+            </button>
+          </section>
+
+          <section
+            class={`board-group ${section.value === "layout" ? "is-focused" : ""}`}
+          >
+            <h2 class="board-group__title">
+              Layout <span>split + cwd</span>
+            </h2>
+            <div class="preset-chips">
+              {presets.map((preset) => (
+                <div
+                  key={preset.id}
+                  class={`preset-chip ${preset.id === selectedPresetId.value ? "is-selected" : ""}`}
+                  title={`${countLeaves(preset.layout)} ${countLeaves(preset.layout) === 1 ? "pane" : "panes"}${preset.cwds ? " · cwds" : ""}`}
+                  onClick={() => {
+                    selectedPresetId.value = preset.id;
+                    section.value = "layout";
+                  }}
+                  onDblClick={() => void confirmOpen()}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    startRename(preset);
+                  }}
+                >
+                  <PresetThumb layout={preset.layout} />
+                  {renamingId.value === preset.id ? (
+                    <input
+                      class="preset-chip__rename"
+                      value={renameValue.value}
+                      ref={(el) => el?.focus()}
+                      onInput={(event) => {
+                        renameValue.value = (
+                          event.target as HTMLInputElement
+                        ).value;
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          commitRename();
+                        }
+                        if (event.key === "Escape") {
+                          renamingId.value = null;
+                        }
+                        event.stopPropagation();
+                      }}
+                      onBlur={commitRename}
+                    />
+                  ) : (
+                    <span class="preset-chip__name">{preset.name}</span>
+                  )}
+                  {confirmDeleteId.value === preset.id ? (
+                    <span class="preset-chip__confirm">
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deletePreset(preset.id);
+                          confirmDeleteId.value = null;
+                          if (selectedPresetId.value === preset.id) {
+                            selectedPresetId.value = presets[0].id;
+                          }
+                        }}
+                      >
+                        delete
+                      </button>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          confirmDeleteId.value = null;
+                        }}
+                      >
+                        keep
+                      </button>
                     </span>
-                    <span class="workspace-row__path">{recent.path}</span>
-                    <span class="workspace-row__time">
-                      {formatRelativeTime(recent.lastOpenedAt, Date.now())}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          <button class="workspace-open-folder" onClick={() => void pickFolder()}>
-            ＋ Open Folder…
-          </button>
-          {selectedPath.value !== null &&
-          !recents.some((r) => r.path === selectedPath.value) ? (
-            <p class="workspace-picked">{selectedPath.value}</p>
-          ) : null}
-        </section>
-        <section
-          class={`open-board__col ${column.value === "preset" ? "is-focused" : ""}`}
-        >
-          <h2 class="open-board__col-title">
-            Layout preset <span>split + CWD</span>
-          </h2>
-          <div class="preset-grid">
-            {presets.map((preset) => (
-              <div
-                key={preset.id}
-                class={`preset-card ${preset.id === selectedPresetId.value ? "is-selected" : ""}`}
+                  ) : null}
+                </div>
+              ))}
+              <button
+                class="preset-chip preset-chip--new"
+                onClick={() => onNewPreset(selectedPath.value)}
+              >
+                ＋ new
+              </button>
+            </div>
+          </section>
+
+          <section
+            class={`board-group ${section.value === "agent" ? "is-focused" : ""}`}
+          >
+            <h2 class="board-group__title">
+              Agent <span>on all panes</span>
+            </h2>
+            <div class="agent-chips">
+              {agents.value.map((agent, index) => (
+                <button
+                  key={agent.name}
+                  class={`agent-chip ${effectiveAgent === agent.name ? "is-selected" : ""}`}
+                  title={agent.path}
+                  onClick={() => {
+                    selectedAgent.value = agent.name;
+                    section.value = "agent";
+                  }}
+                >
+                  <kbd>{index + 1}</kbd>
+                  {agentLabel(agent.name)}
+                </button>
+              ))}
+              <button
+                class={`agent-chip is-shell ${effectiveAgent === null ? "is-selected" : ""}`}
                 onClick={() => {
-                  selectedPresetId.value = preset.id;
-                  column.value = "preset";
-                }}
-                onDblClick={() => void confirmOpen()}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  startRename(preset);
+                  selectedAgent.value = null;
+                  section.value = "agent";
                 }}
               >
-                <PresetThumb layout={preset.layout} />
-                {renamingId.value === preset.id ? (
-                  <input
-                    class="preset-card__rename"
-                    value={renameValue.value}
-                    ref={(el) => el?.focus()}
-                    onInput={(event) => {
-                      renameValue.value = (
-                        event.target as HTMLInputElement
-                      ).value;
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        commitRename();
-                      }
-                      if (event.key === "Escape") {
-                        renamingId.value = null;
-                      }
-                      event.stopPropagation();
-                    }}
-                    onBlur={commitRename}
-                  />
-                ) : (
-                  <span class="preset-card__name">{preset.name}</span>
-                )}
-                <span class="preset-card__meta">
-                  {countLeaves(preset.layout)}{" "}
-                  {countLeaves(preset.layout) === 1 ? "pane" : "panes"}
-                  {preset.cwds ? " · CWDs" : ""}
-                  {isBuiltIn(preset) ? " · BUILT-IN" : ""}
-                </span>
-                {confirmDeleteId.value === preset.id ? (
-                  <span class="preset-card__confirm">
-                    Delete?
-                    <button
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        deletePreset(preset.id);
-                        confirmDeleteId.value = null;
-                        if (selectedPresetId.value === preset.id) {
-                          selectedPresetId.value = presets[0].id;
-                        }
-                      }}
-                    >
-                      Delete
-                    </button>
-                    <button
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        confirmDeleteId.value = null;
-                      }}
-                    >
-                      Keep
-                    </button>
-                  </span>
-                ) : null}
-              </div>
-            ))}
+                <kbd>0</kbd>Shell only
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <footer class="board-footer">
+          <span
+            class={`board-footer__summary ${workspaceValid ? "" : "is-warning"}`}
+          >
+            {workspaceValid && selectedPath.value !== null ? (
+              <>
+                Open <strong>{folderName(selectedPath.value)}</strong> as{" "}
+                <strong>{selectedPreset.name}</strong> with{" "}
+                <strong>
+                  {effectiveAgent === null
+                    ? "Shell"
+                    : agentLabel(effectiveAgent)}
+                </strong>
+              </>
+            ) : (
+              "Select a workspace folder"
+            )}
+          </span>
+          <div class="board-footer__actions">
+            <button onClick={onCancel} disabled={!canCancel}>
+              Cancel
+            </button>
             <button
-              class="preset-card preset-card--new"
-              onClick={() => onNewPreset(selectedPath.value)}
+              class="is-primary"
+              onClick={() => void confirmOpen()}
+              disabled={!workspaceValid || opening.value}
             >
-              ＋ New preset…
+              {opening.value ? "Opening…" : "Open"}
             </button>
           </div>
-        </section>
+        </footer>
       </div>
-      <footer class="open-board__footer">
-        <span
-          class={`open-board__summary ${workspaceValid ? "" : "is-warning"}`}
-        >
-          {workspaceValid && selectedPath.value !== null ? (
-            <>
-              Open <strong>{folderName(selectedPath.value)}</strong> as{" "}
-              <strong>{selectedPreset.name}</strong>
-            </>
-          ) : (
-            "Select a workspace folder"
-          )}
-        </span>
-        <div class="open-board__actions">
-          <button onClick={onCancel} disabled={!canCancel}>
-            Cancel
-          </button>
-          <button
-            class="is-primary"
-            onClick={() => void confirmOpen()}
-            disabled={!workspaceValid || opening.value}
-          >
-            {opening.value ? "Opening…" : "Open"}
-          </button>
-        </div>
-      </footer>
     </div>
   );
 }

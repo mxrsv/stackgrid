@@ -9,23 +9,23 @@ A single Stackgrid OS window owning its own tabs and panes. Multi-window is in v
 _Avoid_: Tab, app, workspace (folder)
 
 **Workspace**:
-A local folder the user picks as the working root on the Open board (recent folders + Open Folder, Cursor-style). Supplies the default CWD when a layout preset pane has no CWD set. Not an OS window and not `session.json`.
-_Avoid_: Window, session, tab
+A local folder the user picks as the working root on the Open board (recent folders + Open Folder, Cursor-style). Supplies the default CWD when a layout preset pane has no CWD set. 1:1 with a Tab — it is the tab's identity, fixed for the tab's life, and held in memory for the tab's life (not persisted; the folder is remembered in `workspaces.json` recents and reopened by hand from the board). Reopening a workspace that already has a tab focuses that tab instead of creating a second one. A pane's live CWD is not the workspace: `cd` inside a terminal never changes it. Not an OS window.
+_Avoid_: Window, session, folder-of-the-moment
 
 **Pane**:
 A single visible terminal region backed by exactly one PTY. Every tab has at least one pane; splitting adds more panes — it does not change what a pane is.
 _Avoid_: Split, cell, terminal window
 
 **Tab**:
-A container holding one or more panes as a split layout tree, plus that tab's chrome (name, dot color). Closing a tab disposes every pane inside it.
-_Avoid_: Window, session, workspace
+A container holding one or more panes as a split layout tree, plus that tab's chrome (name, dot color) and the Workspace it belongs to. Closing a tab disposes every pane inside it.
+_Avoid_: Window, session
 
 **Focused pane**:
 The pane that currently receives keyboard input and shortcut actions within a tab. One focused pane per tab at a time.
 _Avoid_: Active pane, selected pane, cursor pane
 
 **Layout**:
-The split-tree structure of panes within a tab: nested row/column splits, each with a size ratio. Preserved across session restore and closed-tab reopen; only pane IDs and PTY sessions are recreated fresh. On screen, a LayoutEngine maps the structural tree to the flex DOM (Focus Expand overlay, zoom, dividers) without changing what a Layout is.
+The split-tree structure of panes within a tab: nested row/column splits, each with a size ratio. Preserved across closed-tab reopen (Cmd+Shift+T); only pane IDs and PTY sessions are recreated fresh. On screen, a LayoutEngine maps the structural tree to the flex DOM (Focus Expand overlay, zoom, dividers) without changing what a Layout is.
 _Avoid_: Grid, arrangement, split count
 
 **Busy**:
@@ -41,28 +41,32 @@ The scrollback history above the current prompt line in a pane. Clearing the buf
 _Avoid_: Screen, viewport, terminal output
 
 **Materialize**:
-Turning a Layout (plus optional per-pane CWDs) into a live Tab with fresh shells. Used by Open board confirm, Session restore (CWDs omitted → `$HOME`), Closed tab reopen, and Layout preset create. CWD policy is explicit: fresh, polled, none, or caller-given.
+Turning a Layout (plus optional per-pane CWDs) into a live Tab with fresh shells. Used by Open board confirm, Closed tab reopen, and Layout preset create. CWD policy is explicit: fresh, polled, none, or caller-given. On Open board confirm the chosen agent is typed into every new pane's shell once it is ready (see **Agent launch**).
 _Avoid_: Restore, open, spawn (alone)
 
 **Closed tab snapshot**:
 An in-memory record captured when a tab closes: split layout, per-pane CWDs, tab name, and dot color. Reopening (Cmd+Shift+T) restores layout and spawns fresh shells at saved CWDs; scrollback and running processes are not restored. Max 10 entries, not persisted across restarts.
 _Avoid_: Undo, session backup, history
 
-**Session**:
-The persisted app state written to `session.json` (or multi-window equivalent): per-window tab layouts, active tab index, and tab name/dot-color overrides. Restored on launch when enabled. Captures layout chrome only — not working state: each pane spawns a fresh shell at `$HOME`, CWDs are not saved. Independent from layout presets and from the in-memory closed-tab stack (which does preserve CWDs).
+**Session restore** (removed in 0.4.0):
+Stackgrid no longer persists or restores tabs across launches. Quitting drops every tab and pane; the app always opens on the Open board, and the user reopens folders by hand from Recents (`workspaces.json`). `session.json`, `session-schema`, and `session-persistence` are gone. Only settings, layout presets, workspace recents, and the app logo persist across restarts; the closed-tab stack (Cmd+Shift+T) lives in memory for the session only.
 _Avoid_: Closed tab snapshot, workspace, profile, layout preset
 
 **Layout preset**:
-A named, persisted template: split-tree layout plus optional per-pane CWDs. Edited via a mini layout mock (confirm → new tab) or saved from a live layout. Separate artifact from Session. Supports rename, delete, overwrite.
+A named, persisted template: split-tree layout plus optional per-pane CWDs. Edited via a mini layout mock (confirm → new tab) or saved from a live layout. Supports rename, delete, overwrite.
 _Avoid_: Session, workspace, theme preset
 
 **Open board**:
-The pre-layout chooser showing workspace (folder) and layout preset side by side. Shown on New Window, when restore is off, or when no session exists. Confirm Open materializes the layout then agent pick.
+The sole entry point of the app (also shown for New Tab): three columns — the workspace sidebar (app chrome), a center logo panel (drag-drop an image to change it), and a right column stacking recent workspaces → layout preset → agent CLI. A recent row remembers its last layout + agent combo and preselects them. Confirm Open materializes the layout and launches the chosen agent on every pane.
 _Avoid_: Settings, session restore
 
 **Agent**:
-An AI-agent CLI. For chrome: recognized by foreground process name (e.g. `claude`, `codex`, `gemini`) for pane-header styling. For spawn: binaries discovered on `PATH` in the agent picker. Other processes are not agents.
+An AI-agent CLI. For chrome: recognized by foreground process name (e.g. `claude`, `codex`, `gemini`) for pane-header styling. For launch: binaries discovered on the login shell's `PATH` and chosen on the board. Other processes are not agents.
 _Avoid_: Process, CLI, bot
+
+**Agent launch**:
+Running the board's chosen agent in every new pane by typing `<agent>\r` into the pane's interactive shell once it prints its first byte (or after a 3s fallback), not by spawning it from Rust — the interactive shell inherits the correct `$PATH` that `$SHELL -lc` would strip. `Shell only` types nothing. Each pane is typed into exactly once; a failed write leaves the pane as a plain shell. Closed-tab reopen does not re-launch the agent.
+_Avoid_: Spawn, agent picker
 
 **Swap pane**:
 Exchange the positions of two panes in a layout; each pane’s PTY/session moves with it. Distinct from drag-dock rearrange.

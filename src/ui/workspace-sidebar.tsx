@@ -1,0 +1,265 @@
+import { useSignal } from "@preact/signals";
+import { useEffect } from "preact/hooks";
+import { open } from "@tauri-apps/plugin-dialog";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { activeTabIndex, statusInfo, tabViews } from "../terminal/tabs-store";
+import { tildify } from "../lib/process-info";
+import { workspaceLabel } from "../lib/workspace-label";
+import { type TabDotColor } from "../lib/tab-colors";
+import { installFileDrop } from "../terminal/file-drop";
+import {
+  clearWorkspaceLogo,
+  ensureFaviconScanned,
+  hasCustomWorkspaceLogo,
+  setWorkspaceLogoFromPath,
+} from "../settings/workspace-logo-store";
+import { pickImagePath } from "../settings/logo-store";
+import { reportPersistError } from "../chrome/events";
+import { TabPopover } from "./tab-popover";
+import { WorkspaceLogo } from "./workspace-logo";
+
+interface WorkspaceSidebarProps {
+  onSelectTab(index: number): void;
+  onCloseTab(index: number): void;
+  onNewTab(): void;
+  onRenameTab(index: number, name: string | null): void;
+  onSetTabColor(index: number, color: TabDotColor | null): void;
+}
+
+/** Vertical workspace list: one row per tab, with a per-workspace logo. */
+export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
+  const tabs = tabViews.value;
+  const active = activeTabIndex.value;
+  const home = statusInfo.value.home;
+  const dragOverKey = useSignal<number | null>(null);
+  // Anchored by tab key, not index — same reason as the horizontal tab bar:
+  // tabs can close (and indexes shift) while the popover is open.
+  const popover = useSignal<{
+    key: number;
+    left: number;
+    top: number;
+    anchorEl: HTMLElement;
+  } | null>(null);
+  const popoverTab =
+    popover.value === null
+      ? undefined
+      : tabs.find((tab) => tab.key === popover.value?.key);
+  const resolvePopoverIndex = (): number =>
+    popover.value === null
+      ? -1
+      : tabs.findIndex((tab) => tab.key === popover.value?.key);
+
+  // Scan each open workspace for a favicon once — the default logo source.
+  useEffect(() => {
+    for (const tab of tabs) {
+      if (tab.workspacePath !== null) {
+        ensureFaviconScanned(tab.workspacePath);
+      }
+    }
+  }, [tabs]);
+
+  // Drop an image onto a workspace row → that workspace's custom logo.
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    let disposed = false;
+
+    function rowPathAt(x: number, y: number): string | null {
+      const row = document
+        .elementFromPoint(x, y)
+        ?.closest<HTMLElement>(".wsitem");
+      return row?.dataset.workspace || null;
+    }
+    function keyAt(x: number, y: number): number | null {
+      const row = document
+        .elementFromPoint(x, y)
+        ?.closest<HTMLElement>(".wsitem");
+      const key = row?.dataset.key;
+      return key === undefined ? null : Number(key);
+    }
+
+    installFileDrop({
+      onOver(x, y) {
+        dragOverKey.value = keyAt(x, y);
+      },
+      onLeave() {
+        dragOverKey.value = null;
+      },
+      onDrop(x, y, paths) {
+        dragOverKey.value = null;
+        const workspacePath = rowPathAt(x, y);
+        if (workspacePath === null) {
+          return; // not a workspace row — leave it to the terminal/logo panel
+        }
+        const image = pickImagePath(paths);
+        if (image === null) {
+          reportPersistError("Use a .png, .jpg, .svg or .webp image");
+          return;
+        }
+        setWorkspaceLogoFromPath(workspacePath, image).catch((err: unknown) => {
+          reportPersistError(
+            err instanceof Error ? err.message : "Couldn't set the logo",
+          );
+        });
+      },
+    })
+      .then((fn) => {
+        if (disposed) {
+          fn();
+        } else {
+          unlisten = fn;
+        }
+      })
+      .catch((err: unknown) => {
+        console.warn("Failed to install workspace logo drop:", err);
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  function openPopover(key: number, anchorEl: HTMLElement): void {
+    const rect = anchorEl.getBoundingClientRect();
+    popover.value = { key, left: rect.right + 6, top: rect.top, anchorEl };
+  }
+
+  async function pickLogoFor(workspacePath: string): Promise<void> {
+    try {
+      const picked = await open({
+        multiple: false,
+        directory: false,
+        filters: [
+          { name: "Image", extensions: ["png", "jpg", "jpeg", "svg", "webp"] },
+        ],
+      });
+      if (typeof picked === "string") {
+        await setWorkspaceLogoFromPath(workspacePath, picked);
+      }
+    } catch (err: unknown) {
+      reportPersistError(
+        err instanceof Error ? err.message : "Couldn't set the logo",
+      );
+    }
+  }
+
+  return (
+    <nav class="wsbar" aria-label="Workspaces">
+      <div class="wsbar__list" role="tablist" aria-label="Workspace tabs">
+        {tabs.map((tab, index) => {
+          const label =
+            tab.name ??
+            (tab.workspacePath === null
+              ? "Unknown"
+              : workspaceLabel(tab.workspacePath));
+          return (
+            <div
+              key={tab.key}
+              role="tab"
+              aria-selected={index === active}
+              tabIndex={0}
+              data-key={tab.key}
+              data-workspace={tab.workspacePath ?? ""}
+              class={`wsitem ${index === active ? "is-active" : ""} ${dragOverKey.value === tab.key ? "is-drag-over" : ""}`}
+              onClick={(event) => {
+                if (index !== active) {
+                  props.onSelectTab(index);
+                  return;
+                }
+                if (popover.value?.key === tab.key) {
+                  popover.value = null;
+                  return;
+                }
+                openPopover(tab.key, event.currentTarget as HTMLElement);
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                openPopover(tab.key, event.currentTarget as HTMLElement);
+              }}
+            >
+              <WorkspaceLogo
+                workspacePath={tab.workspacePath}
+                label={label}
+                busy={tab.agentBusy}
+                dotColor={tab.dotColor}
+              />
+              <span class="wsitem__text">
+                <span class="wsitem__label">{label}</span>
+                {tab.workspacePath !== null && (
+                  <span class="wsitem__path">
+                    {/* U+200E keeps the path LTR inside the RTL (head-ellipsis)
+                        container — without it the leading "~" flips to the end. */}
+                    {`‎${tildify(tab.workspacePath, home)}`}
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                class="wsitem__close"
+                aria-label="Close workspace"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.onCloseTab(index);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          class="wsbar__add"
+          title="New tab (⌘T)"
+          aria-label="New tab"
+          onClick={props.onNewTab}
+        >
+          <span class="wsbar__add-glyph">+</span>
+          <span>Open workspace</span>
+        </button>
+      </div>
+      {popover.value !== null && popoverTab !== undefined && (
+        <TabPopover
+          left={popover.value.left}
+          top={popover.value.top}
+          anchorEl={popover.value.anchorEl}
+          name={popoverTab.name}
+          dotColor={popoverTab.dotColor}
+          hasLogo={
+            popoverTab.workspacePath !== null &&
+            hasCustomWorkspaceLogo(popoverTab.workspacePath)
+          }
+          onRename={(name) => {
+            const index = resolvePopoverIndex();
+            if (index !== -1) {
+              props.onRenameTab(index, name);
+            }
+          }}
+          onPickColor={(color) => {
+            const index = resolvePopoverIndex();
+            if (index !== -1) {
+              props.onSetTabColor(index, color);
+            }
+          }}
+          onSetLogo={() => {
+            const path = popoverTab.workspacePath;
+            popover.value = null;
+            if (path !== null) {
+              void pickLogoFor(path);
+            }
+          }}
+          onRemoveLogo={() => {
+            const path = popoverTab.workspacePath;
+            popover.value = null;
+            if (path !== null) {
+              clearWorkspaceLogo(path);
+            }
+          }}
+          onClose={() => {
+            popover.value = null;
+          }}
+        />
+      )}
+    </nav>
+  );
+}

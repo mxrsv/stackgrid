@@ -23,6 +23,8 @@ export interface PaneInfoPoller {
   poll(): Promise<void>;
   /** Last polled info for a pane; undefined before its first poll. */
   infoFor(id: number): PaneProcessInfo | undefined;
+  /** Forget every cached pane outside `live` — call after a pane/tab closes. */
+  prune(live: readonly number[]): void;
   /** Git branch of the focused pane's CWD; null when unknown. */
   branch(): string | null;
 }
@@ -104,6 +106,14 @@ export function createPaneInfoPoller(deps: PaneInfoPollerDeps): PaneInfoPoller {
     poll,
     infoFor(id) {
       return infoByPane.get(id);
+    },
+    prune(live) {
+      const keep = new Set(live);
+      for (const id of infoByPane.keys()) {
+        if (!keep.has(id)) {
+          infoByPane.delete(id);
+        }
+      }
     },
     branch() {
       return branch;

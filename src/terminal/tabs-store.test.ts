@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { applyTabOverride, type TabView } from "./tabs-store";
 import { isTabDotColor } from "../lib/tab-colors";
 
-const base: TabView = { key: 1, process: "claude", name: null, dotColor: null };
+const base: TabView = {
+  key: 1,
+  process: "claude",
+  name: null,
+  dotColor: null,
+  workspacePath: "/Users/k/dev/stackgrid",
+  agentBusy: true,
+};
 
 describe("applyTabOverride", () => {
   it("returns the view unchanged without an override", () => {
@@ -24,11 +31,16 @@ describe("applyTabOverride", () => {
 
   it("merges both when both are set", () => {
     expect(applyTabOverride(base, { name: "api", dotColor: "cyan" })).toEqual({
-      key: 1,
-      process: "claude",
+      ...base,
       name: "api",
       dotColor: "cyan",
     });
+  });
+
+  it("never touches workspacePath or agentBusy (not user overrides)", () => {
+    const merged = applyTabOverride(base, { name: "api", dotColor: "cyan" });
+    expect(merged.workspacePath).toBe("/Users/k/dev/stackgrid");
+    expect(merged.agentBusy).toBe(true);
   });
 });
 

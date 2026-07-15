@@ -5,15 +5,16 @@ import {
   DEFAULT_SETTINGS,
   type Settings,
 } from "../settings/settings-schema";
-import { settings, updateSettings } from "../settings/settings-store";
-import type { Direction, SerializedNode } from "../lib/split-tree";
-import { isAgent } from "../lib/process-info";
-import { matchBinding, selectTabIndex, type ShortcutAction } from "./keymap";
 import {
-  flushPendingSaves,
-  loadSession,
-  scheduleSessionSave,
-} from "./session-persistence";
+  flushSettingsSave,
+  settings,
+  updateSettings,
+} from "../settings/settings-store";
+import { type Direction, type SerializedNode } from "../lib/split-tree";
+import { isAgent } from "../lib/process-info";
+import { normalizeWorkspacePath } from "../lib/workspace-label";
+import type { AgentChoice } from "../lib/workspace-recents";
+import { matchBinding, selectTabIndex, type ShortcutAction } from "./keymap";
 import { installFileDrop } from "./file-drop";
 import {
   createTerminalManager,
@@ -31,13 +32,12 @@ import { createCloseCoordinator } from "./close-coordinator";
 import { activeAfterClose } from "./tab-close";
 import { freshCwd } from "./pane-info";
 import { defaultPtyClient, type PtyClient } from "./pty-client";
+import { createAgentLauncher } from "./agent-launch";
 import {
   buildClosedTabSnapshot,
-  buildSessionData,
   capturePresetLayout,
   materializeChromeFrom,
   resolvePaneCwds,
-  materializeAfterSpawn,
   type MaterializeIntent,
 } from "./tab-materialize";
 import {
@@ -48,26 +48,41 @@ import {
   type TabOverride,
 } from "./tabs-store";
 import type { TabDotColor } from "../lib/tab-colors";
-import { beginAgentPick } from "../agent-picker/agent-picker";
-import { prunePending } from "../agent-picker/picker-store";
 import { boardOpen, saveDialogOpen } from "../chrome/events";
 
 interface TabEntry {
   readonly key: number;
   readonly manager: TerminalManager;
+  /**
+   * Workspace ≡ Tab: the directory picked on Open, fixed for the tab's life.
+   * Never re-derived from a pane's live CWD (a `cd` must not rename the tab).
+   */
+  readonly workspacePath: string | null;
 }
 
-/** Owns all tabs: routing, keyboard, persistence; info polling lives in PaneInfoPoller. */
+/** Options for materializing one tab from a preset layout. */
+export interface OpenFromPresetOptions {
+  readonly workspacePath?: string;
+  /** Agent CLI to launch in every new pane; `null`/absent = Shell only. */
+  readonly agent?: AgentChoice;
+}
+
+/** Owns all tabs: routing, keyboard, agent launch; info polling lives in PaneInfoPoller. */
 export interface TabManager {
-  /** Init listeners + optional session restore; hasTabs=false → show the Open board. */
-  init(): Promise<{ hasTabs: boolean }>;
-  /** Materialize one tab from a MaterializeIntent (Open / Session / Closed / preset). */
+  /** Install listeners + start polling. The app always opens on the board. */
+  init(): Promise<void>;
+  /** Materialize one tab from a MaterializeIntent (Open / Closed / preset). */
   materialize(intent: MaterializeIntent): Promise<boolean>;
-  /** Materialize one tab from a preset layout + resolved CWDs; begins agent pick. */
+  /** Materialize one tab from a preset layout + resolved CWDs; launches the agent. */
   openFromPreset(
     layout: SerializedNode,
     cwds: readonly (string | null)[],
+    options?: OpenFromPresetOptions,
   ): Promise<boolean>;
+  /** Index of the tab owning `path`, or -1 — Open dedupes against this. */
+  findTabByWorkspace(path: string): number;
+  /** Workspace of the active tab; null when it has none (or no tab). */
+  activeWorkspacePath(): string | null;
   /** Live layout + fresh per-pane CWDs for save-as-preset; null when no tab. */
   captureActiveLayout(): Promise<{
     layout: SerializedNode;
@@ -75,9 +90,9 @@ export interface TabManager {
   } | null>;
   /** Fresh CWD of the focused pane (editor "↑ inherit" from a live window). */
   activePaneCwd(): Promise<string | null>;
-  /** Overlay anchor for a pane in any tab (agent picker cards). */
-  paneOverlayHost(id: number): HTMLElement | null;
   newTab(): Promise<void>;
+  /** Reopen the most recently closed tab (⌘⇧T); skips dead workspaces. */
+  reopenTab(): Promise<void>;
   /** Close a tab after the busy guard; every pane's process is checked. */
   closeTab(index: number): Promise<void>;
   selectTab(index: number): void;
@@ -115,44 +130,40 @@ export function createTabManager(
   // (e.g. a remount mid-init) — guards against pushing a listener into an
   // `unlisteners` array that's already been drained, which would leak it.
   let disposed = false;
+  // Types the chosen agent into each new pane's shell once its prompt is up.
+  const launcher = createAgentLauncher(pty);
 
   function activeManager(): TerminalManager | null {
     return active >= 0 && active < tabs.length ? tabs[active].manager : null;
   }
 
-  function sessionChrome() {
-    const chrome = [];
-    for (const tab of tabs) {
-      const layout = tab.manager.serializeLayout();
-      if (layout === null) {
-        continue;
-      }
-      const override = overrides.get(tab.key);
-      chrome.push({
-        layout,
-        ...(override?.name !== undefined ? { name: override.name } : {}),
-        ...(override?.dotColor !== undefined
-          ? { dotColor: override.dotColor }
-          : {}),
-      });
+  /** Index of the tab owning `path` (normalized both sides), or -1. */
+  function findWorkspaceIndex(path: string): number {
+    const target = normalizeWorkspacePath(path);
+    if (target === null) {
+      return -1;
     }
-    return buildSessionData(chrome, active);
-  }
-
-  function persist(): void {
-    scheduleSessionSave(sessionChrome);
+    return tabs.findIndex((tab) => tab.workspacePath === target);
   }
 
   function syncViews(): void {
     tabViews.value = tabs.map((tab) => {
       const paneId = tab.manager.activePaneId();
       const info = paneId === null ? undefined : poller.infoFor(paneId);
+      // The dot means "an agent runs somewhere in this tab" — every pane
+      // counts, not just the focused one (a background pane running `claude`
+      // is exactly the case the sidebar exists for).
+      const agentBusy = tab.manager
+        .paneIds()
+        .some((id) => isAgent(poller.infoFor(id)?.process ?? null));
       return applyTabOverride(
         {
           key: tab.key,
           process: info?.process ?? null,
           name: null,
           dotColor: null,
+          workspacePath: tab.workspacePath,
+          agentBusy,
         },
         overrides.get(tab.key),
       );
@@ -178,8 +189,11 @@ export function createTabManager(
   const callbacks = {
     onLayoutChange(): void {
       syncViews();
-      persist();
-      prunePending(allPaneIds());
+      const live = allPaneIds();
+      launcher.prune(live);
+      // Every pane of every tab is polled now, so a long session would
+      // otherwise leave one cache entry behind per pane ever opened.
+      poller.prune(live);
     },
   };
 
@@ -187,6 +201,7 @@ export function createTabManager(
   async function addTab(
     layout: SerializedNode | null,
     cwds: readonly (string | null)[] = [],
+    workspacePath: string | null = null,
   ): Promise<boolean> {
     const container = document.createElement("div");
     container.className = "tab-stage";
@@ -205,7 +220,14 @@ export function createTabManager(
       activeManager()?.notifyError(`Failed to open new tab: ${err}`);
       return false;
     }
-    tabs.push({ key: nextKey, manager });
+    tabs.push({
+      key: nextKey,
+      manager,
+      // The only place a tab's workspace is ever set — normalize here so every
+      // entry point (Open, reopen, live preset) agrees on one spelling.
+      workspacePath:
+        workspacePath === null ? null : normalizeWorkspacePath(workspacePath),
+    });
     nextKey += 1;
     return true;
   }
@@ -218,7 +240,6 @@ export function createTabManager(
     active = index;
     tabs[index].manager.show();
     syncViews();
-    persist();
   }
 
   function setOverride(index: number, patch: TabOverride): void {
@@ -233,23 +254,35 @@ export function createTabManager(
       overrides.set(entry.key, next);
     }
     syncViews();
-    persist();
   }
 
   async function newTab(): Promise<void> {
-    // New tab goes through the Open board (workspace ∥ preset), same as cold start.
+    // New tab goes through the Open board (workspace ∥ preset ∥ agent).
     boardOpen.value = true;
   }
 
   /**
-   * Deep Materialize entry: spawn + optional chrome + activate/agent-pick policy.
-   * Open board / Layout preset / Closed tab / Session (per-tab) all go here.
+   * Deep Materialize entry: spawn + optional chrome + select + agent launch.
+   * Open board / Layout preset / Closed tab all go here.
    */
   async function materialize(intent: MaterializeIntent): Promise<boolean> {
-    if (!(await addTab(intent.layout, intent.cwds))) {
+    // Workspace ≡ Tab (1:1): a workspace that already has a tab is never opened
+    // a second time — focus the existing tab instead. This enforces the
+    // invariant at the one choke point every entry uses (Open board, New preset
+    // from a live window, Cmd+Shift+T reopen), not just in the Open handler.
+    if (intent.workspacePath !== undefined) {
+      const existing = findWorkspaceIndex(intent.workspacePath);
+      if (existing !== -1) {
+        selectTab(existing);
+        return true;
+      }
+    }
+    if (
+      !(await addTab(intent.layout, intent.cwds, intent.workspacePath ?? null))
+    ) {
       return false;
     }
-    const key = tabs[tabs.length - 1].key;
+    const entry = tabs[tabs.length - 1];
     const chrome = intent.chrome;
     if (chrome !== undefined) {
       const override: TabOverride = {
@@ -257,18 +290,14 @@ export function createTabManager(
         ...(chrome.dotColor !== undefined ? { dotColor: chrome.dotColor } : {}),
       };
       if (override.name !== undefined || override.dotColor !== undefined) {
-        overrides.set(key, override);
+        overrides.set(entry.key, override);
       }
     }
-    const activate = materializeAfterSpawn(intent);
-    if (!activate.selectTab) {
-      return true;
-    }
     selectTab(tabs.length - 1);
-    if (activate.pollAndAgentPick) {
-      void poller.poll();
-      void beginAgentPick(tabs[tabs.length - 1].manager.paneIds(), pty);
-    }
+    void poller.poll();
+    // Each pane types its agent once its shell prints the first byte; `null`
+    // (Shell only / reopen) arms nothing.
+    launcher.arm(entry.manager.paneIds(), intent.agent ?? null);
     return true;
   }
 
@@ -276,11 +305,15 @@ export function createTabManager(
   function openFromPreset(
     layout: SerializedNode,
     cwds: readonly (string | null)[],
+    options: OpenFromPresetOptions = {},
   ): Promise<boolean> {
     return materialize({
       layout,
       cwds,
-      agentPick: "all-new-panes",
+      ...(options.workspacePath !== undefined
+        ? { workspacePath: options.workspacePath }
+        : {}),
+      ...(options.agent !== undefined ? { agent: options.agent } : {}),
     });
   }
 
@@ -301,32 +334,58 @@ export function createTabManager(
     return freshCwd(activeManager()?.activePaneId() ?? null, pty);
   }
 
-  function paneOverlayHost(id: number): HTMLElement | null {
-    for (const tab of tabs) {
-      const element = tab.manager.paneElement(id);
-      if (element !== null) {
-        return element;
-      }
+  /** A tab with no workspace is always live; an unanswerable check fails open. */
+  async function workspaceIsLive(path: string | null): Promise<boolean> {
+    if (path === null) {
+      return true;
     }
-    return null;
+    try {
+      const [exists] = await pty.dirsExist([path]);
+      return exists !== false;
+    } catch (err) {
+      console.warn("dirs_exist failed; reopening the tab anyway:", err);
+      return true;
+    }
   }
 
+  /**
+   * Cmd+Shift+T. The folder can be deleted between closing the tab and
+   * reopening it (the snapshot survives up to MAX_CLOSED_TABS closes), and
+   * spawning at a dead CWD silently lands in `$HOME` while the tab keeps
+   * claiming the folder. Dead snapshots are discarded and the next one down
+   * the stack is tried instead. Reopen does NOT re-run the agent (agent: null).
+   */
   async function reopenTab(): Promise<void> {
-    const [snapshot, rest] = popClosedTab(closedTabs);
-    if (snapshot === null) {
+    let stack = closedTabs;
+    for (;;) {
+      const [snapshot, rest] = popClosedTab(stack);
+      if (snapshot === null) {
+        closedTabs = stack;
+        return;
+      }
+      if (!(await workspaceIsLive(snapshot.workspacePath))) {
+        console.warn(
+          `Not reopening tab: workspace ${snapshot.workspacePath} no longer exists`,
+        );
+        stack = rest; // drop the dead snapshot, try the one below it
+        continue;
+      }
+      if (
+        !(await materialize({
+          layout: snapshot.layout,
+          cwds: snapshot.cwds,
+          chrome: materializeChromeFrom(snapshot.name, snapshot.dotColor),
+          ...(snapshot.workspacePath !== null
+            ? { workspacePath: snapshot.workspacePath }
+            : {}),
+        }))
+      ) {
+        closedTabs = stack; // spawn failed — keep the snapshot for another try
+        return;
+      }
+      closedTabs = rest;
       return;
     }
-    if (
-      !(await materialize({
-        layout: snapshot.layout,
-        cwds: snapshot.cwds,
-        agentPick: "none",
-        chrome: materializeChromeFrom(snapshot.name, snapshot.dotColor),
-      }))
-    ) {
-      return; // spawn failed — keep the snapshot for another attempt
-    }
-    closedTabs = rest;
   }
 
   /** Unguarded dispose — Busy already confirmed by CloseCoordinator. */
@@ -351,6 +410,7 @@ export function createTabManager(
           name: override?.name ?? null,
           dotColor: override?.dotColor ?? null,
           cwds,
+          workspacePath: entry.workspacePath,
         }),
       );
     }
@@ -365,13 +425,15 @@ export function createTabManager(
     entry.manager.dispose();
     tabs.splice(removeAt, 1);
     overrides.delete(entry.key);
-    prunePending(allPaneIds());
+    const live = allPaneIds();
+    launcher.prune(live);
+    poller.prune(live);
     if (tabs.length === 0) {
       // Closing the last tab quits the app (ADR 0002). CloseCoordinator
       // already ran the busy guard, so exit directly — no second dialog.
       active = -1;
       try {
-        await flushPendingSaves();
+        await flushSettingsSave();
       } catch (err: unknown) {
         console.warn("Flush before quit failed:", err);
       }
@@ -383,7 +445,6 @@ export function createTabManager(
       tabs[active].manager.show();
     }
     syncViews();
-    persist();
   }
 
   const close = createCloseCoordinator({
@@ -395,19 +456,13 @@ export function createTabManager(
     disposeTab,
   });
 
-  /** Active pane of every tab (tab dots) + all panes of the active tab (headers). */
+  /**
+   * Every pane of every tab: the workspace dot must see an agent running in a
+   * background pane of a background tab, so polling only the active panes is
+   * no longer enough. One `pty_info` IPC takes the whole id list.
+   */
   function pollTargets(): number[] {
-    const ids = new Set<number>();
-    for (const tab of tabs) {
-      const paneId = tab.manager.activePaneId();
-      if (paneId !== null) {
-        ids.add(paneId);
-      }
-    }
-    for (const id of activeManager()?.paneIds() ?? []) {
-      ids.add(id);
-    }
-    return [...ids];
+    return allPaneIds();
   }
 
   const poller = createPaneInfoPoller({
@@ -509,9 +564,12 @@ export function createTabManager(
     unlisteners.push(unlisten);
   }
 
-  async function init(): Promise<{ hasTabs: boolean }> {
+  async function init(): Promise<void> {
     await registerUnlisten(
       pty.listenOutput((id, data) => {
+        // The launcher waits for a pane's first byte before typing its agent;
+        // route every chunk to it before fanning out to the tabs.
+        launcher.noteOutput(id);
         for (const tab of tabs) {
           tab.manager.handleOutput(id, data);
         }
@@ -527,12 +585,23 @@ export function createTabManager(
     await registerUnlisten(
       installFileDrop({
         onOver(x, y) {
+          // A drop while the board is up belongs to the logo panel, not the
+          // terminal hiding behind it.
+          if (boardOpen.value) {
+            return;
+          }
           activeManager()?.fileDragOver(x, y);
         },
         onDrop(x, y, paths) {
+          if (boardOpen.value) {
+            return;
+          }
           activeManager()?.fileDrop(x, y, paths);
         },
         onLeave() {
+          if (boardOpen.value) {
+            return;
+          }
           activeManager()?.fileDragLeave();
         },
       }),
@@ -543,47 +612,26 @@ export function createTabManager(
     } catch {
       home = "";
     }
-
-    const session = settings.value.restoreTabs ? await loadSession() : null;
-    if (session !== null) {
-      for (const sessionTab of session.tabs) {
-        /** Session restore: layout only — CWDs are `none` (spawn at `$HOME`). */
-        if (
-          !(await materialize({
-            layout: sessionTab.layout,
-            cwds: [],
-            agentPick: "none",
-            activate: false,
-            chrome: materializeChromeFrom(sessionTab.name, sessionTab.dotColor),
-          }))
-        ) {
-          continue; // spawn failed — skip its overrides too
-        }
-      }
-    }
+    // Session restore is gone: the app always opens on the Open board, and the
+    // user reopens folders from Recents by hand.
     poller.start();
-    if (tabs.length === 0) {
-      // No restorable session — the App shows the Open board (FR-001)
-      syncViews();
-      return { hasTabs: false };
-    }
-    selectTab(
-      session === null ? 0 : Math.min(session.activeTab, tabs.length - 1),
-    );
-    void poller.poll();
-    // Restore never skips the one-shot picker (FR-021 AC-3)
-    void beginAgentPick(allPaneIds(), pty);
-    return { hasTabs: true };
+    syncViews();
   }
 
   return {
     init,
     materialize,
     openFromPreset,
+    findTabByWorkspace: findWorkspaceIndex,
+    activeWorkspacePath() {
+      return active >= 0 && active < tabs.length
+        ? tabs[active].workspacePath
+        : null;
+    },
     captureActiveLayout,
     activePaneCwd,
-    paneOverlayHost,
     newTab,
+    reopenTab,
     closeTab: (index) => close.closeTab(index),
     selectTab,
     renameTab(index, name) {
@@ -607,6 +655,7 @@ export function createTabManager(
     },
     dispose() {
       disposed = true;
+      launcher.dispose();
       poller.stop();
       window.removeEventListener("keydown", handleShortcut, true);
       for (const unlisten of unlisteners) {

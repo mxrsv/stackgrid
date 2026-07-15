@@ -11,6 +11,10 @@ export interface TabView {
   readonly name: string | null;
   /** Dot color override token — null means "derive from process". */
   readonly dotColor: TabDotColor | null;
+  /** Workspace this tab belongs to — null for pre-0.2.2 restored tabs. */
+  readonly workspacePath: string | null;
+  /** An agent (claude/codex/gemini) runs in at least one pane of this tab. */
+  readonly agentBusy: boolean;
 }
 
 /** User overrides for one tab; absent fields fall back to derived values. */

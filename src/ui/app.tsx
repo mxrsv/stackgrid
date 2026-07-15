@@ -4,7 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { installQuitGuard } from "../lib/quit-guard";
 import { confirmClose, QUIT_COPY } from "../terminal/close-guard";
-import { flushPendingSaves } from "../terminal/session-persistence";
+import { flushSettingsSave } from "../settings/settings-store";
 import { defaultPtyClient } from "../terminal/pty-client";
 import { deriveChromeColors } from "../lib/derive-colors";
 import { resolveCwds, type Preset } from "../lib/preset-schema";
@@ -19,6 +19,7 @@ import {
   savePreset,
 } from "../presets/presets-store";
 import { recordWorkspaceOpen } from "../open-board/workspaces-store";
+import type { AgentChoice } from "../lib/workspace-recents";
 import { boardOpen, editorRequest, saveDialogOpen } from "../chrome/events";
 import { OpenBoard } from "../open-board/open-board";
 import { PresetEditor } from "../presets/preset-editor";
@@ -27,10 +28,10 @@ import {
   type SaveTarget,
 } from "../presets/save-preset-dialog";
 import type { PresetArtifact } from "../presets/mock-model";
-import { installAgentPicker } from "../agent-picker/agent-picker";
-import { SkipAllBar } from "../agent-picker/skip-all-bar";
 import { PersistErrorBar } from "../presets/persist-error-bar";
 import { TabBar } from "./tab-bar";
+import { ChromeActions } from "./chrome-actions";
+import { WorkspaceSidebar } from "./workspace-sidebar";
 import { StatusBar } from "./status-bar";
 import { SettingsPanel } from "./settings-panel";
 
@@ -46,19 +47,13 @@ export function App() {
     }
     const manager = createTabManager(host);
     tabsRef.current = manager;
-    manager
-      .init()
-      .then(({ hasTabs }) => {
-        // No restorable session / restore off → Open board (FR-001)
-        boardOpen.value = !hasTabs;
-      })
-      .catch((err: unknown) => {
-        console.error("Failed to initialize terminals:", err);
-        boardOpen.value = true;
-      });
-    const disposePicker = installAgentPicker(() => tabsRef.current);
+    // Session restore is gone: the app always opens on the board (Intent §Constraint).
+    boardOpen.value = true;
+    manager.init().catch((err: unknown) => {
+      console.error("Failed to initialize terminals:", err);
+      boardOpen.value = true;
+    });
     return () => {
-      disposePicker();
       manager.dispose();
     };
   }, []);
@@ -74,7 +69,7 @@ export function App() {
           ? confirmClose(manager.allPaneIds(), defaultPtyClient, QUIT_COPY)
           : Promise.resolve(true);
       },
-      flush: flushPendingSaves,
+      flush: flushSettingsSave,
       quit: () => defaultPtyClient.confirmQuit(),
     })
       .then((fn) => {
@@ -137,13 +132,25 @@ export function App() {
   async function handleOpen(
     workspace: string,
     preset: Preset,
+    agent: AgentChoice,
   ): Promise<boolean> {
+    // Workspace ≡ Tab: reopening one that already has a tab focuses that tab
+    // instead of cloning it — the chosen preset/agent are deliberately ignored
+    // (passing neither to recordWorkspaceOpen keeps the folder's saved combo).
+    const existing = tabsRef.current?.findTabByWorkspace(workspace) ?? -1;
+    if (existing !== -1) {
+      tabsRef.current?.selectTab(existing);
+      recordWorkspaceOpen(workspace);
+      boardOpen.value = false;
+      return true;
+    }
     const ok = await tabsRef.current?.openFromPreset(
       preset.layout,
       resolveCwds(preset, workspace),
+      { workspacePath: workspace, agent },
     );
     if (ok) {
-      recordWorkspaceOpen(workspace);
+      recordWorkspaceOpen(workspace, preset.id, agent);
       markLastUsed(preset.id);
       boardOpen.value = false;
     }
@@ -171,14 +178,22 @@ export function App() {
       if (request.workspace === null) {
         return; // gated like Open — board stays up showing the new card
       }
-      await handleOpen(request.workspace, preset);
+      // A preset created from the board carries no agent choice — Shell only.
+      await handleOpen(request.workspace, preset, null);
       return;
     }
-    // Live window: inherit panes resolve to the focused pane's CWD (BF-Rule 8)
+    // Live window: inherit panes resolve to the focused pane's CWD (BF-Rule 8);
+    // the new tab stays in the active tab's workspace, not a nameless one.
+    // Agent is null — the board is the only place an agent is chosen.
     const inherit = (await tabsRef.current?.activePaneCwd()) ?? null;
+    const workspace = tabsRef.current?.activeWorkspacePath() ?? null;
     await tabsRef.current?.openFromPreset(
       preset.layout,
       resolveInheritedCwds(preset.layout, preset.cwds, inherit),
+      {
+        agent: null,
+        ...(workspace !== null ? { workspacePath: workspace } : {}),
+      },
     );
   }
 
@@ -218,8 +233,34 @@ export function App() {
     }
   }
 
+  const sidebar = settings.value.tabBarPosition === "left";
+  const selectTab = (index: number): void => {
+    boardOpen.value = false;
+    tabsRef.current?.selectTab(index);
+  };
+  const toggleSettings = (): void => {
+    if (panelOpen.value) {
+      closePanel();
+    } else {
+      panelOpen.value = true;
+    }
+  };
+  const chromeActions = (
+    <ChromeActions
+      settingsOpen={panelOpen.value}
+      expandActive={settings.value.focusExpand}
+      onSplitRow={() => void tabsRef.current?.splitActive("row")}
+      onSplitColumn={() => void tabsRef.current?.splitActive("column")}
+      onClosePane={() => void tabsRef.current?.closePane()}
+      onToggleExpand={() =>
+        updateSettings({ focusExpand: !settings.value.focusExpand })
+      }
+      onToggleSettings={toggleSettings}
+    />
+  );
+
   return (
-    <div class="window">
+    <div class={`window ${sidebar ? "window--sidebar" : ""}`}>
       <div
         class="titlebar"
         data-tauri-drag-region
@@ -230,34 +271,41 @@ export function App() {
               console.warn("toggleMaximize failed:", err);
             });
         }}
-      />
-      <TabBar
-        settingsOpen={panelOpen.value}
-        onSelectTab={(index) => {
-          boardOpen.value = false;
-          tabsRef.current?.selectTab(index);
-        }}
-        onCloseTab={(index) => void tabsRef.current?.closeTab(index)}
-        onNewTab={() => void tabsRef.current?.newTab()}
-        onSplitRow={() => void tabsRef.current?.splitActive("row")}
-        onSplitColumn={() => void tabsRef.current?.splitActive("column")}
-        onClosePane={() => void tabsRef.current?.closePane()}
-        onRenameTab={(index, name) => tabsRef.current?.renameTab(index, name)}
-        onSetTabColor={(index, color) =>
-          tabsRef.current?.setTabDotColor(index, color)
-        }
-        expandActive={settings.value.focusExpand}
-        onToggleExpand={() =>
-          updateSettings({ focusExpand: !settings.value.focusExpand })
-        }
-        onToggleSettings={() => {
-          if (panelOpen.value) {
-            closePanel();
-          } else {
-            panelOpen.value = true;
+      >
+        {/* Sidebar mode has no horizontal bar to host the actions — they ride
+            the titlebar, right-aligned, clear of the macOS traffic lights. */}
+        {sidebar ? chromeActions : null}
+      </div>
+      {sidebar ? (
+        <WorkspaceSidebar
+          onSelectTab={selectTab}
+          onCloseTab={(index) => void tabsRef.current?.closeTab(index)}
+          onNewTab={() => void tabsRef.current?.newTab()}
+          onRenameTab={(index, name) => tabsRef.current?.renameTab(index, name)}
+          onSetTabColor={(index, color) =>
+            tabsRef.current?.setTabDotColor(index, color)
           }
-        }}
-      />
+        />
+      ) : (
+        <TabBar
+          settingsOpen={panelOpen.value}
+          onSelectTab={selectTab}
+          onCloseTab={(index) => void tabsRef.current?.closeTab(index)}
+          onNewTab={() => void tabsRef.current?.newTab()}
+          onSplitRow={() => void tabsRef.current?.splitActive("row")}
+          onSplitColumn={() => void tabsRef.current?.splitActive("column")}
+          onClosePane={() => void tabsRef.current?.closePane()}
+          onRenameTab={(index, name) => tabsRef.current?.renameTab(index, name)}
+          onSetTabColor={(index, color) =>
+            tabsRef.current?.setTabDotColor(index, color)
+          }
+          expandActive={settings.value.focusExpand}
+          onToggleExpand={() =>
+            updateSettings({ focusExpand: !settings.value.focusExpand })
+          }
+          onToggleSettings={toggleSettings}
+        />
+      )}
       <main class="stage">
         <div class="stage__tabs" ref={stagesRef} />
         {boardOpen.value ? (
@@ -267,7 +315,9 @@ export function App() {
               boardOpen.value = false;
               tabsRef.current?.focusActive();
             }}
-            onOpen={(workspace, preset) => handleOpen(workspace, preset)}
+            onOpen={(workspace, preset, agent) =>
+              handleOpen(workspace, preset, agent)
+            }
             onNewPreset={(workspace) => {
               editorRequest.value = { source: "board", workspace };
             }}
@@ -294,7 +344,6 @@ export function App() {
             }
           />
         ) : null}
-        <SkipAllBar />
         <PersistErrorBar />
         <SettingsPanel open={panelOpen.value} onClose={closePanel} />
       </main>

@@ -5,6 +5,7 @@ import {
   MAX_RECENTS,
   pushRecent,
   validateWorkspaces,
+  WORKSPACES_VERSION,
 } from "./workspace-recents";
 
 const NOW = 1_800_000_000_000;
@@ -31,20 +32,43 @@ describe("pushRecent", () => {
     expect(list).toHaveLength(MAX_RECENTS);
     expect(list.some((r) => r.path === "/0")).toBe(false);
   });
+
+  it("records the layout + agent combo on the entry", () => {
+    const [entry] = pushRecent([], "/a", NOW, "preset-1", "claude");
+    expect(entry.lastPresetId).toBe("preset-1");
+    expect(entry.lastAgent).toBe("claude");
+  });
+
+  it("inherits the previous combo when re-pushed with undefined", () => {
+    const first = pushRecent([], "/a", NOW, "preset-1", "codex");
+    const again = pushRecent(first, "/a", NOW + 5);
+    expect(again[0].lastOpenedAt).toBe(NOW + 5);
+    expect(again[0].lastPresetId).toBe("preset-1");
+    expect(again[0].lastAgent).toBe("codex");
+  });
+
+  it("treats agent null as an explicit Shell-only overwrite", () => {
+    const first = pushRecent([], "/a", NOW, "preset-1", "claude");
+    const again = pushRecent(first, "/a", NOW + 5, "preset-1", null);
+    expect(again[0].lastAgent).toBeNull();
+  });
 });
 
 describe("validateWorkspaces", () => {
   it("returns empty data for corrupt input", () => {
-    expect(validateWorkspaces(undefined)).toEqual({ version: 1, recents: [] });
+    expect(validateWorkspaces(undefined)).toEqual({
+      version: WORKSPACES_VERSION,
+      recents: [],
+    });
     expect(validateWorkspaces({ version: 9 })).toEqual({
-      version: 1,
+      version: WORKSPACES_VERSION,
       recents: [],
     });
   });
 
   it("keeps valid entries and drops junk", () => {
     const raw = {
-      version: 1,
+      version: 2,
       recents: [
         { path: "/a", lastOpenedAt: NOW },
         { path: "", lastOpenedAt: NOW },
@@ -55,6 +79,33 @@ describe("validateWorkspaces", () => {
     expect(validateWorkspaces(raw).recents).toEqual([
       { path: "/a", lastOpenedAt: NOW },
     ]);
+  });
+
+  it("reads a v1 file, keeping entries that lack the combo fields", () => {
+    const raw = { version: 1, recents: [{ path: "/a", lastOpenedAt: NOW }] };
+    const data = validateWorkspaces(raw);
+    expect(data.version).toBe(WORKSPACES_VERSION);
+    expect(data.recents).toEqual([{ path: "/a", lastOpenedAt: NOW }]);
+    expect(data.recents[0].lastPresetId).toBeUndefined();
+    expect(data.recents[0].lastAgent).toBeUndefined();
+  });
+
+  it("keeps well-formed combo fields and drops malformed ones", () => {
+    const raw = {
+      version: 2,
+      recents: [
+        { path: "/a", lastOpenedAt: NOW, lastPresetId: "p1", lastAgent: null },
+        { path: "/b", lastOpenedAt: NOW, lastPresetId: 7, lastAgent: "" },
+      ],
+    };
+    const [a, b] = validateWorkspaces(raw).recents;
+    expect(a).toEqual({
+      path: "/a",
+      lastOpenedAt: NOW,
+      lastPresetId: "p1",
+      lastAgent: null,
+    });
+    expect(b).toEqual({ path: "/b", lastOpenedAt: NOW });
   });
 });
 

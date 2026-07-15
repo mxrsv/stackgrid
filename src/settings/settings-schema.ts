@@ -15,7 +15,6 @@ export interface Settings {
   fontSize: number;
   themeId: string;
   colorOverrides: Partial<TerminalColors>;
-  restoreTabs: boolean;
   focusExpand: boolean;
   showPaneBar: boolean;
   tabBarPosition: TabBarPosition;
@@ -42,7 +41,6 @@ export const DEFAULT_SETTINGS: Settings = {
   fontSize: 13,
   themeId: "tokyo-night",
   colorOverrides: {},
-  restoreTabs: true,
   focusExpand: false,
   showPaneBar: false,
   tabBarPosition: "left",
@@ -101,10 +99,6 @@ export function validateSettings(raw: unknown): Settings {
         ? source.themeId
         : DEFAULT_SETTINGS.themeId,
     colorOverrides: validateColorOverrides(source.colorOverrides),
-    restoreTabs:
-      typeof source.restoreTabs === "boolean"
-        ? source.restoreTabs
-        : DEFAULT_SETTINGS.restoreTabs,
     focusExpand:
       typeof source.focusExpand === "boolean"
         ? source.focusExpand

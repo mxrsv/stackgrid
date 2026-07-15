@@ -21,6 +21,13 @@ export interface PtyClient {
   /** Fresh pty_info; throws on IPC failure (poll keeps last-known on catch). */
   ptyInfo(ids: readonly number[]): Promise<PaneProcessInfo[]>;
   gitBranch(cwd: string): Promise<string | null>;
+  /**
+   * Which of `paths` are still existing directories, positionally.
+   * Session restore needs this: `spawn_shell` silently falls back to `$HOME`
+   * for a missing CWD, so a deleted workspace would otherwise come back as a
+   * tab that claims a folder its shells are not actually in.
+   */
+  dirsExist(paths: readonly string[]): Promise<boolean[]>;
   /** Agent CLIs found on the login shell's `$PATH` (allowlist order). */
   detectAgents(): Promise<DetectedAgent[]>;
   confirmQuit(): Promise<void>;
@@ -63,6 +70,12 @@ export function createTauriPtyClient(): PtyClient {
     gitBranch(cwd) {
       return invoke<string | null>("git_branch", { cwd });
     },
+    async dirsExist(paths) {
+      if (paths.length === 0) {
+        return [];
+      }
+      return invoke<boolean[]>("dirs_exist", { paths: [...paths] });
+    },
     detectAgents() {
       return invoke<DetectedAgent[]>("detect_agents");
     },
@@ -88,27 +101,35 @@ export function createMemoryPtyClient(
     nextId?: number;
     infos?: ReadonlyMap<number, PaneProcessInfo>;
     agents?: readonly DetectedAgent[];
+    /** Directories that "exist"; omitted = every path exists. */
+    dirs?: readonly string[];
   } = {},
 ): PtyClient & {
   readonly sessions: Map<number, { cwd: string | null }>;
+  /** Every `writePty` call in order — agent-launch tests assert against it. */
+  readonly writes: { id: number; data: string }[];
   emitOutput(id: number, data: string): void;
   emitExit(id: number): void;
 } {
   let nextId = options.nextId ?? 1;
   const sessions = new Map<number, { cwd: string | null }>();
+  const writes: { id: number; data: string }[] = [];
   const infos = new Map(options.infos ?? []);
   const outputHandlers = new Set<(id: number, data: string) => void>();
   const exitHandlers = new Set<(id: number) => void>();
 
   return {
     sessions,
+    writes,
     async spawnShell({ cwd }) {
       const id = nextId;
       nextId += 1;
       sessions.set(id, { cwd });
       return id;
     },
-    async writePty() {},
+    async writePty(id, data) {
+      writes.push({ id, data });
+    },
     async resizePty() {},
     async killPty(id) {
       sessions.delete(id);
@@ -121,6 +142,10 @@ export function createMemoryPtyClient(
     },
     async gitBranch() {
       return null;
+    },
+    async dirsExist(paths) {
+      const dirs = options.dirs;
+      return paths.map((path) => dirs === undefined || dirs.includes(path));
     },
     async detectAgents() {
       return [...(options.agents ?? [])];

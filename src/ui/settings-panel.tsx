@@ -1,4 +1,4 @@
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import {
   resetSettings,
   settings,
@@ -18,6 +18,7 @@ import { ConfigGroup, ConfigRow, ToggleRow } from "./controls/config-row";
 import { ColorRow } from "./controls/color-row";
 import { FontRow } from "./controls/font-row";
 import { EditorRow } from "./controls/editor-row";
+import { LogoRow } from "./controls/logo-row";
 
 const TAB_BAR_CHOICES: readonly TabBarPosition[] = ["left", "top"];
 
@@ -36,6 +37,16 @@ interface SettingsPanelProps {
 export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const current = settings.value;
   const preset = getPreset(current.themeId);
+  const escRef = useRef<HTMLButtonElement>(null);
+
+  // Move focus into the panel on open, so Escape reaches the handler below
+  // instead of being swallowed by the terminal that had focus. preventScroll:
+  // the panel body scrolls, and stealing focus must not jump it.
+  useEffect(() => {
+    if (open) {
+      escRef.current?.focus({ preventScroll: true });
+    }
+  }, [open]);
 
   // Escape closes the panel — unless the key is headed for a terminal,
   // which owns its own Escape (vim, fzf, …).
@@ -47,9 +58,16 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       if (event.key !== "Escape") {
         return;
       }
-      const target = event.target as HTMLElement | null;
-      if (target?.closest(".xterm")) {
+      const target = event.target;
+      // A terminal owns its own Escape (vim, fzf) — leave it be. Guard the type:
+      // keydown can target a non-Element (document/window) that has no closest().
+      if (target instanceof Element && target.closest(".xterm")) {
         return;
+      }
+      // Blur first: a focused text field commits its draft on blur, so closing
+      // never silently drops what the user just typed.
+      if (target instanceof HTMLElement) {
+        target.blur();
       }
       onClose();
     };
@@ -70,6 +88,12 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     updateSettings({ themeId: next.id, colorOverrides: {} });
   };
 
+  const cycleTabBar = (): void => {
+    const index = TAB_BAR_CHOICES.indexOf(current.tabBarPosition);
+    const next = TAB_BAR_CHOICES[(index + 1) % TAB_BAR_CHOICES.length];
+    updateSettings({ tabBarPosition: next });
+  };
+
   return (
     <aside
       class={`panel ${open ? "is-open" : ""}`}
@@ -81,6 +105,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           <b>~</b>/stackgrid/settings
         </h2>
         <button
+          ref={escRef}
           type="button"
           class="panel__esc"
           aria-label="Close settings"
@@ -138,6 +163,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             </button>
           </span>
         </ConfigRow>
+        <LogoRow />
 
         <ConfigGroup label="colors" />
         {COLOR_KEYS.map((key) => (
@@ -158,38 +184,23 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           onChange={(editorId) => updateSettings({ editorId })}
           onCommandChange={(editorCommand) => updateSettings({ editorCommand })}
         />
-        <ConfigRow label="Tab bar position" desc="workspace list placement">
-          <span
-            class="cfg-btn cfg-seg"
-            role="group"
-            aria-label="Tab bar position"
+        <ConfigRow label="Tab bar position" desc="where the tab list sits">
+          <button
+            type="button"
+            class="cfg-btn"
+            title="Next position"
+            aria-label={`Tab bar position: ${current.tabBarPosition}. Switch to next position`}
+            onClick={cycleTabBar}
           >
-            {TAB_BAR_CHOICES.map((choice) => (
-              <button
-                key={choice}
-                type="button"
-                class={`cfg-seg__btn ${
-                  current.tabBarPosition === choice ? "is-active" : ""
-                }`}
-                aria-pressed={current.tabBarPosition === choice}
-                onClick={() => updateSettings({ tabBarPosition: choice })}
-              >
-                {choice}
-              </button>
-            ))}
-          </span>
+            {current.tabBarPosition}
+            <span class="cfg-btn__hint">↹</span>
+          </button>
         </ConfigRow>
         <ToggleRow
           label="Show pane bar"
           desc="pane name bar inside splits"
           checked={current.showPaneBar}
           onToggle={() => updateSettings({ showPaneBar: !current.showPaneBar })}
-        />
-        <ToggleRow
-          label="Restore tabs"
-          desc="reopen tabs on launch"
-          checked={current.restoreTabs}
-          onToggle={() => updateSettings({ restoreTabs: !current.restoreTabs })}
         />
 
         <ConfigGroup label="danger" />

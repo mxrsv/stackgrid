@@ -3,6 +3,7 @@ import {
   isEditorId,
   type EditorId,
 } from "../../lib/editor-command";
+import { CommitInput } from "./commit-input";
 import { ConfigRow } from "./config-row";
 
 interface EditorRowProps {
@@ -48,15 +49,11 @@ export function EditorRow({
       </ConfigRow>
       {value === "custom" && (
         <div class="cfg-custom">
-          <input
-            type="text"
-            class="text-input text-input--mono"
-            placeholder="e.g. vim +{line} {file}"
+          <CommitInput
             value={command}
-            aria-label="Custom editor command"
-            onChange={(event) => {
-              onCommandChange(event.currentTarget.value.trim());
-            }}
+            placeholder="e.g. vim +{line} {file}"
+            ariaLabel="Custom editor command"
+            onCommit={onCommandChange}
           />
         </div>
       )}

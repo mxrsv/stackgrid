@@ -4,6 +4,7 @@ import {
   pushRecent,
   validateWorkspaces,
   WORKSPACES_VERSION,
+  type AgentChoice,
   type WorkspacesData,
 } from "../lib/workspace-recents";
 import { reportPersistError } from "../chrome/events";
@@ -29,11 +30,26 @@ export async function initWorkspaces(): Promise<void> {
   }
 }
 
-/** Record a folder opened from the board (also called for Open Folder picks). */
-export function recordWorkspaceOpen(path: string): void {
+/**
+ * Record a folder opened from the board, remembering the layout + agent combo.
+ * A `presetId`/`agent` of `undefined` keeps the folder's existing memory (see
+ * `pushRecent`) — the dedupe path passes neither, so re-focusing a tab that
+ * already exists never clobbers what it last opened with.
+ */
+export function recordWorkspaceOpen(
+  path: string,
+  presetId?: string,
+  agent?: AgentChoice,
+): void {
   const next: WorkspacesData = {
     version: WORKSPACES_VERSION,
-    recents: pushRecent(workspacesData.value.recents, path, Date.now()),
+    recents: pushRecent(
+      workspacesData.value.recents,
+      path,
+      Date.now(),
+      presetId,
+      agent,
+    ),
   };
   workspacesData.value = next;
   if (!store) {

@@ -1,9 +1,16 @@
-export const WORKSPACES_VERSION = 1;
+export const WORKSPACES_VERSION = 2;
 export const MAX_RECENTS = 8;
+
+/** The agent CLI a workspace last opened with; `null` = Shell only. */
+export type AgentChoice = string | null;
 
 export interface RecentWorkspace {
   readonly path: string;
   readonly lastOpenedAt: number;
+  /** Layout preset last used for this folder (preselects the board). */
+  readonly lastPresetId?: string;
+  /** Agent last launched for this folder; `null` = Shell only, absent = never recorded. */
+  readonly lastAgent?: AgentChoice;
 }
 
 export interface WorkspacesData {
@@ -11,14 +18,21 @@ export interface WorkspacesData {
   readonly recents: readonly RecentWorkspace[];
 }
 
-/** Invalid envelope → empty list; invalid entries are dropped one by one. */
+/**
+ * Invalid envelope → empty list; invalid entries are dropped one by one.
+ * Accepts both v1 (no combo fields) and v2 files — a v1 entry just comes back
+ * with `lastPresetId`/`lastAgent` undefined, never dropped for lacking them.
+ */
 export function validateWorkspaces(raw: unknown): WorkspacesData {
   const empty: WorkspacesData = { version: WORKSPACES_VERSION, recents: [] };
   if (typeof raw !== "object" || raw === null) {
     return empty;
   }
   const source = raw as Record<string, unknown>;
-  if (source.version !== WORKSPACES_VERSION || !Array.isArray(source.recents)) {
+  if (
+    (source.version !== 1 && source.version !== WORKSPACES_VERSION) ||
+    !Array.isArray(source.recents)
+  ) {
     return empty;
   }
   const recents: RecentWorkspace[] = [];
@@ -34,20 +48,58 @@ export function validateWorkspaces(raw: unknown): WorkspacesData {
       Number.isFinite(record.lastOpenedAt) &&
       !recents.some((r) => r.path === record.path)
     ) {
-      recents.push({ path: record.path, lastOpenedAt: record.lastOpenedAt });
+      recents.push({
+        path: record.path,
+        lastOpenedAt: record.lastOpenedAt,
+        ...validateCombo(record),
+      });
     }
   }
   return { version: WORKSPACES_VERSION, recents };
 }
 
-/** Newest first; same path moves to the front (no duplicate rows — FR-003 AC-3). */
+/** Keep only well-formed combo fields; a bad field is dropped, not the entry. */
+function validateCombo(
+  record: Record<string, unknown>,
+): Pick<RecentWorkspace, "lastPresetId" | "lastAgent"> {
+  const combo: { lastPresetId?: string; lastAgent?: AgentChoice } = {};
+  if (typeof record.lastPresetId === "string" && record.lastPresetId !== "") {
+    combo.lastPresetId = record.lastPresetId;
+  }
+  if (
+    record.lastAgent === null ||
+    (typeof record.lastAgent === "string" && record.lastAgent !== "")
+  ) {
+    combo.lastAgent = record.lastAgent;
+  }
+  return combo;
+}
+
+/**
+ * Newest first; same path moves to the front (no duplicate rows).
+ *
+ * A `presetId`/`agent` argument of `undefined` **inherits** the existing
+ * entry's combo (a plain "focus this folder again" must not wipe the memory),
+ * while `agent: null` is an explicit Shell-only choice that overwrites it.
+ */
 export function pushRecent(
   recents: readonly RecentWorkspace[],
   path: string,
   now: number,
+  presetId?: string,
+  agent?: AgentChoice,
 ): readonly RecentWorkspace[] {
+  const previous = recents.find((entry) => entry.path === path);
   const rest = recents.filter((entry) => entry.path !== path);
-  return [{ path, lastOpenedAt: now }, ...rest].slice(0, MAX_RECENTS);
+  const nextPresetId = presetId ?? previous?.lastPresetId;
+  const nextAgent = agent !== undefined ? agent : previous?.lastAgent;
+  const head: RecentWorkspace = {
+    path,
+    lastOpenedAt: now,
+    ...(nextPresetId !== undefined ? { lastPresetId: nextPresetId } : {}),
+    ...(nextAgent !== undefined ? { lastAgent: nextAgent } : {}),
+  };
+  return [head, ...rest].slice(0, MAX_RECENTS);
 }
 
 export function folderName(path: string): string {
