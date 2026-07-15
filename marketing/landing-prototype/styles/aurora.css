@@ -1,0 +1,45 @@
+/* Hero background — the "aurora" treatment: a WebGL aurora curtain drifting
+   behind the stage (ported from React Bits <Aurora />). Replaces the ghost
+   terminal "stream" field; that trial history lives in NOTES.md. */
+
+.a-motion {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+/* The aurora already carries plenty of movement and colour, so drop the
+   static crosshair plus-grid while it is active — two competing patterns read
+   as noise. Gated on the section via data-hero-motion. */
+.direction-a[data-hero-motion="aurora"]::before {
+    content: none;
+}
+
+/* Drop the dark copy veil while the aurora is active — it sits above the
+   canvas (z-index: -1 over the section background) and blanks out the curtain
+   behind the headline. The large display type carries its own contrast. */
+.direction-a[data-hero-motion="aurora"] .a-copy::before {
+    content: none;
+}
+
+.a-motion[data-motion="aurora"] {
+    /* The curtain lives in the upper band; fade its lower edge so the canvas
+     never ends on a hard line above the stage panel. */
+    mask-image: linear-gradient(180deg, #000 0%, #000 58%, transparent 92%);
+    opacity: 0.9;
+}
+
+.aurora-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+@media (max-width: 47.5rem) {
+    .a-motion[data-motion="aurora"] {
+        mask-image: linear-gradient(180deg, #000 0%, #000 42%, transparent 78%);
+        opacity: 0.82;
+    }
+}
