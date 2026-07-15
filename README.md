@@ -50,7 +50,7 @@ Every pane is backed by a real PTY running your **login shell** (`$SHELL -l`) vi
 ### 🤖 Launch agents into every pane
 
 - Pick an agent once on the Open board and Stackgrid launches it in **every pane** of the new tab — four panes, four agents running in parallel.
-- Agents are auto-discovered on your login shell's `PATH` (Claude Code, Codex, Gemini CLI); pick **Shell only** to skip.
+- Agents are auto-discovered through the **same interactive login shell your panes run** (Claude Code, Codex, Gemini CLI) — so anything runnable in a pane, including CLIs put on `PATH` by `.zshrc`/`.bashrc`, shows up in the picker; pick **Shell only** to skip.
 - Running agents get **chrome**: the pane header, status bar, and busy dot are colored by process — Claude magenta, Codex green, Gemini cyan — so you can read the state of every pane in one glance.
 
 ### 💾 Layout presets
