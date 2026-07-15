@@ -8,6 +8,8 @@
   --yellow: #e0af68;
   --magenta: #bb9af7;
   --cyan: #7dcfff;
+  /* Unread-output badge. Rides the theme's yellow so it tracks light/dark. */
+  --status-unread: var(--yellow);
 
   /* Derived chrome tones — computed in JS (lib/derive-colors.ts) and set on
      :root by app.tsx; the values below are pre-JS fallbacks for first paint.
@@ -182,6 +184,59 @@ body,
 }
 .wsitem.is-active .wsitem__logo-badge {
   border-color: var(--tab-active-bg);
+}
+/* Unread background output: a solid yellow dot in the badge slot. */
+.wsitem__logo-badge--unread {
+  background: var(--status-unread);
+}
+
+/* Agent-pending: a delicate ring of tiny dots orbiting the avatar. The
+   background is the comet fade (bright head → faint tail); the mask carves it
+   into ~24 small dots (thin annulus band ∩ narrow repeating arcs). Rotates. */
+.wsitem__spinner {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    color-mix(in srgb, var(--accent) 55%, transparent) 260deg,
+    var(--accent) 350deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    radial-gradient(
+      closest-side,
+      transparent 76%,
+      #000 82%,
+      #000 90%,
+      transparent 96%
+    ),
+    repeating-conic-gradient(#000 0deg 5deg, transparent 5deg 15deg);
+  -webkit-mask-composite: source-in;
+  mask:
+    radial-gradient(
+      closest-side,
+      transparent 76%,
+      #000 82%,
+      #000 90%,
+      transparent 96%
+    ),
+    repeating-conic-gradient(#000 0deg 5deg, transparent 5deg 15deg);
+  mask-composite: intersect;
+  animation: wsspin 2.2s linear infinite;
+}
+@keyframes wsspin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wsitem__spinner {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 .wsitem__text {

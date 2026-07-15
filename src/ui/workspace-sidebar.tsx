@@ -180,8 +180,8 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
               <WorkspaceLogo
                 workspacePath={tab.workspacePath}
                 label={label}
-                busy={tab.agentBusy}
-                dotColor={tab.dotColor}
+                pending={tab.agentBusy}
+                unread={tab.unread}
               />
               <span class="wsitem__text">
                 <span class="wsitem__label">{label}</span>

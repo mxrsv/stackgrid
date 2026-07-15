@@ -7,6 +7,16 @@ import { createMemoryPtyClient } from "./pty-client";
 import { createTabManager, type TabManager } from "./tab-manager";
 import { activeTabIndex, tabViews, statusInfo } from "./tabs-store";
 
+// init() installs the file-drop listener, which reaches into the Tauri window
+// and webview. Stub them so init() can register the pty output listener the
+// unread tracking hangs off of.
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ scaleFactor: async () => 1 }),
+}));
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
+}));
+
 function fakePane(id: number, events: PaneEvents): Pane {
   const element = document.createElement("div");
   return {
@@ -256,6 +266,30 @@ describe("createTabManager reopen (Cmd+Shift+T)", () => {
     expect(
       tabViews.value.some((tab) => tab.workspacePath === "/repo/gone"),
     ).toBe(false);
+    tm.dispose();
+  });
+});
+
+describe("createTabManager unread tracking", () => {
+  it("lights unread for background output, never for the active tab, and clears on open", async () => {
+    const { tm, pty } = setup({});
+    await tm.materialize({ layout: null, cwds: ["/a"] }); // tab 0 → pane 1
+    await tm.materialize({ layout: null, cwds: ["/b"] }); // tab 1 → pane 2 (active)
+    await tm.init(); // registers the pty output listener
+
+    // Output to the background tab's pane lights its badge.
+    pty.emitOutput(1, "hello");
+    expect(tabViews.value[0].unread).toBe(true);
+    expect(tabViews.value[1].unread).toBe(false);
+
+    // Output to the active tab's own pane never lights unread.
+    pty.emitOutput(2, "world");
+    expect(tabViews.value[1].unread).toBe(false);
+
+    // Opening the background tab clears its unread badge.
+    tm.selectTab(0);
+    expect(tabViews.value[0].unread).toBe(false);
+
     tm.dispose();
   });
 });

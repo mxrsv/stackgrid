@@ -121,6 +121,10 @@ export function createTabManager(
   // Per-tab user overrides (rename, dot color), keyed by tab key —
   // merged over process-derived values on every syncViews.
   const overrides = new Map<number, TabOverride>();
+  // Tabs with output arrived while in the background, keyed by tab key.
+  // In-memory only (like busy) — a background pane's output lights the badge,
+  // opening the tab clears it.
+  const unread = new Set<number>();
   // Recently closed tabs (Cmd+Shift+T), newest last; in-memory only.
   let closedTabs: readonly ClosedTabSnapshot[] = [];
   let nextKey = 1;
@@ -164,6 +168,7 @@ export function createTabManager(
           dotColor: null,
           workspacePath: tab.workspacePath,
           agentBusy,
+          unread: unread.has(tab.key),
         },
         overrides.get(tab.key),
       );
@@ -238,6 +243,7 @@ export function createTabManager(
     }
     activeManager()?.hide();
     active = index;
+    unread.delete(tabs[index].key); // opening the tab clears its unread badge
     tabs[index].manager.show();
     syncViews();
   }
@@ -425,6 +431,7 @@ export function createTabManager(
     entry.manager.dispose();
     tabs.splice(removeAt, 1);
     overrides.delete(entry.key);
+    unread.delete(entry.key);
     const live = allPaneIds();
     launcher.prune(live);
     poller.prune(live);
@@ -572,6 +579,14 @@ export function createTabManager(
         launcher.noteOutput(id);
         for (const tab of tabs) {
           tab.manager.handleOutput(id, data);
+        }
+        // Output to a background tab lights its unread badge. Only sync on the
+        // false→true transition — every subsequent chunk to an already-unread
+        // tab is a no-op, so this stays off the hot per-chunk path.
+        const owner = tabs.find((t) => t.manager.paneIds().includes(id));
+        if (owner && owner !== tabs[active] && !unread.has(owner.key)) {
+          unread.add(owner.key);
+          syncViews();
         }
       }),
     );

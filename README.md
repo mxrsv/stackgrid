@@ -38,6 +38,7 @@ Every pane is backed by a real PTY running your **login shell** (`$SHELL -l`) vi
 - **Focus** by cycling (⌘] / ⌘[) or by direction (⌘⌥ + arrow keys).
 - **Zoom** a single pane to fill the tab (⌘⇧Enter, tmux-style), or **Focus Expand** (⌘E) to gently enlarge whichever pane is active.
 - **Drag-dock** a pane by its header onto any edge of another pane to re-split on the fly.
+- **Swap two panes** — hold ⌘ while dragging a pane's header onto another pane (the target lights up as a dashed full-pane outline) to trade their positions. Each pane keeps its own session and the split ratios stay put; release ⌘ mid-drag to fall back to edge docking.
 
 ### 🗂️ Workspaces & the Open board
 
@@ -46,11 +47,12 @@ Every pane is backed by a real PTY running your **login shell** (`$SHELL -l`) vi
 - Each recent row **remembers your last layout + agent combo** and preselects them, so reopening a project is a keystroke away.
 - Switch between a vertical **workspace sidebar** and a horizontal **tab bar** in Settings.
 - **Workspace logos** — each workspace auto-detects a favicon from the repo as its icon, or drag-drop your own image onto it.
+- **Agent status at a glance** — in the vertical workspace sidebar, each avatar shows a spinning ring while an agent is running in that tab, a **yellow dot** when a background tab has printed new output you haven't seen yet, and nothing when it's idle — so you can track every workspace without switching to it. Opening a tab clears its unread dot.
 
 ### 🤖 Launch agents into every pane
 
 - Pick an agent once on the Open board and Stackgrid launches it in **every pane** of the new tab — four panes, four agents running in parallel.
-- Agents are auto-discovered through the **same interactive login shell your panes run** (Claude Code, Codex, Gemini CLI) — so anything runnable in a pane, including CLIs put on `PATH` by `.zshrc`/`.bashrc`, shows up in the picker; pick **Shell only** to skip.
+- Agents are auto-discovered through the **same interactive login shell your panes run** (Claude Code, Codex, Gemini CLI) — so anything runnable in a pane, including CLIs put on `PATH` by `.zshrc`/`.bashrc`, shows up in the picker — each with its **brand logo** (Claude, Codex, Gemini) for a quick read; pick **Shell only** to skip.
 - Running agents get **chrome**: the pane header, status bar, and busy dot are colored by process — Claude magenta, Codex green, Gemini cyan — so you can read the state of every pane in one glance.
 
 ### 💾 Layout presets
