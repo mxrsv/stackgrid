@@ -1656,6 +1656,12 @@ body,
   border-radius: 4px;
   padding: 0 4px;
 }
+.agent-chip__logo {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: block;
+}
 .preset-thumb {
   height: 56px;
   border-radius: 4px;

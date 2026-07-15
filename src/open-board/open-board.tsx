@@ -18,6 +18,9 @@ import {
 import { workspacesData } from "./workspaces-store";
 import { LogoPanel } from "./logo-panel";
 import { PresetThumb } from "../presets/preset-thumb";
+import claudeLogo from "../assets/agent-claude.svg";
+import codexLogo from "../assets/agent-codex.svg";
+import geminiLogo from "../assets/agent-gemini.svg";
 
 export interface OpenBoardProps {
   canCancel: boolean;
@@ -42,6 +45,17 @@ const AGENT_LABELS: Readonly<Record<string, string>> = {
 
 function agentLabel(name: string): string {
   return AGENT_LABELS[name] ?? name;
+}
+
+/** Brand logo (chip icon) per allowlisted agent binary; url resolved by Vite. */
+const AGENT_LOGOS: Readonly<Record<string, string>> = {
+  claude: claudeLogo,
+  codex: codexLogo,
+  gemini: geminiLogo,
+};
+
+function agentLogo(name: string): string | undefined {
+  return AGENT_LOGOS[name];
 }
 
 /** Resolve a remembered/selected agent against what is actually on `$PATH`. */
@@ -474,20 +488,24 @@ export function OpenBoard({
               Agent <span>on all panes</span>
             </h2>
             <div class="agent-chips">
-              {agents.value.map((agent, index) => (
-                <button
-                  key={agent.name}
-                  class={`agent-chip ${effectiveAgent === agent.name ? "is-selected" : ""}`}
-                  title={agent.path}
-                  onClick={() => {
-                    selectedAgent.value = agent.name;
-                    section.value = "agent";
-                  }}
-                >
-                  <kbd>{index + 1}</kbd>
-                  {agentLabel(agent.name)}
-                </button>
-              ))}
+              {agents.value.map((agent, index) => {
+                const logo = agentLogo(agent.name);
+                return (
+                  <button
+                    key={agent.name}
+                    class={`agent-chip ${effectiveAgent === agent.name ? "is-selected" : ""}`}
+                    title={agent.path}
+                    onClick={() => {
+                      selectedAgent.value = agent.name;
+                      section.value = "agent";
+                    }}
+                  >
+                    <kbd>{index + 1}</kbd>
+                    {logo && <img class="agent-chip__logo" src={logo} alt="" />}
+                    {agentLabel(agent.name)}
+                  </button>
+                );
+              })}
               <button
                 class={`agent-chip is-shell ${effectiveAgent === null ? "is-selected" : ""}`}
                 onClick={() => {
