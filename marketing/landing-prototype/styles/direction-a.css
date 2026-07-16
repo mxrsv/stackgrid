@@ -191,6 +191,13 @@
   color: var(--a-ink);
 }
 
+.a-github-icon {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  color: currentColor;
+}
+
 .a-topbar__github::after {
   width: 1.75rem;
   height: 1px;
@@ -270,19 +277,38 @@
 }
 
 .a-copy h1 span:last-child {
+  position: relative;
   margin-top: 0.1em;
   color: transparent;
   background: linear-gradient(
     136deg,
-    rgb(255 255 255 / 92%) 0%,
-    rgb(255 255 255 / 78%) 48%,
-    rgb(185 140 255 / 92%) 100%
+    rgb(255 255 255 / 97%) 0%,
+    rgb(255 255 255 / 92%) 48%,
+    rgb(214 190 255 / 97%) 100%
   );
   background-clip: text;
   font-weight: 540;
   letter-spacing: -0.048em;
   line-height: 1.06;
   -webkit-background-clip: text;
+}
+
+/* Opaque legibility backing, stacked exactly behind the gradient-clipped
+   glyphs via the identical text pulled from data-text. The gradient fill
+   above is never fully opaque (and thin strokes like the descender link on
+   "g" already lose coverage to antialiasing), so whatever sits behind the
+   hero — the aurora curtain, the ambient glow — was bleeding straight
+   through those low-alpha pixels and reading as a "broken" letter. This
+   plate removes that dependency entirely: every glyph is guaranteed fully
+   legible before the gradient is even considered, no matter what the
+   background is doing underneath. */
+.a-copy h1 span:last-child::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  color: rgb(255 255 255 / 96%);
+  content: attr(data-text);
+  pointer-events: none;
 }
 
 .a-subhead {
