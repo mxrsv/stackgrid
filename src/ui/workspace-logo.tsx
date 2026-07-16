@@ -1,6 +1,7 @@
 import { letterAvatar } from "../lib/letter-avatar";
 import { tabDotCssColor } from "../lib/tab-colors";
 import { resolveWorkspaceLogo } from "../settings/workspace-logo-store";
+import { WorkspaceSpinner } from "./workspace-spinner";
 
 interface WorkspaceLogoProps {
   /** Normalized workspace path; null when the tab has no workspace. */
@@ -45,7 +46,7 @@ export function WorkspaceLogo({
         </span>
       )}
       {pending ? (
-        <span class="wsitem__spinner" aria-hidden="true" />
+        <WorkspaceSpinner />
       ) : unread ? (
         <span
           class="wsitem__logo-badge wsitem__logo-badge--unread"
