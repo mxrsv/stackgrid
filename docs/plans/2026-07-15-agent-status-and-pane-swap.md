@@ -302,3 +302,26 @@
 - `npm test` → toàn bộ suite pass.
 - `npm run build` → tsc + vite build thành công.
 - `grep -R "0.6.0" package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml` → cả 3 khớp.
+
+---
+
+## Addendum 2026-07-16 — supersession: pending đọc từ output stream
+
+Quyết định gốc ở §2 ("KHÔNG suy ra pending từ output stream") và §4 ("KHÔNG
+detect agent đang dừng hỏi") bị **user chủ động thay thế** sau khi dùng thực tế:
+spinner quay suốt khi claude idle là không chấp nhận được, semantics mới là
+"spinner = agent ĐANG XỬ LÝ prompt".
+
+Cơ chế mới (thay thế "pending = agentBusy foreground poll" thuần):
+
+- **Tín hiệu chính**: OSC `9;4` progress report do chính agent phát
+  (state ≠ 0 = working, 0 = idle) — parse trong [agent-activity.ts](../../src/terminal/agent-activity.ts).
+  Claude Code chỉ phát khi PTY env quảng bá hỗ trợ → `pty.rs` set
+  `ConEmuANSI=ON` (gate nhỏ nhất claude công nhận; đã verify bằng PTY harness).
+- **Fallback** (agent không phát OSC — codex/gemini): output "kéo dài"
+  (streak ≥ 400ms, còn tươi trong 3s), bỏ qua echo trong 300ms sau keystroke.
+- Poll foreground process (argv[0], `info.rs`) vẫn là gate `isAgent`.
+
+Bước verify thủ công khi đổi env/nâng claude: chạy claude trong PTY harness
+với env của Stackgrid, grep `\x1b]9;4` trong output — phải thấy state 0 lúc
+mở, 3 khi xử lý, 0 khi xong.

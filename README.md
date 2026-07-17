@@ -47,7 +47,7 @@ Every pane is backed by a real PTY running your **login shell** (`$SHELL -l`) vi
 - Each recent row **remembers your last layout + agent combo** and preselects them, so reopening a project is a keystroke away.
 - Switch between a vertical **workspace sidebar** and a horizontal **tab bar** in Settings.
 - **Workspace logos** — each workspace auto-detects a favicon from the repo as its icon, or drag-drop your own image onto it.
-- **Agent status at a glance** — in the vertical workspace sidebar, each avatar shows a spinning ring while an agent is running in that tab, a **yellow dot** when a background tab has printed new output you haven't seen yet, and nothing when it's idle — so you can track every workspace without switching to it. Opening a tab clears its unread dot.
+- **Agent status at a glance** — in the vertical workspace sidebar, each avatar shows a spinning ring while an agent is **actively working on a prompt** (not merely open at its prompt — Stackgrid reads the agent's own OSC 9;4 progress reports, the same signal Ghostty renders as a progress bar), a **yellow dot** when a background tab has printed new output you haven't seen yet, and nothing when it's idle — so you can track every workspace without switching to it. Opening a tab clears its unread dot.
 
 ### 🤖 Launch agents into every pane
 

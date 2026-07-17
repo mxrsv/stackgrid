@@ -124,6 +124,18 @@ pub fn spawn_shell(
     }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    if !cfg!(windows) {
+        // Stackgrid consumes OSC 9;4 progress reports (the sidebar spinner),
+        // but Claude Code only emits them when it recognizes the terminal:
+        // its gate checks ConEmu* env vars or TERM_PROGRAM ghostty/iTerm.app
+        // with a minimum TERM_PROGRAM_VERSION. ConEmuANSI=ON is the smallest
+        // such capability flag — ConEmu is Windows-only, so no macOS tool
+        // changes behavior on it (and on a real Windows build we must NOT
+        // fake it: tools pick ConEmu-specific paths on a plain ConPTY).
+        // Verified empirically (PTY harness): without this claude emits zero
+        // OSC 9;4; with it, state 0 at startup, 3 while working, 0 when done.
+        cmd.env("ConEmuANSI", "ON");
+    }
     if let Some(dir) = resolve_spawn_cwd(cwd) {
         cmd.cwd(dir);
     }

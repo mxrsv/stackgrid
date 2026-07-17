@@ -204,13 +204,13 @@ describe("createTabManager workspace identity", () => {
     expect(tabViews.value[1].workspacePath).toBeNull();
   });
 
-  it("lights agentBusy for an agent in a background pane, not for vim", async () => {
+  it("lights agentBusy only while the agent reports it is working", async () => {
     const infos = new Map<number, PaneProcessInfo>([
       [1, { id: 1, cwd: "/repo", process: "vim" }],
       [2, { id: 2, cwd: "/repo", process: "claude" }],
       [3, { id: 3, cwd: "/other", process: "npm" }],
     ]);
-    const { tm } = setup({ infos });
+    const { tm, pty } = setup({ infos });
     // Tab 0: two panes — the focused one runs vim, the background one claude.
     await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
       workspacePath: "/repo",
@@ -221,10 +221,58 @@ describe("createTabManager workspace identity", () => {
     await tm.openFromPreset({ type: "leaf" }, ["/other"], {
       workspacePath: "/other",
     });
+    await tm.init(); // registers the pty output listener activity feeds on
     await flush();
 
+    // An agent sitting idle at its prompt is NOT busy — no spinner.
+    expect(tabViews.value[0].agentBusy).toBe(false);
+
+    // Claude reports busy via OSC 9;4 from tab 0's background pane.
+    pty.emitOutput(2, "\x1b]9;4;3\x07");
     expect(tabViews.value[0].agentBusy).toBe(true);
     expect(tabViews.value[1].agentBusy).toBe(false);
+
+    // The clear report ends the spinner even though output just arrived.
+    pty.emitOutput(2, "done.\x1b]9;4;0\x07");
+    expect(tabViews.value[0].agentBusy).toBe(false);
+
+    // npm output never lights the spinner — not an agent.
+    pty.emitOutput(3, "installing...");
+    expect(tabViews.value[1].agentBusy).toBe(false);
+
+    tm.dispose();
+  });
+
+  it("falls back to sustained output for agents without progress reports", async () => {
+    vi.useFakeTimers();
+    try {
+      const infos = new Map<number, PaneProcessInfo>([
+        [1, { id: 1, cwd: "/repo", process: "claude" }],
+      ]);
+      const { tm, pty } = setup({ infos });
+      await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+        workspacePath: "/repo",
+      });
+      await tm.init();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(tabViews.value[0].agentBusy).toBe(false);
+
+      // One isolated chunk (an idle repaint) is not work…
+      pty.emitOutput(1, "streaming tokens…");
+      expect(tabViews.value[0].agentBusy).toBe(false);
+      // …but a sustained stream is.
+      await vi.advanceTimersByTimeAsync(500);
+      pty.emitOutput(1, "more tokens…");
+      expect(tabViews.value[0].agentBusy).toBe(true);
+
+      // Silence — the one-shot resync timer flips it off, no poll needed.
+      await vi.advanceTimersByTimeAsync(3400);
+      expect(tabViews.value[0].agentBusy).toBe(false);
+
+      tm.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

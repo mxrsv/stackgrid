@@ -22,6 +22,7 @@ import {
   type TerminalManagerDeps,
 } from "./terminal-manager";
 import { createPaneInfoPoller } from "./pane-info-poller";
+import { createAgentActivity } from "./agent-activity";
 import {
   popClosedTab,
   pushClosedTab,
@@ -125,6 +126,24 @@ export function createTabManager(
   // In-memory only (like busy) — a background pane's output lights the badge,
   // opening the tab clears it.
   const unread = new Set<number>();
+  // Per-pane "actually working" signal (OSC 9;4 progress reports from the
+  // agent, else sustained non-echo output) — gates the sidebar spinner so an
+  // agent sitting idle at its prompt doesn't spin forever.
+  const activity = createAgentActivity();
+  // Working→idle can expire with no event attached (3s of silence). The 2s
+  // poll usually resyncs, but a one-shot timer per pane makes the transition
+  // self-sufficient even if pty_info is failing — keyed by pane so a chatty
+  // neighbor pane can't keep pushing another pane's expiry away.
+  const activityResync = new Map<number, ReturnType<typeof setTimeout>>();
+  // Panes write user input through this wrapper so the tracker can tell
+  // keystroke echo from real output; everything else passes straight through.
+  const paneIo: PtyClient = {
+    ...pty,
+    writePty(id, data) {
+      activity.noteInput(id);
+      return pty.writePty(id, data);
+    },
+  };
   // Recently closed tabs (Cmd+Shift+T), newest last; in-memory only.
   let closedTabs: readonly ClosedTabSnapshot[] = [];
   let nextKey = 1;
@@ -135,7 +154,9 @@ export function createTabManager(
   // `unlisteners` array that's already been drained, which would leak it.
   let disposed = false;
   // Types the chosen agent into each new pane's shell once its prompt is up.
-  const launcher = createAgentLauncher(pty);
+  // Through paneIo so its synthetic keystrokes ("claude\r") count as input —
+  // the echo suppression then keeps the launch echo out of the spinner.
+  const launcher = createAgentLauncher(paneIo);
 
   function activeManager(): TerminalManager | null {
     return active >= 0 && active < tabs.length ? tabs[active].manager : null;
@@ -154,12 +175,21 @@ export function createTabManager(
     tabViews.value = tabs.map((tab) => {
       const paneId = tab.manager.activePaneId();
       const info = paneId === null ? undefined : poller.infoFor(paneId);
-      // The dot means "an agent runs somewhere in this tab" — every pane
-      // counts, not just the focused one (a background pane running `claude`
-      // is exactly the case the sidebar exists for).
-      const agentBusy = tab.manager
-        .paneIds()
-        .some((id) => isAgent(poller.infoFor(id)?.process ?? null));
+      // The spinner means "an agent is WORKING somewhere in this tab" — every
+      // pane counts, not just the focused one (a background pane running
+      // `claude` is exactly the case the sidebar exists for). An agent idle
+      // at its prompt does not count: activity tracks OSC 9;4 progress
+      // reports (with a sustained-output fallback) to tell the two apart.
+      const paneIds = tab.manager.paneIds();
+      for (const id of paneIds) {
+        // A process change (agent exited to the shell, new agent started)
+        // invalidates whatever the old program reported.
+        activity.noteProcess(id, poller.infoFor(id)?.process ?? null);
+      }
+      const agentBusy = paneIds.some(
+        (id) =>
+          isAgent(poller.infoFor(id)?.process ?? null) && activity.working(id),
+      );
       return applyTabOverride(
         {
           key: tab.key,
@@ -196,6 +226,7 @@ export function createTabManager(
       syncViews();
       const live = allPaneIds();
       launcher.prune(live);
+      activity.prune(live);
       // Every pane of every tab is polled now, so a long session would
       // otherwise leave one cache entry behind per pane ever opened.
       poller.prune(live);
@@ -212,7 +243,7 @@ export function createTabManager(
     container.className = "tab-stage";
     container.style.display = "none";
     host.appendChild(container);
-    const manager = createTerminalManager(container, callbacks, pty, deps);
+    const manager = createTerminalManager(container, callbacks, paneIo, deps);
     try {
       if (layout === null) {
         await manager.initFresh(cwds[0] ?? null);
@@ -434,6 +465,7 @@ export function createTabManager(
     unread.delete(entry.key);
     const live = allPaneIds();
     launcher.prune(live);
+    activity.prune(live);
     poller.prune(live);
     if (tabs.length === 0) {
       // Closing the last tab quits the app (ADR 0002). CloseCoordinator
@@ -577,17 +609,38 @@ export function createTabManager(
         // The launcher waits for a pane's first byte before typing its agent;
         // route every chunk to it before fanning out to the tabs.
         launcher.noteOutput(id);
+        const workingChanged = activity.noteOutput(id, data);
         for (const tab of tabs) {
           tab.manager.handleOutput(id, data);
         }
-        // Output to a background tab lights its unread badge. Only sync on the
-        // false→true transition — every subsequent chunk to an already-unread
-        // tab is a no-op, so this stays off the hot per-chunk path.
+        // Output to a background tab lights its unread badge. Only sync on a
+        // transition (unread false→true, or the pane's working state flips) —
+        // every other chunk is a no-op, so this stays off the hot per-chunk
+        // path.
         const owner = tabs.find((t) => t.manager.paneIds().includes(id));
-        if (owner && owner !== tabs[active] && !unread.has(owner.key)) {
+        const unreadChanged =
+          owner !== undefined &&
+          owner !== tabs[active] &&
+          !unread.has(owner.key);
+        if (unreadChanged) {
           unread.add(owner.key);
+        }
+        if (unreadChanged || workingChanged) {
           syncViews();
         }
+        // Re-sync once shortly after this pane's recency window can expire,
+        // so the fallback's working→idle flip renders without the poller.
+        const pending = activityResync.get(id);
+        if (pending !== undefined) {
+          clearTimeout(pending);
+        }
+        activityResync.set(
+          id,
+          setTimeout(() => {
+            activityResync.delete(id);
+            syncViews();
+          }, 3200),
+        );
       }),
     );
     await registerUnlisten(
@@ -672,6 +725,10 @@ export function createTabManager(
       disposed = true;
       launcher.dispose();
       poller.stop();
+      for (const pending of activityResync.values()) {
+        clearTimeout(pending);
+      }
+      activityResync.clear();
       window.removeEventListener("keydown", handleShortcut, true);
       for (const unlisten of unlisteners) {
         unlisten();
