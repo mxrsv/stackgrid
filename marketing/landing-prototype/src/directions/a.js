@@ -31,7 +31,7 @@ function renderBrandMark(copy) {
       <span class="a-brand-divider"></span>
       <img class="a-stackgrid-icon" src="${STACKGRID_ICON_SRC}" alt="" width="28" height="28" />
     </span>
-    <strong>${copy.navProduct}</strong>
+    <strong data-copy="navProduct">${copy.navProduct}</strong>
   `;
 }
 
@@ -174,22 +174,22 @@ export function renderDirectionA(copy, locale) {
               rel="noreferrer"
             >
               ${renderGithubIcon()}
-              ${copy.navGithub}
+              <span data-copy="navGithub">${copy.navGithub}</span>
               <span aria-hidden="true">↗</span>
             </a>
           </header>
 
           <div class="a-copy">
             <h1>
-              <span>${copy.headlineLead}</span>
-              <span data-text="${copy.headlineTail}">${copy.headlineTail}</span>
+              <span data-copy="headlineLead">${copy.headlineLead}</span>
+              <span data-copy="headlineTail" data-text="${copy.headlineTail}">${copy.headlineTail}</span>
             </h1>
-            <p class="a-subhead">${copy.subhead}</p>
+            <p class="a-subhead" data-copy="subhead">${copy.subhead}</p>
           </div>
 
           <div class="a-actions">
             <button class="a-primary-cta" type="button" data-open-demo>
-              <span>${copy.primaryCta}</span>
+              <span data-copy="primaryCta">${copy.primaryCta}</span>
               <i aria-hidden="true">↗</i>
             </button>
             <a
@@ -199,7 +199,7 @@ export function renderDirectionA(copy, locale) {
               rel="noreferrer"
             >
               ${renderGithubIcon()}
-              ${copy.secondaryCta}
+              <span data-copy="secondaryCta">${copy.secondaryCta}</span>
               <span aria-hidden="true">→</span>
             </a>
           </div>
@@ -245,4 +245,53 @@ export function renderDirectionA(copy, locale) {
       };
     },
   };
+}
+
+/**
+ * Swap the localized copy on an already-mounted page without rebuilding the
+ * DOM, so the aurora canvas and stage stream keep running across a locale
+ * toggle.
+ *
+ * @param {Element} root
+ * @param {Record<string, string>} copy
+ * @param {string} locale
+ */
+export function updateDirectionALocale(root, copy, locale) {
+  const section = root.querySelector(".direction-a");
+
+  if (!section) {
+    throw new Error("Direction A root is missing.");
+  }
+
+  for (const node of section.querySelectorAll("[data-copy]")) {
+    const text = copy[node.dataset.copy];
+
+    if (typeof text !== "string") {
+      continue;
+    }
+
+    node.textContent = text;
+
+    if (node.hasAttribute("data-text")) {
+      node.setAttribute("data-text", text);
+    }
+  }
+
+  section
+    .querySelector(".a-topbar__brand")
+    ?.setAttribute("aria-label", copy.navProduct);
+
+  const langGroup = section.querySelector(".a-topbar__lang");
+
+  if (langGroup) {
+    langGroup.setAttribute("aria-label", copy.localeLabel);
+    langGroup.dataset.active = locale;
+
+    for (const button of langGroup.querySelectorAll("button[data-locale]")) {
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.locale === locale),
+      );
+    }
+  }
 }
