@@ -89,10 +89,10 @@ export function renderDirectionA(copy, locale) {
               ${renderBrandMark(copy)}
             </a>
             <span class="a-topbar__descriptor">Native macOS / PTY field</span>
-            <div class="a-topbar__lang" role="group" aria-label="${copy.localeLabel}">
-              <button type="button" data-locale="en" aria-pressed="${locale === "en"}">EN</button>
-              <span aria-hidden="true">/</span>
-              <button type="button" data-locale="vi" aria-pressed="${locale === "vi"}">VI</button>
+            <div class="a-topbar__lang" role="group" aria-label="${copy.localeLabel}" data-active="${locale}">
+              <span class="a-topbar__lang-thumb" aria-hidden="true"></span>
+              <button type="button" class="a-topbar__lang-btn" data-locale="en" aria-pressed="${locale === "en"}">EN</button>
+              <button type="button" class="a-topbar__lang-btn" data-locale="vi" aria-pressed="${locale === "vi"}">VI</button>
             </div>
             <a
               class="a-topbar__github"

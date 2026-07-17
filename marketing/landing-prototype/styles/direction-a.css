@@ -117,14 +117,15 @@
   gap: clamp(1.25rem, 2.4vw, 2.5rem);
   color: var(--a-ink);
   font: 600 0.62rem/1 var(--a-font-display);
-  letter-spacing: 0.13em;}
+  letter-spacing: normal;
+}
 
 .a-topbar__brand {
   display: inline-flex;
   align-items: center;
   gap: 0.7rem;
   color: var(--a-ink);
-  letter-spacing: 0.08em;
+  letter-spacing: normal;
 }
 
 .a-topbar__brand .a-stackgrid-icon {
@@ -153,35 +154,68 @@
 }
 
 .a-topbar__lang {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 0.2rem;
+  padding: 0.18rem;
+  border-radius: 999px;
+  background: var(--a-surface-2);
+  border: 1px solid var(--a-line-strong);
   color: var(--a-ink);
 }
 
-.a-topbar__lang button {
-  padding: 0.3rem 0.3rem;
+.a-topbar__lang-thumb {
+  position: absolute;
+  top: 0.18rem;
+  left: 0.18rem;
+  width: calc(50% - 0.18rem);
+  height: calc(100% - 0.36rem);
+  border-radius: 999px;
+  background: var(--a-accent);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 35%),
+    0 0 10px rgb(var(--a-accent-rgb) / 45%);
+  transition: transform 320ms var(--a-ease-lock);
+  will-change: transform;
+}
+
+.a-topbar__lang[data-active="vi"] .a-topbar__lang-thumb {
+  transform: translateX(100%);
+}
+
+.a-topbar__lang-btn {
+  position: relative;
+  z-index: 1;
+  min-width: 1.9rem;
+  padding: 0.3rem 0.55rem;
   border: 0;
+  border-radius: 999px;
   background: none;
-  color: var(--a-ink);
+  color: var(--a-ink-faint);
   font: inherit;
   letter-spacing: inherit;
   text-transform: inherit;
   cursor: pointer;
+  transition: color 220ms ease;
 }
 
-.a-topbar__lang button[aria-pressed="true"] {
-  color: var(--a-accent);
+.a-topbar__lang-btn[aria-pressed="true"] {
+  color: var(--a-surface-0);
 }
 
-.a-topbar__lang button[aria-pressed="false"]:hover,
-.a-topbar__lang button:focus-visible {
+.a-topbar__lang-btn[aria-pressed="false"]:hover {
   color: var(--a-ink);
 }
 
-.a-topbar__lang button:focus-visible {
+.a-topbar__lang-btn:focus-visible {
   outline: 2px solid var(--a-accent);
   outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .a-topbar__lang-thumb {
+    transition: none;
+  }
 }
 
 .a-topbar__github {
