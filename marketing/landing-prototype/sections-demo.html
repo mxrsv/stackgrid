@@ -1,0 +1,1433 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stackgrid — sections demo (layout review)</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'/%3E"
+    />
+    <style>
+      :root {
+        --a-surface-0: #0a0c0b;
+        --a-surface-1: #101310;
+        --a-surface-2: #151915;
+        --a-surface-3: #1b211b;
+        --a-ink: #ffffff;
+        --a-ink-soft: rgb(255 255 255 / 64%);
+        --a-ink-faint: rgb(255 255 255 / 52%);
+        --a-line: rgb(255 255 255 / 12%);
+        --a-line-strong: rgb(255 255 255 / 21%);
+        --a-accent: #b98cff;
+        --a-accent-rgb: 185 140 255;
+        --a-ambient: 141 39 230;
+        --a-ease-lock: cubic-bezier(0.22, 0.78, 0.18, 1);
+        --a-font-display:
+          -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+          sans-serif;
+        --a-font-mono:
+          "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo,
+          monospace;
+        --a-gutter: clamp(1.5rem, 4vw, 3.25rem);
+        --a-rail: min(72rem, 100%);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        color: var(--a-ink);
+        background: var(--a-surface-0);
+        font-family: var(--a-font-display);
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      /* —— Page shell —— */
+      .page {
+        position: relative;
+        isolation: isolate;
+        overflow-x: clip;
+        background:
+          radial-gradient(
+            circle at 76% 18%,
+            rgb(var(--a-ambient) / 14%),
+            transparent 31rem
+          ),
+          linear-gradient(118deg, #0a0c0b 0%, #0d100d 54%, #090b0a 100%);
+      }
+
+      .page::before {
+        position: absolute;
+        z-index: -1;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cpath d='M0 4h8M4 0v8' fill='none' stroke='%23b98cff' stroke-opacity='.16' stroke-width='.65'/%3E%3C/svg%3E");
+        content: "";
+        mask-image: radial-gradient(
+          circle at 72% 22%,
+          #000 0%,
+          transparent 74%
+        );
+        pointer-events: none;
+      }
+
+      .demo-chip {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        padding: 0.55rem var(--a-gutter);
+        color: rgb(10 12 11 / 88%);
+        background: var(--a-accent);
+        font: 600 0.68rem/1.2 var(--a-font-display);
+        letter-spacing: 0.04em;
+        text-align: center;
+      }
+
+      .demo-chip span {
+        opacity: 0.72;
+        font-weight: 500;
+      }
+
+      /* —— Shared primitives —— */
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.65rem;
+        margin: 0 0 1.15rem;
+        color: var(--a-ink-soft);
+        font: 600 0.66rem/1.35 var(--a-font-display);
+        letter-spacing: 0.105em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow::before {
+        width: 1.85rem;
+        height: 1px;
+        flex: 0 0 auto;
+        background: var(--a-accent);
+        box-shadow: 0 0 12px rgb(var(--a-accent-rgb) / 34%);
+        content: "";
+      }
+
+      .section-head {
+        max-width: 38rem;
+      }
+
+      .section-head h2 {
+        margin: 0;
+        color: rgb(255 255 255 / 97%);
+        font: 700 clamp(2rem, 3.6vw, 2.85rem) / 1.08 var(--a-font-display);
+        letter-spacing: -0.045em;
+      }
+
+      .section-head h2 em {
+        font-style: normal;
+        font-weight: 520;
+        color: transparent;
+        background: linear-gradient(
+          136deg,
+          rgb(255 255 255 / 97%) 0%,
+          rgb(255 255 255 / 92%) 48%,
+          rgb(214 190 255 / 97%) 100%
+        );
+        background-clip: text;
+        -webkit-background-clip: text;
+      }
+
+      .section-head p {
+        max-width: 34rem;
+        margin: 1.1rem 0 0;
+        color: var(--a-ink-soft);
+        font: 400 clamp(0.95rem, 1.2vw, 1.05rem) / 1.62 var(--a-font-display);
+        letter-spacing: -0.009em;
+      }
+
+      .primary-cta,
+      .ghost-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.85rem;
+        min-height: 2.85rem;
+        padding: 0.75rem 1rem;
+        border-radius: 2px;
+        font: 650 0.68rem/1 var(--a-font-display);
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        transition:
+          transform 280ms var(--a-ease-lock),
+          box-shadow 280ms var(--a-ease-lock),
+          background 220ms ease,
+          border-color 220ms ease;
+      }
+
+      .primary-cta {
+        position: relative;
+        overflow: hidden;
+        color: var(--a-surface-0);
+        background: var(--a-accent);
+        border: 1px solid transparent;
+        box-shadow: 0 0 0 1px rgb(var(--a-accent-rgb) / 28%);
+      }
+
+      .primary-cta:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 1rem 2.8rem rgb(var(--a-accent-rgb) / 18%);
+      }
+
+      .primary-cta:focus-visible,
+      .ghost-cta:focus-visible,
+      .link-cta:focus-visible,
+      .video-toggle:focus-visible {
+        outline: 2px solid var(--a-accent);
+        outline-offset: 4px;
+      }
+
+      .ghost-cta {
+        color: var(--a-ink);
+        background: transparent;
+        border: 1px solid var(--a-line-strong);
+      }
+
+      .ghost-cta:hover {
+        border-color: rgb(var(--a-accent-rgb) / 45%);
+        background: rgb(var(--a-accent-rgb) / 8%);
+      }
+
+      .link-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        color: var(--a-ink);
+        font: 600 0.72rem/1 var(--a-font-display);
+      }
+
+      .link-cta::after {
+        width: 1.5rem;
+        height: 1px;
+        background: currentColor;
+        content: "";
+        transform: scaleX(0.4);
+        transform-origin: left;
+        transition: transform 280ms var(--a-ease-lock);
+      }
+
+      .link-cta:hover::after {
+        transform: scaleX(1);
+      }
+
+      /* —— Topbar + Hero (condensed for review) —— */
+      .shell {
+        width: min(100%, var(--a-rail));
+        margin: 0 auto;
+        padding: 1.35rem var(--a-gutter) 0;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        color: var(--a-ink);
+        font: 600 0.62rem/1 var(--a-font-display);
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.7rem;
+      }
+
+      .brand img {
+        width: 1.65rem;
+        height: 1.65rem;
+        border-radius: 22%;
+      }
+
+      .brand strong {
+        font-size: 0.64rem;
+        font-weight: 680;
+      }
+
+      .brand .desc {
+        margin-left: 0.35rem;
+        color: var(--a-ink-faint);
+        font-weight: 500;
+      }
+
+      .hero {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: clamp(3.5rem, 8vh, 5.5rem) 0 0;
+        text-align: center;
+      }
+
+      .hero h1 {
+        max-width: 12ch;
+        margin: 0;
+        color: rgb(255 255 255 / 97%);
+        font: 760 clamp(2.8rem, 5.2vw, 4.6rem) / 1 var(--a-font-display);
+        letter-spacing: -0.055em;
+      }
+
+      .hero h1 span {
+        display: block;
+      }
+
+      .hero h1 span:last-child {
+        margin-top: 0.08em;
+        font-weight: 540;
+        color: transparent;
+        background: linear-gradient(
+          136deg,
+          rgb(255 255 255 / 97%) 0%,
+          rgb(255 255 255 / 92%) 48%,
+          rgb(214 190 255 / 97%) 100%
+        );
+        background-clip: text;
+        -webkit-background-clip: text;
+      }
+
+      .hero .sub {
+        max-width: 34rem;
+        margin: 1.4rem 0 0;
+        color: var(--a-ink-soft);
+        font: 400 clamp(0.92rem, 1.16vw, 1.05rem) / 1.62 var(--a-font-display);
+      }
+
+      .hero .actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 1.25rem;
+        margin-top: 1.85rem;
+      }
+
+      .hero-stage {
+        position: relative;
+        width: min(100%, 64rem);
+        margin: 3rem auto 0;
+        aspect-ratio: 16 / 9.4;
+        overflow: hidden;
+        border: 1px solid var(--a-line);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, #16161e 0%, #12121a 100%);
+      }
+
+      .hero-stage__fade {
+        position: absolute;
+        inset: auto 0 0;
+        height: 42%;
+        background: linear-gradient(
+          180deg,
+          transparent,
+          rgb(10 12 11 / 88%) 70%,
+          var(--a-surface-0)
+        );
+        pointer-events: none;
+      }
+
+      .hero-stage__grid {
+        display: grid;
+        grid-template-columns: 11rem 1fr 1fr;
+        height: 100%;
+        font-family: var(--a-font-mono);
+        font-size: 0.68rem;
+        color: #c0caf5;
+      }
+
+      .hero-stage__side {
+        padding: 0.85rem 0.7rem;
+        border-right: 1px solid rgb(192 202 245 / 12%);
+        background: #12121a;
+      }
+
+      .hero-stage__side div {
+        padding: 0.45rem 0.5rem;
+        margin-bottom: 0.25rem;
+        border-radius: 4px;
+        color: rgb(192 202 245 / 55%);
+      }
+
+      .hero-stage__side div.is-on {
+        color: #c0caf5;
+        background: rgb(185 140 255 / 12%);
+      }
+
+      .hero-stage__pane {
+        padding: 0.9rem 1rem;
+        border-right: 1px solid rgb(192 202 245 / 10%);
+        min-width: 0;
+      }
+
+      .hero-stage__pane:last-child {
+        border-right: 0;
+      }
+
+      .hero-stage__pane strong {
+        display: block;
+        margin-bottom: 0.65rem;
+        color: #bb9af7;
+        font-weight: 600;
+      }
+
+      .hero-stage__pane p {
+        margin: 0 0 0.45rem;
+        color: rgb(192 202 245 / 72%);
+        line-height: 1.45;
+      }
+
+      .hero-stage__pane .ok {
+        color: #9ece6a;
+      }
+
+      .hero-note {
+        margin: 0.85rem 0 0;
+        color: var(--a-ink-faint);
+        font: 500 0.68rem/1.4 var(--a-font-display);
+        letter-spacing: 0.02em;
+      }
+
+      /* —— Section 1: Workflow —— */
+      .workflow {
+        position: relative;
+        padding: clamp(5.5rem, 10vh, 7.5rem) var(--a-gutter)
+          clamp(4.5rem, 8vh, 6rem);
+      }
+
+      .workflow::before {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        width: 1px;
+        height: clamp(3rem, 6vh, 4.5rem);
+        background: linear-gradient(
+          180deg,
+          var(--a-line-strong),
+          var(--a-accent)
+        );
+        box-shadow: 0 0 14px rgb(var(--a-accent-rgb) / 24%);
+        content: "";
+      }
+
+      .workflow::after {
+        position: absolute;
+        top: clamp(3rem, 6vh, 4.5rem);
+        left: calc(50% - 3px);
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--a-accent);
+        box-shadow: 0 0 16px rgb(var(--a-accent-rgb) / 60%);
+        content: "";
+      }
+
+      .workflow__inner {
+        width: min(100%, var(--a-rail));
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+        gap: clamp(2rem, 4vw, 3.5rem);
+        align-items: center;
+      }
+
+      .workflow__copy .steps {
+        position: relative;
+        list-style: none;
+        margin: 2rem 0 0;
+        padding: 0;
+        display: grid;
+        gap: 0;
+        border-top: 1px solid var(--a-line);
+      }
+
+      .workflow__copy .steps::before {
+        position: absolute;
+        top: 1.25rem;
+        bottom: 1.25rem;
+        left: 1.18rem;
+        width: 1px;
+        background: linear-gradient(
+          180deg,
+          var(--a-line-strong),
+          var(--a-accent)
+        );
+        content: "";
+      }
+
+      .workflow__copy .steps li {
+        position: relative;
+        display: grid;
+        grid-template-columns: 2.4rem minmax(0, 1fr);
+        gap: 0.85rem;
+        padding: 1rem 0;
+        border-bottom: 1px solid var(--a-line);
+      }
+
+      .workflow__copy .steps li.is-key {
+        background: linear-gradient(
+          90deg,
+          rgb(var(--a-accent-rgb) / 8%),
+          transparent 72%
+        );
+      }
+
+      .workflow__copy .steps b {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        width: 2.4rem;
+        min-height: 2rem;
+        place-items: start center;
+        padding-top: 0.15rem;
+        color: var(--a-accent);
+        background: var(--a-surface-0);
+        font: 650 0.72rem/1.4 var(--a-font-mono);
+        letter-spacing: 0.04em;
+      }
+
+      .workflow__copy .steps strong {
+        display: block;
+        margin-bottom: 0.25rem;
+        font: 650 0.92rem/1.3 var(--a-font-display);
+        letter-spacing: -0.02em;
+      }
+
+      .workflow__copy .steps span {
+        color: var(--a-ink-soft);
+        font: 400 0.88rem/1.5 var(--a-font-display);
+      }
+
+      .workflow__visual {
+        position: relative;
+        min-width: 0;
+      }
+
+      .workflow__visual::before {
+        position: absolute;
+        top: 50%;
+        right: calc(100% + 0.75rem);
+        width: clamp(1rem, 2.5vw, 2.5rem);
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--a-accent));
+        content: "";
+      }
+
+      .workflow__frame {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid var(--a-line-strong);
+        border-radius: 8px;
+        background: #050706;
+        box-shadow:
+          0 0 0 1px rgb(var(--a-accent-rgb) / 8%),
+          0 2.5rem 4rem rgb(0 0 0 / 35%);
+      }
+
+      .workflow__frame::before,
+      .workflow__frame::after {
+        position: absolute;
+        z-index: 2;
+        width: 1.25rem;
+        height: 1.25rem;
+        border-color: var(--a-accent);
+        pointer-events: none;
+        content: "";
+      }
+
+      .workflow__frame::before {
+        top: 0.55rem;
+        right: 0.55rem;
+        border-top: 1px solid;
+        border-right: 1px solid;
+      }
+
+      .workflow__frame::after {
+        bottom: 0.55rem;
+        left: 0.55rem;
+        border-bottom: 1px solid;
+        border-left: 1px solid;
+      }
+
+      .workflow__frame video,
+      .workflow__frame img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        background: #050706;
+      }
+
+      .workflow__caption {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-top: 0.85rem;
+        color: var(--a-ink-faint);
+        font: 500 0.68rem/1.3 var(--a-font-display);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .workflow__caption-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+      }
+
+      .video-toggle {
+        display: inline-flex;
+        min-height: 1.75rem;
+        align-items: center;
+        gap: 0.42rem;
+        padding: 0.3rem 0.5rem;
+        color: var(--a-ink-soft);
+        background: rgb(255 255 255 / 3%);
+        border: 1px solid var(--a-line);
+        border-radius: 3px;
+        cursor: pointer;
+        font: 650 0.62rem/1 var(--a-font-display);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .video-toggle:hover {
+        color: var(--a-ink);
+        border-color: rgb(var(--a-accent-rgb) / 45%);
+      }
+
+      .video-toggle__icon {
+        color: var(--a-accent);
+        font: 700 0.7rem/1 var(--a-font-mono);
+      }
+
+      .workflow__caption kbd {
+        padding: 0.28rem 0.45rem;
+        border: 1px solid var(--a-line-strong);
+        border-radius: 3px;
+        color: var(--a-accent);
+        background: rgb(var(--a-accent-rgb) / 8%);
+        font: 650 0.68rem/1 var(--a-font-mono);
+      }
+
+      /* —— Section 2: Proof —— */
+      .proof {
+        position: relative;
+        padding: clamp(4.5rem, 9vh, 6.5rem) var(--a-gutter)
+          clamp(5rem, 10vh, 7rem);
+        background:
+          radial-gradient(
+            circle at 18% 40%,
+            rgb(var(--a-ambient) / 10%),
+            transparent 28rem
+          ),
+          linear-gradient(180deg, transparent, rgb(255 255 255 / 2%), transparent);
+      }
+
+      .proof::before {
+        position: absolute;
+        inset: 0 auto auto 0;
+        width: 100%;
+        height: 1px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          var(--a-line-strong),
+          transparent
+        );
+        content: "";
+      }
+
+      .proof__inner {
+        width: min(100%, var(--a-rail));
+        margin: 0 auto;
+      }
+
+      .proof__layout {
+        display: grid;
+        grid-template-columns: minmax(17rem, 0.72fr) minmax(0, 1.28fr);
+        gap: clamp(2.5rem, 6vw, 6.5rem);
+        align-items: start;
+      }
+
+      .proof__intro {
+        position: sticky;
+        top: 5rem;
+      }
+
+      .proof__intro .aside {
+        max-width: 25rem;
+        margin: 1.2rem 0 0;
+        color: var(--a-ink-soft);
+        font: 400 0.96rem/1.62 var(--a-font-display);
+      }
+
+      .proof__signal {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        margin-top: 1.7rem;
+        color: var(--a-ink-faint);
+        font: 600 0.64rem/1 var(--a-font-mono);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .proof__signal::before {
+        width: 0.42rem;
+        height: 0.42rem;
+        border-radius: 50%;
+        background: var(--a-accent);
+        box-shadow: 0 0 12px rgb(var(--a-accent-rgb) / 70%);
+        content: "";
+      }
+
+      .proof__manifest {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid var(--a-line);
+        border-radius: 7px;
+        background:
+          linear-gradient(180deg, rgb(255 255 255 / 2%), transparent 24%),
+          rgb(10 12 11 / 76%);
+        box-shadow: 0 2.5rem 5rem rgb(0 0 0 / 22%);
+      }
+
+      .proof__manifest::after {
+        position: absolute;
+        inset: 0;
+        background-image: linear-gradient(
+          90deg,
+          transparent 0 98%,
+          rgb(255 255 255 / 3%) 98%
+        );
+        background-size: 3rem 100%;
+        content: "";
+        pointer-events: none;
+      }
+
+      .proof__bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        min-height: 2.75rem;
+        padding: 0.65rem 1rem;
+        color: var(--a-ink-faint);
+        background: rgb(255 255 255 / 2%);
+        border-bottom: 1px solid var(--a-line);
+        font: 600 0.61rem/1 var(--a-font-mono);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .proof__bar span:last-child {
+        color: var(--a-accent);
+      }
+
+      .proof__row {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: 3.25rem minmax(0, 1fr) auto;
+        gap: 1rem;
+        align-items: center;
+        min-height: 8.25rem;
+        padding: 1.35rem 1.25rem;
+        border-bottom: 1px solid var(--a-line);
+        transition:
+          background 240ms ease,
+          border-color 240ms ease;
+      }
+
+      .proof__row::before {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 2px;
+        background: var(--a-accent);
+        content: "";
+        transform: scaleY(0);
+        transform-origin: center;
+        transition: transform 280ms var(--a-ease-lock);
+      }
+
+      .proof__row:last-child {
+        border-bottom: 0;
+      }
+
+      .proof__row:hover {
+        background: linear-gradient(
+          90deg,
+          rgb(var(--a-accent-rgb) / 8%),
+          transparent 72%
+        );
+        border-color: rgb(var(--a-accent-rgb) / 24%);
+      }
+
+      .proof__row:hover::before {
+        transform: scaleY(1);
+      }
+
+      .proof__index {
+        align-self: start;
+        padding-top: 0.2rem;
+        color: rgb(var(--a-accent-rgb) / 72%);
+        font: 650 0.68rem/1 var(--a-font-mono);
+        letter-spacing: 0.06em;
+      }
+
+      .proof__row .mark {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin-bottom: 0.65rem;
+        color: var(--a-accent);
+        font: 650 0.62rem/1 var(--a-font-mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .proof__row .mark::before {
+        width: 0.34rem;
+        height: 0.34rem;
+        border-radius: 50%;
+        background: var(--a-accent);
+        box-shadow: 0 0 10px rgb(var(--a-accent-rgb) / 55%);
+        content: "";
+      }
+
+      .proof__row h3 {
+        margin: 0 0 0.42rem;
+        font: 650 1.04rem/1.25 var(--a-font-display);
+        letter-spacing: -0.025em;
+      }
+
+      .proof__row p {
+        max-width: 28rem;
+        margin: 0;
+        color: var(--a-ink-soft);
+        font: 400 0.86rem/1.52 var(--a-font-display);
+      }
+
+      .proof__readout {
+        min-width: 7.5rem;
+        padding: 0.48rem 0.6rem;
+        color: var(--a-ink-faint);
+        background: rgb(255 255 255 / 2%);
+        border: 1px solid var(--a-line);
+        border-radius: 3px;
+        font: 600 0.62rem/1.25 var(--a-font-mono);
+        letter-spacing: 0.02em;
+        text-align: center;
+      }
+
+      /* —— Footer —— */
+      .footer {
+        position: relative;
+        padding: clamp(4rem, 8vh, 5.5rem) var(--a-gutter) 2.5rem;
+        border-top: 1px solid var(--a-line);
+        background:
+          radial-gradient(
+            circle at 50% 0%,
+            rgb(var(--a-ambient) / 16%),
+            transparent 22rem
+          ),
+          var(--a-surface-0);
+      }
+
+      .footer__inner {
+        width: min(100%, var(--a-rail));
+        margin: 0 auto;
+        text-align: center;
+      }
+
+      .footer__eyebrow {
+        justify-content: center;
+      }
+
+      .footer h2 {
+        max-width: 14ch;
+        margin: 0 auto;
+        font: 700 clamp(2rem, 3.8vw, 3rem) / 1.05 var(--a-font-display);
+        letter-spacing: -0.045em;
+      }
+
+      .footer h2 span {
+        display: block;
+        font-weight: 520;
+        color: transparent;
+        background: linear-gradient(
+          136deg,
+          rgb(255 255 255 / 97%) 0%,
+          rgb(214 190 255 / 97%) 100%
+        );
+        background-clip: text;
+        -webkit-background-clip: text;
+      }
+
+      .footer .lead {
+        max-width: 32rem;
+        margin: 1.1rem auto 0;
+        color: var(--a-ink-soft);
+        font: 400 1rem/1.55 var(--a-font-display);
+      }
+
+      .footer .actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 0.85rem 1.25rem;
+        margin-top: 2rem;
+      }
+
+      .footer__meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 0.65rem 1.1rem;
+        margin-top: 1.5rem;
+        color: var(--a-ink-faint);
+        font: 500 0.68rem/1 var(--a-font-display);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .footer__meta i {
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: var(--a-accent);
+        font-style: normal;
+      }
+
+      .footer__install-note {
+        max-width: 36rem;
+        margin: 1rem auto 0;
+        color: rgb(255 255 255 / 42%);
+        font: 400 0.72rem/1.5 var(--a-font-display);
+      }
+
+      .footer__bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        width: min(100%, var(--a-rail));
+        margin: 3.5rem auto 0;
+        padding-top: 1.35rem;
+        border-top: 1px solid var(--a-line);
+        color: var(--a-ink-faint);
+        font: 500 0.68rem/1.4 var(--a-font-display);
+      }
+
+      .footer__bar nav {
+        display: flex;
+        gap: 1.25rem;
+      }
+
+      .footer__bar a:hover {
+        color: var(--a-ink);
+      }
+
+      /* —— Responsive —— */
+      @media (max-width: 900px) {
+        .brand .desc {
+          display: none;
+        }
+
+        .workflow__inner,
+        .proof__layout {
+          grid-template-columns: 1fr;
+        }
+
+        .workflow__visual::before {
+          display: none;
+        }
+
+        .proof__intro {
+          position: static;
+        }
+
+        .hero-stage__grid {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .hero-stage__side {
+          display: none;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .workflow__caption {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .workflow__caption-actions {
+          width: 100%;
+          justify-content: space-between;
+        }
+
+        .proof__row {
+          grid-template-columns: 2rem minmax(0, 1fr);
+          gap: 0.75rem;
+          min-height: auto;
+          padding: 1rem;
+        }
+
+        .proof__readout {
+          position: absolute;
+          top: 0.85rem;
+          right: 1rem;
+          width: fit-content;
+          min-width: 0;
+          padding: 0.34rem 0.45rem;
+          font-size: 0.56rem;
+          text-align: left;
+        }
+
+        .hero-stage {
+          aspect-ratio: 4 / 3;
+        }
+
+        .hero-stage__grid {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-stage__pane:first-of-type {
+          border-bottom: 1px solid rgb(192 202 245 / 10%);
+        }
+
+        .footer__bar {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        .primary-cta,
+        .ghost-cta,
+        .link-cta::after,
+        .proof__row,
+        .proof__row::before,
+        [data-reveal] {
+          transition: none;
+        }
+
+        [data-reveal] {
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      .has-js [data-reveal] {
+        opacity: 0;
+        transform: translateY(24px);
+        transition:
+          opacity 700ms var(--a-ease-lock),
+          transform 700ms var(--a-ease-lock);
+        transition-delay: calc(var(--reveal-order, 0) * 80ms);
+      }
+
+      .has-js [data-reveal].is-visible {
+        opacity: 1;
+        transform: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="demo-chip">
+        SECTIONS DEMO
+        <span>layout + UI review · not production · Direction A language</span>
+      </div>
+
+      <div class="shell">
+        <header class="topbar">
+          <a class="brand" href="/landing-prototype/?direction=A&lang=en">
+            <img src="/landing-prototype/assets/stackgrid-icon.svg" alt="" />
+            <strong>Stackgrid</strong>
+            <span class="desc">Native macOS / PTY field</span>
+          </a>
+          <a class="link-cta" href="https://github.com/mxrsv/stackgrid"
+            >GitHub</a
+          >
+        </header>
+
+        <!-- Hero kept light — already approved in live prototype -->
+        <section class="hero" aria-label="Hero">
+          <p class="eyebrow">Native macOS terminal</p>
+          <h1>
+            <span>Run the grid.</span>
+            <span>Keep every agent in sight.</span>
+          </h1>
+          <p class="sub">
+            Stackgrid is a native macOS terminal built to launch, watch, and
+            steer AI coding agents in parallel.
+          </p>
+          <div class="actions">
+            <a
+              class="primary-cta"
+              href="https://github.com/mxrsv/stackgrid/releases/latest"
+              >Download for macOS <i>↓</i></a
+            >
+            <a class="ghost-cta" href="#workflow-video"
+              >Watch the 16-sec demo <i>↘</i></a
+            >
+          </div>
+
+          <div class="hero-stage" aria-hidden="true">
+            <div class="hero-stage__grid">
+              <aside class="hero-stage__side">
+                <div class="is-on">stackgrid</div>
+                <div>glowarena</div>
+                <div>glow-workspace</div>
+                <div>glow-api</div>
+              </aside>
+              <div class="hero-stage__pane">
+                <strong>claude · pane 1</strong>
+                <p>I'll trace why the pane divider drifts on resize.</p>
+                <p>Update(src/terminal/layout-engine.ts)</p>
+                <p class="ok">214 tests passed — the divider stays put.</p>
+              </div>
+              <div class="hero-stage__pane">
+                <strong>codex · pane 2</strong>
+                <p>trace the flicker when a pane closes</p>
+                <p>Applied patch src/terminal/pane-lifecycle.ts</p>
+                <p class="ok">ready for review</p>
+              </div>
+            </div>
+            <div class="hero-stage__fade"></div>
+          </div>
+          <p class="hero-note">
+            Hero above is a static stand-in — use the live prototype for the real stage.
+          </p>
+        </section>
+      </div>
+
+      <!-- Section 1: Workflow -->
+      <section class="workflow" id="workflow" aria-labelledby="workflow-title">
+        <div class="workflow__inner">
+          <div class="workflow__copy" data-reveal>
+            <p class="eyebrow">Focus without losing the field</p>
+            <div class="section-head">
+              <h2 id="workflow-title">
+                Your agents are working.
+                <em>You stay oriented.</em>
+              </h2>
+              <p>
+                Run each agent in its own real terminal pane. Busy work and new
+                output stay visible; when one needs you, expand it and return
+                without rebuilding the layout.
+              </p>
+            </div>
+            <ol class="steps">
+              <li>
+                <b>01</b>
+                <div>
+                  <strong>Start from your workspace</strong>
+                  <span>Open the project once and launch an agent into each pane.</span>
+                </div>
+              </li>
+              <li>
+                <b>02</b>
+                <div>
+                  <strong>Read the field at a glance</strong>
+                  <span>Active work and fresh output stay visible without tab-hopping.</span>
+                </div>
+              </li>
+              <li class="is-key">
+                <b>03</b>
+                <div>
+                  <strong>Expand only what needs you</strong>
+                  <span>⌘E grows the active pane while the rest remain in view.</span>
+                </div>
+              </li>
+            </ol>
+          </div>
+
+          <div class="workflow__visual" id="workflow-video" data-reveal style="--reveal-order: 1">
+            <div class="workflow__frame">
+              <video
+                data-workflow-video
+                muted
+                loop
+                playsinline
+                preload="metadata"
+                poster="/stackgrid-cmd-e-poster.png"
+                aria-label="Stackgrid Focus Expand demonstration"
+              >
+                <source src="/stackgrid-cmd-e.webm" type="video/webm" />
+                <source src="/stackgrid-cmd-e.mp4" type="video/mp4" />
+                Your browser does not support HTML video.
+              </video>
+            </div>
+            <div class="workflow__caption">
+              <span>Focus Expand · 16-second product loop</span>
+              <span class="workflow__caption-actions">
+                <button
+                  class="video-toggle"
+                  type="button"
+                  data-video-toggle
+                  aria-pressed="false"
+                  aria-label="Play Focus Expand demonstration"
+                >
+                  <span class="video-toggle__icon" data-video-icon>▶</span>
+                  <span data-video-label>Play motion</span>
+                </button>
+                <kbd>⌘E</kbd>
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 2: Proof -->
+      <section class="proof" id="proof" aria-labelledby="proof-title">
+        <div class="proof__inner">
+          <div class="proof__layout">
+            <div class="proof__intro section-head" data-reveal>
+              <p class="eyebrow">Terminal first</p>
+              <h2 id="proof-title">
+                Your shell.
+                <em>Multiplied.</em>
+              </h2>
+              <p class="aside">
+                Stackgrid keeps the terminal contract intact, then adds only
+                what parallel agent work needs: spatial layouts, fast focus,
+                direct jumps, and local control.
+              </p>
+              <span class="proof__signal">4 native signals online</span>
+            </div>
+
+            <div
+              class="proof__manifest"
+              role="list"
+              aria-label="Stackgrid terminal capabilities"
+              data-reveal
+              style="--reveal-order: 1"
+            >
+              <div class="proof__bar">
+                <span>stackgrid://capabilities</span>
+                <span>ready</span>
+              </div>
+              <article class="proof__row" role="listitem">
+                <span class="proof__index">01</span>
+                <div>
+                  <div class="mark">PTY</div>
+                  <h3>Real PTY. Your login shell.</h3>
+                  <p>
+                    Real processes inherit your PATH, aliases, dotfiles, and
+                    the agent CLIs you already use.
+                  </p>
+                </div>
+                <code class="proof__readout">$SHELL -l</code>
+              </article>
+              <article class="proof__row" role="listitem">
+                <span class="proof__index">02</span>
+                <div>
+                  <div class="mark">Layout</div>
+                  <h3>Layouts follow your attention.</h3>
+                  <p>
+                    Split, dock, swap, zoom, and Focus Expand without losing
+                    the rest of the field.
+                  </p>
+                </div>
+                <code class="proof__readout">⌘E · 65%</code>
+              </article>
+              <article class="proof__row" role="listitem">
+                <span class="proof__index">03</span>
+                <div>
+                  <div class="mark">Jump</div>
+                  <h3>Output becomes a shortcut.</h3>
+                  <p>
+                    ⌘-click a path or URL to move straight from terminal output
+                    to your editor or browser.
+                  </p>
+                </div>
+                <code class="proof__readout">path:line:col</code>
+              </article>
+              <article class="proof__row" role="listitem">
+                <span class="proof__index">04</span>
+                <div>
+                  <div class="mark">Local</div>
+                  <h3>Local by default.</h3>
+                  <p>
+                    No telemetry, no accounts, and no background network calls
+                    beyond the agents you run.
+                  </p>
+                </div>
+                <code class="proof__readout">network: off</code>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <div class="footer__inner">
+          <p class="eyebrow footer__eyebrow">
+            Ready when you are
+          </p>
+          <h2>
+            Run more agents.
+            <span>Lose less context.</span>
+          </h2>
+          <p class="lead">
+            Download the macOS build, open a workspace, and put your agents on
+            the grid.
+          </p>
+          <div class="actions">
+            <a
+              class="primary-cta"
+              href="https://github.com/mxrsv/stackgrid/releases/latest"
+              >Download for macOS <i>↓</i></a
+            >
+            <a class="ghost-cta" href="#workflow-video">Watch the 16-sec demo</a>
+          </div>
+          <div class="footer__meta">
+            <span>macOS 10.15+</span>
+            <i></i>
+            <span>Local-first</span>
+            <i></i>
+            <span>Open source</span>
+          </div>
+          <p class="footer__install-note">
+            Unsigned preview build. On first launch, macOS may ask you to
+            confirm “Open Anyway” in Privacy &amp; Security.
+          </p>
+        </div>
+        <div class="footer__bar">
+          <span>© Stackgrid · sections demo for layout review</span>
+          <nav>
+            <a href="/landing-prototype/?direction=A&lang=en">Live hero</a>
+            <a href="https://github.com/mxrsv/stackgrid">GitHub</a>
+            <a href="https://github.com/mxrsv/stackgrid/releases/latest"
+              >Releases</a
+            >
+          </nav>
+        </div>
+      </footer>
+    </div>
+    <script>
+      document.documentElement.classList.add("has-js");
+
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      );
+      const video = document.querySelector("[data-workflow-video]");
+      const videoToggle = document.querySelector("[data-video-toggle]");
+      const videoLabel = document.querySelector("[data-video-label]");
+      const videoIcon = document.querySelector("[data-video-icon]");
+      let videoInView = false;
+      let userPaused = false;
+
+      function syncVideoButton() {
+        const isPlaying = video && !video.paused;
+        videoToggle?.setAttribute("aria-pressed", String(isPlaying));
+        videoToggle?.setAttribute(
+          "aria-label",
+          `${isPlaying ? "Pause" : "Play"} Focus Expand demonstration`,
+        );
+        if (videoLabel) videoLabel.textContent = isPlaying ? "Pause motion" : "Play motion";
+        if (videoIcon) videoIcon.textContent = isPlaying ? "Ⅱ" : "▶";
+      }
+
+      async function playVideo(force = false) {
+        if (!video || (!force && reduceMotion.matches) || userPaused) return;
+        try {
+          await video.play();
+        } catch {
+          userPaused = true;
+        }
+        syncVideoButton();
+      }
+
+      function updateVideoForViewport() {
+        if (!video) return;
+        if (videoInView && !reduceMotion.matches && !userPaused) {
+          playVideo();
+        } else {
+          video.pause();
+          syncVideoButton();
+        }
+      }
+
+      videoToggle?.addEventListener("click", () => {
+        if (!video) return;
+        if (video.paused) {
+          userPaused = false;
+          playVideo(true);
+        } else {
+          userPaused = true;
+          video.pause();
+          syncVideoButton();
+        }
+      });
+
+      const videoObserver = new IntersectionObserver(
+        ([entry]) => {
+          videoInView = entry.isIntersecting;
+          updateVideoForViewport();
+        },
+        { threshold: 0.45 },
+      );
+      if (video) videoObserver.observe(video);
+
+      reduceMotion.addEventListener("change", updateVideoForViewport);
+      video?.addEventListener("play", syncVideoButton);
+      video?.addEventListener("pause", syncVideoButton);
+      syncVideoButton();
+
+      const revealObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            entry.target.classList.add("is-visible");
+            revealObserver.unobserve(entry.target);
+          }
+        },
+        { threshold: 0.14, rootMargin: "0px 0px -8% 0px" },
+      );
+
+      document.querySelectorAll("[data-reveal]").forEach((element) => {
+        if (reduceMotion.matches) {
+          element.classList.add("is-visible");
+        } else {
+          revealObserver.observe(element);
+        }
+      });
+    </script>
+  </body>
+</html>
