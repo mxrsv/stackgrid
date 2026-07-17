@@ -98,6 +98,8 @@ export function renderLandingSections(copy) {
                   data-video-toggle
                   data-section-copy-play-aria="workflowVideoPlayAria"
                   data-section-copy-pause-aria="workflowVideoPauseAria"
+                  data-section-copy-play-aria-value="${escapeHtml(copy.workflowVideoPlayAria)}"
+                  data-section-copy-pause-aria-value="${escapeHtml(copy.workflowVideoPauseAria)}"
                   aria-pressed="false"
                   aria-label="${escapeHtml(copy.workflowVideoPlayAria)}"
                 >
@@ -106,6 +108,8 @@ export function renderLandingSections(copy) {
                     data-video-label
                     data-section-copy-play="workflowVideoPlayLabel"
                     data-section-copy-pause="workflowVideoPauseLabel"
+                    data-section-copy-play-value="${escapeHtml(copy.workflowVideoPlayLabel)}"
+                    data-section-copy-pause-value="${escapeHtml(copy.workflowVideoPauseLabel)}"
                     data-section-copy="workflowVideoPlayLabel"
                   >${escapeHtml(copy.workflowVideoPlayLabel)}</span>
                 </button>
@@ -183,4 +187,276 @@ export function renderLandingSections(copy) {
       </footer>
     </div>
   `.trim();
+}
+
+function getCopyValue(copy, key) {
+  const value = copy[key];
+  return typeof value === "string" ? value : null;
+}
+
+function updateVideoToggle(root) {
+  const video = root.querySelector("[data-workflow-video]");
+  const toggle = root.querySelector("[data-video-toggle]");
+
+  if (!video || !toggle) {
+    return;
+  }
+
+  const isPlaying = !video.paused;
+  const state = isPlaying ? "pause" : "play";
+  const label = root.querySelector("[data-video-label]");
+  const icon = root.querySelector("[data-video-icon]");
+  const labelValue = label?.getAttribute(
+    `data-section-copy-${state}-value`,
+  );
+  const ariaValue = toggle.getAttribute(
+    `data-section-copy-${state}-aria-value`,
+  );
+
+  toggle.setAttribute("aria-pressed", String(isPlaying));
+
+  if (ariaValue) {
+    toggle.setAttribute("aria-label", ariaValue);
+  }
+
+  if (label && labelValue) {
+    label.textContent = labelValue;
+  }
+
+  if (icon) {
+    icon.textContent = isPlaying ? "Ⅱ" : "▶";
+  }
+}
+
+function updateVideoCopy(root, copy) {
+  const label = root.querySelector("[data-video-label]");
+  const toggle = root.querySelector("[data-video-toggle]");
+
+  if (label) {
+    for (const state of ["play", "pause"]) {
+      const value = getCopyValue(
+        copy,
+        label.getAttribute(`data-section-copy-${state}`),
+      );
+
+      if (value) {
+        label.setAttribute(`data-section-copy-${state}-value`, value);
+      }
+    }
+  }
+
+  if (toggle) {
+    for (const state of ["play", "pause"]) {
+      const value = getCopyValue(
+        copy,
+        toggle.getAttribute(`data-section-copy-${state}-aria`),
+      );
+
+      if (value) {
+        toggle.setAttribute(`data-section-copy-${state}-aria-value`, value);
+      }
+    }
+  }
+
+  updateVideoToggle(root);
+}
+
+function getReducedMotionQuery(root) {
+  const view = root.ownerDocument?.defaultView;
+
+  return view?.matchMedia?.("(prefers-reduced-motion: reduce)") ?? {
+    matches: false,
+  };
+}
+
+function getIntersectionObserver(root) {
+  return (
+    root.ownerDocument?.defaultView?.IntersectionObserver ??
+    globalThis.IntersectionObserver
+  );
+}
+
+/**
+ * Mount interactions owned exclusively by the landing sections.
+ *
+ * @param {Element} root
+ * @returns {() => void}
+ */
+export function mountLandingSections(root) {
+  if (!root || typeof root.querySelectorAll !== "function") {
+    throw new Error("Landing sections root is missing.");
+  }
+
+  const reducedMotion = getReducedMotionQuery(root);
+  const IntersectionObserverClass = getIntersectionObserver(root);
+  const reveals = [...root.querySelectorAll("[data-reveal]")];
+  const video = root.querySelector("[data-workflow-video]");
+  const videoToggle = root.querySelector("[data-video-toggle]");
+  let disposed = false;
+  let videoInView = false;
+  let userPaused = false;
+  let userStartedVideo = false;
+  let revealObserver;
+  let videoObserver;
+
+  const syncVideoToggle = () => updateVideoToggle(root);
+
+  const playVideo = (force = false) => {
+    if (
+      !video ||
+      (!force && (reducedMotion.matches || userPaused))
+    ) {
+      return;
+    }
+
+    try {
+      const playResult = video.play();
+      playResult?.catch?.(() => {
+        userPaused = true;
+        syncVideoToggle();
+      });
+    } catch {
+      userPaused = true;
+    }
+
+    syncVideoToggle();
+  };
+
+  const updateVideoForViewport = () => {
+    if (!video) {
+      return;
+    }
+
+    if (!videoInView) {
+      video.pause();
+      syncVideoToggle();
+      return;
+    }
+
+    if (!reducedMotion.matches && !userPaused) {
+      playVideo();
+    } else if (reducedMotion.matches && !userStartedVideo) {
+      video.pause();
+      syncVideoToggle();
+    }
+  };
+
+  const handleVideoToggle = () => {
+    if (!video) {
+      return;
+    }
+
+    if (video.paused) {
+      userPaused = false;
+      userStartedVideo = true;
+      playVideo(true);
+    } else {
+      userPaused = true;
+      userStartedVideo = false;
+      video.pause();
+      syncVideoToggle();
+    }
+  };
+
+  const handleReducedMotionChange = () => {
+    updateVideoForViewport();
+  };
+
+  if (reducedMotion.matches || !IntersectionObserverClass) {
+    for (const reveal of reveals) {
+      reveal.classList.add("is-visible");
+    }
+  } else {
+    revealObserver = new IntersectionObserverClass(
+      (entries) => {
+        if (disposed) {
+          return;
+        }
+
+        for (const entry of entries) {
+          if (!entry.isIntersecting) {
+            continue;
+          }
+
+          entry.target.classList.add("is-visible");
+          revealObserver.unobserve(entry.target);
+        }
+      },
+      { threshold: 0.14, rootMargin: "0px 0px -8% 0px" },
+    );
+
+    for (const reveal of reveals) {
+      revealObserver.observe(reveal);
+    }
+  }
+
+  if (video && IntersectionObserverClass) {
+    videoObserver = new IntersectionObserverClass(
+      (entries) => {
+        if (disposed) {
+          return;
+        }
+
+        const entry = entries.find((candidate) => candidate.target === video);
+
+        if (!entry) {
+          return;
+        }
+
+        videoInView =
+          entry.isIntersecting && entry.intersectionRatio >= 0.45;
+        updateVideoForViewport();
+      },
+      { threshold: 0.45 },
+    );
+    videoObserver.observe(video);
+  }
+
+  videoToggle?.addEventListener("click", handleVideoToggle);
+  video?.addEventListener("play", syncVideoToggle);
+  video?.addEventListener("pause", syncVideoToggle);
+  reducedMotion.addEventListener?.("change", handleReducedMotionChange);
+  syncVideoToggle();
+
+  return () => {
+    if (disposed) {
+      return;
+    }
+
+    disposed = true;
+    revealObserver?.disconnect();
+    videoObserver?.disconnect();
+    videoToggle?.removeEventListener("click", handleVideoToggle);
+    video?.removeEventListener("play", syncVideoToggle);
+    video?.removeEventListener("pause", syncVideoToggle);
+    reducedMotion.removeEventListener?.("change", handleReducedMotionChange);
+  };
+}
+
+/**
+ * Update localized landing-section copy without rebuilding the DOM.
+ *
+ * @param {Element} root
+ * @param {Record<string, string>} copy
+ */
+export function updateLandingSectionsLocale(root, copy) {
+  if (!root || typeof root.querySelectorAll !== "function") {
+    throw new Error("Landing sections root is missing.");
+  }
+
+  for (const node of root.querySelectorAll("[data-section-copy]")) {
+    const value = getCopyValue(copy, node.dataset.sectionCopy);
+
+    if (value === null) {
+      continue;
+    }
+
+    if (node.matches("video")) {
+      node.setAttribute("aria-label", value);
+    } else if (!node.matches("[data-video-label]")) {
+      node.textContent = value;
+    }
+  }
+
+  updateVideoCopy(root, copy);
 }
