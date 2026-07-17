@@ -269,6 +269,20 @@ function getReducedMotionQuery(root) {
   };
 }
 
+function subscribeMediaQuery(mediaQuery, listener) {
+  if (typeof mediaQuery.addEventListener === "function") {
+    mediaQuery.addEventListener("change", listener);
+    return () => mediaQuery.removeEventListener("change", listener);
+  }
+
+  if (typeof mediaQuery.addListener === "function") {
+    mediaQuery.addListener(listener);
+    return () => mediaQuery.removeListener?.(listener);
+  }
+
+  return () => {};
+}
+
 function getIntersectionObserver(root) {
   return (
     root.ownerDocument?.defaultView?.IntersectionObserver ??
@@ -415,7 +429,10 @@ export function mountLandingSections(root) {
   videoToggle?.addEventListener("click", handleVideoToggle);
   video?.addEventListener("play", syncVideoToggle);
   video?.addEventListener("pause", syncVideoToggle);
-  reducedMotion.addEventListener?.("change", handleReducedMotionChange);
+  const unsubscribeReducedMotion = subscribeMediaQuery(
+    reducedMotion,
+    handleReducedMotionChange,
+  );
   syncVideoToggle();
 
   return () => {
@@ -429,7 +446,9 @@ export function mountLandingSections(root) {
     videoToggle?.removeEventListener("click", handleVideoToggle);
     video?.removeEventListener("play", syncVideoToggle);
     video?.removeEventListener("pause", syncVideoToggle);
-    reducedMotion.removeEventListener?.("change", handleReducedMotionChange);
+    unsubscribeReducedMotion();
+    video?.pause();
+    syncVideoToggle();
   };
 }
 

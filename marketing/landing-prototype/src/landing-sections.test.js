@@ -103,6 +103,7 @@ describe("sections-copy", () => {
 describe("mountLandingSections", () => {
   it("reveals section elements once and disposes only its own observers", () => {
     const root = mountSectionMarkup();
+    installVideoStubs(root.querySelector("[data-workflow-video]"));
     const outsideReveal = document.createElement("div");
     outsideReveal.dataset.reveal = "";
     document.body.append(outsideReveal);
@@ -195,10 +196,62 @@ describe("mountLandingSections", () => {
 
     const dispose = mountLandingSections(root);
     dispose();
+    const pauseCallsAfterDispose = video.pause.mock.calls.length;
     toggle.click();
 
     expect(video.play).not.toHaveBeenCalled();
-    expect(video.pause).not.toHaveBeenCalled();
+    expect(video.pause).toHaveBeenCalledTimes(pauseCallsAfterDispose);
+  });
+
+  it("pauses an actively playing video when disposed", async () => {
+    const root = mountSectionMarkup();
+    const video = installVideoStubs(root.querySelector("[data-workflow-video]"));
+
+    const dispose = mountLandingSections(root);
+    const videoObserver = observerWithThreshold(0.45);
+    videoObserver.trigger([
+      { isIntersecting: true, intersectionRatio: 0.45, target: video },
+    ]);
+    await Promise.resolve();
+
+    expect(video.paused).toBe(false);
+
+    dispose();
+
+    expect(video.pause).toHaveBeenCalled();
+    expect(video.paused).toBe(true);
+  });
+
+  it("subscribes to reduced-motion changes through legacy MediaQueryList listeners", async () => {
+    reducedMotion = {
+      matches: false,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    };
+    window.matchMedia = vi.fn(() => reducedMotion);
+
+    const root = mountSectionMarkup();
+    const video = installVideoStubs(root.querySelector("[data-workflow-video]"));
+
+    const dispose = mountLandingSections(root);
+    const videoObserver = observerWithThreshold(0.45);
+    videoObserver.trigger([
+      { isIntersecting: true, intersectionRatio: 0.45, target: video },
+    ]);
+    await Promise.resolve();
+
+    expect(video.play).toHaveBeenCalledOnce();
+    expect(reducedMotion.addListener).toHaveBeenCalledOnce();
+
+    const listener = reducedMotion.addListener.mock.calls[0][0];
+    reducedMotion.matches = true;
+    listener();
+
+    expect(video.pause).toHaveBeenCalled();
+    expect(video.paused).toBe(true);
+
+    dispose();
+    expect(reducedMotion.removeListener).toHaveBeenCalledWith(listener);
   });
 });
 
