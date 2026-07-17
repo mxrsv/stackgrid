@@ -7,15 +7,33 @@ the spotlight follows focus as you switch panes.
 Rendered with [Manim](https://www.manim.community/) — source: [`cmd_e.py`](./cmd_e.py).
 Landscape 16:9. All clips end on a short fade so they loop cleanly.
 
-## Files
+## Web assets (`public/`)
+
+The landing prototype is served by Vite with root `marketing/`. Files under
+[`public/`](./public/) are copied to URL `/` at dev and build time — **do not**
+put README-only or master assets there.
+
+| Public path | Source (canonical) | Notes |
+| ----------- | ------------------ | ----- |
+| `/stackgrid-cmd-e-poster.png` | `marketing/stackgrid-cmd-e-poster.png` | `<video poster>` |
+| `/stackgrid-cmd-e.webm` | `marketing/stackgrid-cmd-e.webm` | Landing `<video>` (VP9) |
+| `/stackgrid-cmd-e.mp4` | `marketing/stackgrid-cmd-e.mp4` | Landing `<video>` (H.264) |
+| `/landing-prototype/assets/partner-mark.svg` | `landing-prototype/assets/partner-mark.svg` | Partner mark icon |
+| `/landing-prototype/assets/stackgrid-icon.svg` | `landing-prototype/assets/stackgrid-icon.svg` | Product icon |
+
+After re-rendering or editing icons, copy updated files into `public/` (same
+relative paths). GIF and 1080p60 master stay out of `public/` — they are not
+bundled for the landing build.
+
+## README / master assets (repo root of `marketing/`)
 
 | File                          | Use it for                     | Notes                                                        |
 | ----------------------------- | ------------------------------ | ------------------------------------------------------------ |
-| `stackgrid-cmd-e.gif`         | **GitHub README** embed        | Autoplays & loops inline. 960px wide, 15fps.                 |
-| `stackgrid-cmd-e.mp4`         | **Landing page** `<video>`     | H.264, `yuv420p`, `+faststart`. Widest browser support.      |
+| `stackgrid-cmd-e.gif`         | **GitHub README** embed        | Autoplays & loops inline. 960px wide, 15fps. Not in `public/`. |
+| `stackgrid-cmd-e.mp4`         | **Landing page** `<video>`     | H.264, `yuv420p`, `+faststart`. Copy to `public/` for web.   |
 | `stackgrid-cmd-e.webm`        | **Landing page** `<video>`     | VP9 — comparable size; list first so modern browsers use it. |
 | `stackgrid-cmd-e-poster.png`  | `<video poster>` / social card | First-paint frame before the video loads.                    |
-| `stackgrid-cmd-e-1080p60.mp4` | Master (re-edits, uploads)     | Full-quality 1920×1080 @ 60fps, no fade.                     |
+| `stackgrid-cmd-e-1080p60.mp4` | Master (re-edits, uploads)     | Full-quality 1920×1080 @ 60fps, no fade. Not in `public/`.   |
 | `cmd_e.py`                    | Re-render / edit the animation | Manim scene.                                                 |
 
 ## Embed in the GitHub README
@@ -37,11 +55,11 @@ exists).
   muted
   loop
   playsinline
-  poster="/assets/stackgrid-cmd-e-poster.png"
+  poster="/stackgrid-cmd-e-poster.png"
   style="width:100%;max-width:960px;border-radius:12px"
 >
-  <source src="/assets/stackgrid-cmd-e.webm" type="video/webm" />
-  <source src="/assets/stackgrid-cmd-e.mp4" type="video/mp4" />
+  <source src="/stackgrid-cmd-e.webm" type="video/webm" />
+  <source src="/stackgrid-cmd-e.mp4" type="video/mp4" />
 </video>
 ```
 
