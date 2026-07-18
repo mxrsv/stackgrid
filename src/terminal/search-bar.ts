@@ -1,7 +1,7 @@
 import type { ISearchOptions } from "@xterm/addon-search";
 import { settings } from "../settings/settings-store";
 import { resolveTheme } from "../settings/themes";
-import type { Pane } from "./pane";
+import type { Pane, SelectionSnapshot } from "./pane";
 
 /** "resultIndex/resultCount" for the bar counter; "0/0" when empty. */
 export function formatMatchCount(
@@ -44,25 +44,103 @@ function searchOptions(incremental: boolean): ISearchOptions {
   };
 }
 
+function positionBefore(a: SelectionSnapshot, b: SelectionSnapshot): boolean {
+  return a.row < b.row || (a.row === b.row && a.col < b.col);
+}
+
 /**
- * Run `find` against both Unicode normalizations of the term.
+ * Pick which normalization's hit is the real next/previous match.
+ *
+ * A wrapped findNext lands at/before the origin; a wrapped findPrevious lands
+ * at/after it. Prefer a non-wrapped hit, then the earlier (next) or later
+ * (previous) of the two.
+ */
+export function pickNormalizationWinner(
+  direction: "next" | "previous",
+  origin: SelectionSnapshot | null,
+  nfcSel: SelectionSnapshot,
+  nfdSel: SelectionSnapshot,
+): "nfc" | "nfd" {
+  if (origin === null) {
+    if (direction === "next") {
+      return positionBefore(nfcSel, nfdSel) ? "nfc" : "nfd";
+    }
+    return positionBefore(nfcSel, nfdSel) ? "nfd" : "nfc";
+  }
+
+  if (direction === "next") {
+    const nfcWrapped = !positionBefore(origin, nfcSel);
+    const nfdWrapped = !positionBefore(origin, nfdSel);
+    if (nfcWrapped !== nfdWrapped) {
+      return nfcWrapped ? "nfd" : "nfc";
+    }
+    return positionBefore(nfcSel, nfdSel) ? "nfc" : "nfd";
+  }
+
+  const nfcWrapped = !positionBefore(nfcSel, origin);
+  const nfdWrapped = !positionBefore(nfdSel, origin);
+  if (nfcWrapped !== nfdWrapped) {
+    return nfcWrapped ? "nfd" : "nfc";
+  }
+  return positionBefore(nfcSel, nfdSel) ? "nfd" : "nfc";
+}
+
+/**
+ * Run find against both Unicode normalizations of the term.
  *
  * Neither side can be normalized on its own: an IME types Vietnamese as NFD
  * while most program output is NFC, but macOS hands back filenames in NFD —
- * and the addon searches the raw buffer, which we cannot normalize. So try
- * NFC first, then NFD when the two differ and NFC found nothing.
+ * and the addon searches the raw buffer, which we cannot normalize. Probe both
+ * forms from the same selection origin (a failed probe clears selection, so we
+ * restore), then keep the nearer hit so mixed NFC/NFD buffers stay reachable.
  */
 function findNormalized(
-  find: (term: string, options: ISearchOptions) => boolean,
+  pane: Pane,
+  direction: "next" | "previous",
   value: string,
   options: ISearchOptions,
 ): boolean {
+  const find =
+    direction === "next"
+      ? (term: string, opts: ISearchOptions) => pane.search.findNext(term, opts)
+      : (term: string, opts: ISearchOptions) =>
+          pane.search.findPrevious(term, opts);
+
   const nfc = value.normalize("NFC");
-  if (find(nfc, options)) {
+  const nfd = value.normalize("NFD");
+  if (nfd === nfc) {
+    return find(nfc, options);
+  }
+
+  const origin = pane.captureSelection();
+
+  const nfcHit = find(nfc, options);
+  const nfcSel = nfcHit ? pane.captureSelection() : null;
+
+  pane.restoreSelection(origin);
+  const nfdHit = find(nfd, options);
+  const nfdSel = nfdHit ? pane.captureSelection() : null;
+
+  if (!nfcHit && !nfdHit) {
+    return false;
+  }
+  if (nfcHit && !nfdHit) {
+    // NFD miss cleared selection — re-apply the NFC hit for decorations.
+    pane.restoreSelection(origin);
+    return find(nfc, options);
+  }
+  if (!nfcHit && nfdHit) {
     return true;
   }
-  const nfd = value.normalize("NFD");
-  return nfd === nfc ? false : find(nfd, options);
+
+  const winner = pickNormalizationWinner(
+    direction,
+    origin,
+    nfcSel!,
+    nfdSel!,
+  );
+  pane.restoreSelection(origin);
+  return find(winner === "nfc" ? nfc : nfd, options);
 }
 
 function barButton(
@@ -100,19 +178,14 @@ export function openSearchBar(pane: Pane): void {
   const counter = document.createElement("span");
   counter.className = "search-bar__count";
 
-  const next = (term: string, options: ISearchOptions): boolean =>
-    pane.search.findNext(term, options);
-  const previous = (term: string, options: ISearchOptions): boolean =>
-    pane.search.findPrevious(term, options);
-
   const findNext = (): void => {
     if (input.value !== "") {
-      findNormalized(next, input.value, searchOptions(false));
+      findNormalized(pane, "next", input.value, searchOptions(false));
     }
   };
   const findPrevious = (): void => {
     if (input.value !== "") {
-      findNormalized(previous, input.value, searchOptions(false));
+      findNormalized(pane, "previous", input.value, searchOptions(false));
     }
   };
 
@@ -137,7 +210,7 @@ export function openSearchBar(pane: Pane): void {
       return;
     }
     // Incremental: the current selection expands instead of jumping ahead
-    findNormalized(next, input.value, searchOptions(true));
+    findNormalized(pane, "next", input.value, searchOptions(true));
   });
 
   // The global shortcut handler skips inputs outside .pane__term, so the

@@ -17,6 +17,13 @@ export interface PaneEvents {
   onFocus(id: number): void;
 }
 
+/** Single-line selection snapshot for search probes across NFC/NFD forms. */
+export interface SelectionSnapshot {
+  readonly col: number;
+  readonly row: number;
+  readonly length: number;
+}
+
 /** A terminal cell (xterm instance) bound to one PTY session by id. */
 export interface Pane {
   readonly id: number;
@@ -34,6 +41,12 @@ export interface Pane {
   applySettings(next: Settings): void;
   /** Update the header bar (dot color, cwd, process badge). */
   setHeaderInfo(info: PaneHeaderInfo): void;
+  /**
+   * Snapshot the active selection so a failed NFC/NFD search probe can restore
+   * it — the search addon clears selection on a miss.
+   */
+  captureSelection(): SelectionSnapshot | null;
+  restoreSelection(snapshot: SelectionSnapshot | null): void;
   dispose(): void;
 }
 
@@ -209,6 +222,35 @@ export function createPane(
     }`;
   }
 
+  function captureSelection(): SelectionSnapshot | null {
+    const pos = term.getSelectionPosition();
+    if (pos === undefined) {
+      return null;
+    }
+    // Search matches are single-line; multi-line selections (user drag) are
+    // restored as the start row only — enough for the probe's origin.
+    if (pos.start.y !== pos.end.y) {
+      return {
+        col: pos.start.x,
+        row: pos.start.y,
+        length: Math.max(1, term.cols - pos.start.x),
+      };
+    }
+    return {
+      col: pos.start.x,
+      row: pos.start.y,
+      length: Math.max(0, pos.end.x - pos.start.x),
+    };
+  }
+
+  function restoreSelection(snapshot: SelectionSnapshot | null): void {
+    if (snapshot === null) {
+      term.clearSelection();
+      return;
+    }
+    term.select(snapshot.col, snapshot.row, snapshot.length);
+  }
+
   function dispose(): void {
     if (resizeTimer !== null) {
       clearTimeout(resizeTimer);
@@ -231,6 +273,8 @@ export function createPane(
     focus: () => term.focus(),
     applySettings,
     setHeaderInfo,
+    captureSelection,
+    restoreSelection,
     dispose,
   };
 }
