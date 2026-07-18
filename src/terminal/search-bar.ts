@@ -37,12 +37,32 @@ function searchOptions(incremental: boolean): ISearchOptions {
     decorations: {
       matchBackground: match,
       activeMatchBackground: activeMatch,
-      // Required by ISearchDecorationOptions even though there is no
-      // overview ruler — theme-derived placeholder colors.
+      // Painted on the overview ruler (pane sets overviewRuler.width).
       matchOverviewRuler: match,
       activeMatchColorOverviewRuler: activeMatch,
     },
   };
+}
+
+/**
+ * Run `find` against both Unicode normalizations of the term.
+ *
+ * Neither side can be normalized on its own: an IME types Vietnamese as NFD
+ * while most program output is NFC, but macOS hands back filenames in NFD —
+ * and the addon searches the raw buffer, which we cannot normalize. So try
+ * NFC first, then NFD when the two differ and NFC found nothing.
+ */
+function findNormalized(
+  find: (term: string, options: ISearchOptions) => boolean,
+  value: string,
+  options: ISearchOptions,
+): boolean {
+  const nfc = value.normalize("NFC");
+  if (find(nfc, options)) {
+    return true;
+  }
+  const nfd = value.normalize("NFD");
+  return nfd === nfc ? false : find(nfd, options);
 }
 
 function barButton(
@@ -80,14 +100,19 @@ export function openSearchBar(pane: Pane): void {
   const counter = document.createElement("span");
   counter.className = "search-bar__count";
 
+  const next = (term: string, options: ISearchOptions): boolean =>
+    pane.search.findNext(term, options);
+  const previous = (term: string, options: ISearchOptions): boolean =>
+    pane.search.findPrevious(term, options);
+
   const findNext = (): void => {
     if (input.value !== "") {
-      pane.search.findNext(input.value, searchOptions(false));
+      findNormalized(next, input.value, searchOptions(false));
     }
   };
   const findPrevious = (): void => {
     if (input.value !== "") {
-      pane.search.findPrevious(input.value, searchOptions(false));
+      findNormalized(previous, input.value, searchOptions(false));
     }
   };
 
@@ -112,7 +137,7 @@ export function openSearchBar(pane: Pane): void {
       return;
     }
     // Incremental: the current selection expands instead of jumping ahead
-    pane.search.findNext(input.value, searchOptions(true));
+    findNormalized(next, input.value, searchOptions(true));
   });
 
   // The global shortcut handler skips inputs outside .pane__term, so the

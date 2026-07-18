@@ -68,13 +68,13 @@ Four built-in presets — **Tokyo Night** (default), **Dracula**, **One Dark**, 
 Hold ⌘ and click in any pane's output:
 
 - a **file path** (with optional `:line:col`) opens in your editor — VS Code, Cursor, Zed, or a custom command — resolving relative paths against that pane's working directory;
-- a **URL** opens in your default browser.
+- a **URL** (including OSC 8 hyperlinks written by CLI tools) opens in your default browser.
 
 Plain clicks still belong to the terminal, so mouse-driven TUIs (Claude Code, Codex) keep working.
 
 ### 🔍 Search & scrollback
 
-Incremental, case-insensitive **find** in the focused pane (⌘F) with match counts, and **clear buffer** (⌘K) to drop scrollback while keeping the current prompt.
+Incremental, case-insensitive **find** in the focused pane (⌘F) with match counts and tick marks on the overview ruler, and **clear buffer** (⌘K) to drop scrollback while keeping the current prompt. How many lines each pane keeps is configurable under Settings › Scrollback.
 
 ### 🪶 Lightweight & local-first
 
@@ -133,6 +133,8 @@ A pane is **busy** when its foreground process is something other than an idle s
 | ⌘+ / ⌘- / ⌘0 | Font zoom in / out / reset |
 | ⌘Q           | Quit                       |
 
+Shift+Enter is not distinguishable from Enter in xterm today (a known limit). In Claude Code, use **Option+Enter** or type `\` then Enter to insert a newline without submitting.
+
 ## Settings
 
 Open **Settings** from the toolbar to configure:
@@ -141,6 +143,7 @@ Open **Settings** from the toolbar to configure:
 - **Theme** and per-color overrides.
 - **Editor** for ⌘+click — VS Code, Cursor, Zed, or a custom command.
 - **Tab bar position** — left sidebar or top bar.
+- **Scrollback** — lines kept per pane (1k … 100k).
 - **Focus Expand** and **pane bar** toggles.
 
 Settings, layout presets, workspace recents, and logos are stored as JSON via the Tauri store; the panel has a **Restore defaults** button.

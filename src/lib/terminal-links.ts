@@ -34,6 +34,23 @@ export const MAX_CANDIDATES_PER_LINE = 24;
 const URL_RE =
   /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~[\]`()<>]/g;
 
+/**
+ * Whether a URI may be handed to the default browser.
+ *
+ * Detected links already come from `URL_RE`, but an OSC 8 hyperlink carries a
+ * URI the *output* chose — anything printed to the terminal (a downloaded log,
+ * a curl response) can ask for `file:///…` or an app-registered scheme like
+ * `vscode://`. Only http/https ever reach the opener.
+ */
+export function isBrowsableUrl(uri: string): boolean {
+  try {
+    const { protocol } = new URL(uri);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false; // not a URI at all
+  }
+}
+
 // Characters a path segment is made of. Spaces are not included: an unquoted
 // path with a space is ambiguous in terminal output, so it is left alone
 // (VS Code does the same).

@@ -5,6 +5,7 @@ use std::{
     io::{Read, Write},
     sync::{
         atomic::{AtomicU32, Ordering},
+        mpsc,
         Mutex,
     },
     thread,
@@ -82,6 +83,51 @@ fn take_valid_utf8(pending: &mut Vec<u8>) -> String {
     }
 }
 
+/// Bound on the reader→emitter queue. `sync_channel` blocks the reader once
+/// the queue is full, so a fast producer (`cat` a huge file, `yes`) backs up
+/// into the PTY pipe and gets throttled by the kernel — an unbounded channel
+/// would let the queue grow to the size of the output instead.
+const QUEUE_CHUNKS: usize = 64;
+
+/// Cap for a single emitted batch — large enough to absorb a bursty `cat`,
+/// small enough that one IPC message stays cheap.
+const BATCH_MAX_BYTES: usize = 64 * 1024;
+
+/// Append `first` plus any already-queued chunks to `out`, up to `cap` bytes.
+/// Order is preserved. A chunk that would push the batch past `cap` is parked
+/// in `held` for the next call (std mpsc cannot peek / un-recv).
+///
+/// Appending straight into the caller's buffer keeps this to one copy per
+/// chunk; building an intermediate batch would copy every byte twice.
+fn collect_batch(
+    first: Vec<u8>,
+    rx: &mpsc::Receiver<Vec<u8>>,
+    cap: usize,
+    held: &mut Option<Vec<u8>>,
+    out: &mut Vec<u8>,
+) {
+    let mut len = first.len();
+    out.extend_from_slice(&first);
+    loop {
+        if len >= cap {
+            break;
+        }
+        let chunk = match held.take() {
+            Some(chunk) => chunk,
+            None => match rx.try_recv() {
+                Ok(chunk) => chunk,
+                Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => break,
+            },
+        };
+        if len != 0 && len + chunk.len() > cap {
+            *held = Some(chunk);
+            break;
+        }
+        out.extend_from_slice(&chunk);
+        len += chunk.len();
+    }
+}
+
 fn remove_session(app: &AppHandle, id: u32) {
     let state = app.state::<PtyState>();
     if let Ok(mut sessions) = state.sessions.lock() {
@@ -124,6 +170,10 @@ pub fn spawn_shell(
     }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    // Own identity — tools can detect Stackgrid without ConEmu spoofing.
+    // Keep ConEmuANSI below until OSC 9;4 emitters recognize TERM_PROGRAM.
+    cmd.env("TERM_PROGRAM", "Stackgrid");
+    cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
     if !cfg!(windows) {
         // Stackgrid consumes OSC 9;4 progress reports (the sidebar spinner),
         // but Claude Code only emits them when it recognizes the terminal:
@@ -132,6 +182,8 @@ pub fn spawn_shell(
         // such capability flag — ConEmu is Windows-only, so no macOS tool
         // changes behavior on it (and on a real Windows build we must NOT
         // fake it: tools pick ConEmu-specific paths on a plain ConPTY).
+        // Own TERM_PROGRAM is set above so we can drop this spoof once
+        // Claude Code (and peers) recognize Stackgrid by name.
         // Verified empirically (PTY harness): without this claude emits zero
         // OSC 9;4; with it, state 0 at startup, 3 while working, 0 when done.
         cmd.env("ConEmuANSI", "ON");
@@ -163,35 +215,58 @@ pub fn spawn_shell(
     // Ownership seam: pane stays tied to the spawning window until Move to window.
     coordinator.register(id, window.label().to_string());
 
-    let output_app = app.clone();
+    // Reader forwards raw bytes; emitter batches + decodes. No timer — when
+    // emit keeps up, each chunk goes straight through; when the webview is
+    // slower, try_recv drains the backlog into larger IPC messages. The
+    // channel is bounded so that backlog cannot outgrow QUEUE_CHUNKS.
+    let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(QUEUE_CHUNKS);
     thread::spawn(move || {
         let mut buf = [0u8; 8192];
-        // Multi-byte UTF-8 sequences can straddle read boundaries; lossy-decoding
-        // each chunk independently turns the split halves into U+FFFD, which
-        // corrupts TUI output (extra columns → wrapped dividers → ghost lines).
-        // Hold back an incomplete trailing sequence until the next read instead.
-        let mut pending: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    pending.extend_from_slice(&buf[..n]);
-                    let data = take_valid_utf8(&mut pending);
-                    if data.is_empty() {
-                        continue;
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
                     }
-                    let coordinator = output_app.state::<WindowCoordinator>();
-                    emit_to_owner(
-                        &output_app,
-                        &coordinator,
-                        id,
-                        EVENT_OUTPUT,
-                        OutputPayload { id, data },
-                    );
                 }
             }
         }
-        // Stream ended mid-sequence — flush whatever is left, lossily.
+        // Drop tx so the emitter sees Disconnected and runs the exit path.
+    });
+
+    let output_app = app.clone();
+    thread::spawn(move || {
+        // Multi-byte UTF-8 sequences can straddle chunk boundaries; lossy-
+        // decoding each batch independently turns the split halves into
+        // U+FFFD. Hold back an incomplete trailing sequence instead.
+        let mut pending: Vec<u8> = Vec::new();
+        let mut held: Option<Vec<u8>> = None;
+        loop {
+            let first = match held.take() {
+                Some(chunk) => chunk,
+                None => match rx.recv() {
+                    Ok(chunk) => chunk,
+                    Err(mpsc::RecvError) => break,
+                },
+            };
+            collect_batch(first, &rx, BATCH_MAX_BYTES, &mut held, &mut pending);
+            let data = take_valid_utf8(&mut pending);
+            if data.is_empty() {
+                continue;
+            }
+            let coordinator = output_app.state::<WindowCoordinator>();
+            emit_to_owner(
+                &output_app,
+                &coordinator,
+                id,
+                EVENT_OUTPUT,
+                OutputPayload { id, data },
+            );
+        }
+        // Channel closed — flush whatever is left, lossily, then exit. `held`
+        // is necessarily None here: the loop only reaches `recv` (and so only
+        // breaks) on an iteration that found nothing parked.
         if !pending.is_empty() {
             let data = String::from_utf8_lossy(&pending).to_string();
             let coordinator = output_app.state::<WindowCoordinator>();
@@ -311,7 +386,59 @@ pub fn kill_pty(
 
 #[cfg(test)]
 mod tests {
-    use super::take_valid_utf8;
+    use super::{collect_batch, take_valid_utf8, QUEUE_CHUNKS};
+    use std::sync::mpsc;
+
+    #[test]
+    fn collect_batch_concatenates_queued_chunks_in_order() {
+        let (tx, rx) = mpsc::sync_channel(QUEUE_CHUNKS);
+        tx.send(b"bb".to_vec()).unwrap();
+        tx.send(b"cc".to_vec()).unwrap();
+        let mut held = None;
+        let mut out = Vec::new();
+        collect_batch(b"aa".to_vec(), &rx, 64 * 1024, &mut held, &mut out);
+        assert_eq!(out, b"aabbcc");
+        assert!(held.is_none());
+    }
+
+    #[test]
+    fn collect_batch_appends_after_an_incomplete_tail() {
+        // `out` is the emitter's `pending`, which may already hold the first
+        // bytes of a UTF-8 sequence split across reads — those must survive.
+        let (_tx, rx) = mpsc::sync_channel::<Vec<u8>>(QUEUE_CHUNKS);
+        let mut held = None;
+        let mut out = vec![0xE1, 0xBB]; // leading two bytes of "ố"
+        collect_batch(vec![0x91], &rx, 64 * 1024, &mut held, &mut out);
+        assert_eq!(String::from_utf8(out).unwrap(), "ố");
+    }
+
+    #[test]
+    fn collect_batch_stops_at_cap_and_holds_the_overflow_chunk() {
+        let (tx, rx) = mpsc::sync_channel(QUEUE_CHUNKS);
+        let chunk = vec![b'x'; 30 * 1024];
+        tx.send(chunk.clone()).unwrap();
+        tx.send(chunk.clone()).unwrap();
+        tx.send(chunk.clone()).unwrap();
+        let mut held = None;
+        let mut out = Vec::new();
+        let first = rx.recv().unwrap();
+        collect_batch(first, &rx, 64 * 1024, &mut held, &mut out);
+        assert_eq!(out.len(), 60 * 1024);
+        assert_eq!(held.as_ref().map(|c| c.len()), Some(30 * 1024));
+        // Nothing left in rx — the overflow sits in `held` for the next call
+        // (std mpsc cannot put a chunk back after try_recv).
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn collect_batch_returns_first_when_queue_is_empty() {
+        let (_tx, rx) = mpsc::sync_channel::<Vec<u8>>(QUEUE_CHUNKS);
+        let mut held = None;
+        let mut out = Vec::new();
+        collect_batch(b"solo".to_vec(), &rx, 64 * 1024, &mut held, &mut out);
+        assert_eq!(out, b"solo");
+        assert!(held.is_none());
+    }
 
     #[test]
     fn passes_through_complete_utf8() {

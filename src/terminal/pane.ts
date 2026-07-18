@@ -8,6 +8,7 @@ import { installImeTrace } from "./ime-trace";
 import { resolveTheme } from "../settings/themes";
 import type { PaneHeaderInfo } from "../lib/process-info";
 import { createLinkProvider } from "./link-provider";
+import { createOscLinkHandler } from "./osc-link-handler";
 import { paneCwd } from "./pane-cwd";
 
 export interface PaneEvents {
@@ -87,11 +88,23 @@ export function createPane(
     fontSize: initial.fontSize,
     fontFamily: toFontStack(initial.fontFamily),
     lineHeight: 1.25,
-    scrollback: 10_000,
+    scrollback: initial.scrollback,
     // Option must stay a character key on macOS so IMEs (Vietnamese Telex,
     // dead-key accents) can compose — `true` swallows it as Meta.
     macOptionIsMeta: false,
     theme: resolveTheme(initial),
+    // OSC 8 hyperlinks otherwise fall back to window.confirm/open, which
+    // WKWebView blocks — route through Tauri like the custom link provider.
+    linkHandler: createOscLinkHandler(),
+    // Search decorations paint match ticks here; width 0 skips the ruler.
+    overviewRuler: { width: 14 },
+    // Smooth wheel scroll (~125ms) feels less jumpy than the default snap.
+    smoothScrollDuration: 125,
+    // No minimumContrastRatio on purpose: it rewrites *every* color, so an
+    // agent TUI's deliberately dim grays get pulled up to near-white and the
+    // information hierarchy flattens (SGR 2 `dim` stops reading as dim), on
+    // top of a per-cell contrast computation in the render path. A theme
+    // whose ANSI colors are too dark is fixed in `resolveTheme`, not here.
   });
 
   const fitAddon = new FitAddon();
@@ -182,6 +195,7 @@ export function createPane(
     term.options.fontFamily = toFontStack(next.fontFamily);
     term.options.fontSize = next.fontSize;
     term.options.theme = resolveTheme(next);
+    term.options.scrollback = next.scrollback;
     fit();
   }
 
