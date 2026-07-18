@@ -29,7 +29,7 @@ class IntersectionObserverStub {
   }
 }
 
-function installVideoStubs(video) {
+function installVideoStubs(video, createPlayResult = () => Promise.resolve()) {
   let paused = true;
 
   Object.defineProperty(video, "paused", {
@@ -40,7 +40,7 @@ function installVideoStubs(video) {
   video.play = vi.fn().mockImplementation(() => {
     paused = false;
     video.dispatchEvent(new Event("play"));
-    return Promise.resolve();
+    return createPlayResult();
   });
   video.pause = vi.fn().mockImplementation(() => {
     paused = true;
@@ -129,7 +129,9 @@ describe("mountLandingSections", () => {
 
   it("autoplays in-view video, pauses it outside the viewport, and syncs the custom control", async () => {
     const root = mountSectionMarkup();
-    const video = installVideoStubs(root.querySelector("[data-workflow-video]"));
+    const video = installVideoStubs(
+      root.querySelector("[data-workflow-video]"),
+    );
     const toggle = root.querySelector("[data-video-toggle]");
     const label = root.querySelector("[data-video-label]");
     const icon = root.querySelector("[data-video-icon]");
@@ -166,7 +168,9 @@ describe("mountLandingSections", () => {
   it("reveals immediately and leaves video paused under reduced motion while allowing manual play", async () => {
     reducedMotion.matches = true;
     const root = mountSectionMarkup();
-    const video = installVideoStubs(root.querySelector("[data-workflow-video]"));
+    const video = installVideoStubs(
+      root.querySelector("[data-workflow-video]"),
+    );
     const toggle = root.querySelector("[data-video-toggle]");
 
     mountLandingSections(root);
@@ -189,9 +193,124 @@ describe("mountLandingSections", () => {
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("keeps autoplaying after a scroll-past aborts a pending play()", async () => {
+    const root = mountSectionMarkup();
+    let rejectPlay;
+    const video = installVideoStubs(
+      root.querySelector("[data-workflow-video]"),
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectPlay = reject;
+        }),
+    );
+
+    mountLandingSections(root);
+    const videoObserver = observerWithThreshold(0.45);
+    const inView = {
+      isIntersecting: true,
+      intersectionRatio: 0.6,
+      target: video,
+    };
+    const outOfView = {
+      isIntersecting: false,
+      intersectionRatio: 0,
+      target: video,
+    };
+
+    videoObserver.trigger([inView]);
+
+    expect(video.play).toHaveBeenCalledOnce();
+
+    // Scrolling on pauses the still-buffering video, which rejects the pending
+    // play() as an AbortError. That is routine, not a signal to stop.
+    videoObserver.trigger([outOfView]);
+    rejectPlay(new DOMException("interrupted by pause", "AbortError"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    videoObserver.trigger([inView]);
+
+    expect(video.play).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops retrying autoplay once the browser blocks it, until the visitor asks", async () => {
+    const root = mountSectionMarkup();
+    const video = installVideoStubs(
+      root.querySelector("[data-workflow-video]"),
+      () => Promise.reject(new DOMException("blocked", "NotAllowedError")),
+    );
+    const toggle = root.querySelector("[data-video-toggle]");
+
+    mountLandingSections(root);
+    const videoObserver = observerWithThreshold(0.45);
+    const inView = {
+      isIntersecting: true,
+      intersectionRatio: 0.6,
+      target: video,
+    };
+
+    videoObserver.trigger([inView]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(video.play).toHaveBeenCalledOnce();
+
+    videoObserver.trigger([
+      { isIntersecting: false, intersectionRatio: 0, target: video },
+    ]);
+    videoObserver.trigger([inView]);
+
+    expect(video.play).toHaveBeenCalledOnce();
+
+    toggle.click();
+
+    expect(video.play).toHaveBeenCalledTimes(2);
+  });
+
+  it("resumes a manually started video under reduced motion after scrolling away", async () => {
+    reducedMotion.matches = true;
+    const root = mountSectionMarkup();
+    const video = installVideoStubs(
+      root.querySelector("[data-workflow-video]"),
+    );
+    const toggle = root.querySelector("[data-video-toggle]");
+
+    mountLandingSections(root);
+    const videoObserver = observerWithThreshold(0.45);
+    const inView = {
+      isIntersecting: true,
+      intersectionRatio: 1,
+      target: video,
+    };
+
+    videoObserver.trigger([inView]);
+    await Promise.resolve();
+
+    expect(video.play).not.toHaveBeenCalled();
+
+    toggle.click();
+    await Promise.resolve();
+
+    expect(video.play).toHaveBeenCalledOnce();
+
+    videoObserver.trigger([
+      { isIntersecting: false, intersectionRatio: 0, target: video },
+    ]);
+
+    expect(video.paused).toBe(true);
+
+    videoObserver.trigger([inView]);
+    await Promise.resolve();
+
+    expect(video.play).toHaveBeenCalledTimes(2);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("stops responding to video controls after dispose", () => {
     const root = mountSectionMarkup();
-    const video = installVideoStubs(root.querySelector("[data-workflow-video]"));
+    const video = installVideoStubs(
+      root.querySelector("[data-workflow-video]"),
+    );
     const toggle = root.querySelector("[data-video-toggle]");
 
     const dispose = mountLandingSections(root);
@@ -205,7 +324,9 @@ describe("mountLandingSections", () => {
 
   it("pauses an actively playing video when disposed", async () => {
     const root = mountSectionMarkup();
-    const video = installVideoStubs(root.querySelector("[data-workflow-video]"));
+    const video = installVideoStubs(
+      root.querySelector("[data-workflow-video]"),
+    );
 
     const dispose = mountLandingSections(root);
     const videoObserver = observerWithThreshold(0.45);
@@ -231,7 +352,9 @@ describe("mountLandingSections", () => {
     window.matchMedia = vi.fn(() => reducedMotion);
 
     const root = mountSectionMarkup();
-    const video = installVideoStubs(root.querySelector("[data-workflow-video]"));
+    const video = installVideoStubs(
+      root.querySelector("[data-workflow-video]"),
+    );
 
     const dispose = mountLandingSections(root);
     const videoObserver = observerWithThreshold(0.45);
@@ -271,7 +394,9 @@ describe("updateLandingSectionsLocale", () => {
     expect(
       root.querySelector('[data-section-copy="workflowEyebrow"]').textContent,
     ).toBe(messages.vi.workflowEyebrow);
-    expect(video.getAttribute("aria-label")).toBe(messages.vi.workflowVideoLabel);
+    expect(video.getAttribute("aria-label")).toBe(
+      messages.vi.workflowVideoLabel,
+    );
     expect(toggle.getAttribute("aria-label")).toBe(
       messages.vi.workflowVideoPlayAria,
     );
@@ -285,21 +410,21 @@ describe("renderLandingSections", () => {
   const html = renderLandingSections(messages.en);
 
   it("contains exactly one workflow section", () => {
-    expect(
-      [...html.matchAll(/<section[^>]*class="[^"]*a-section-workflow[^"]*"/g)],
-    ).toHaveLength(1);
+    expect([
+      ...html.matchAll(/<section[^>]*class="[^"]*a-section-workflow[^"]*"/g),
+    ]).toHaveLength(1);
   });
 
   it("contains a terminal manifest with four rows", () => {
-    expect(
-      [...html.matchAll(/<article[^>]*class="[^"]*a-section-proof__row[^"]*"/g)],
-    ).toHaveLength(4);
+    expect([
+      ...html.matchAll(/<article[^>]*class="[^"]*a-section-proof__row[^"]*"/g),
+    ]).toHaveLength(4);
   });
 
   it("contains exactly one footer", () => {
-    expect(
-      [...html.matchAll(/<footer[^>]*class="[^"]*a-section-footer[^"]*"/g)],
-    ).toHaveLength(1);
+    expect([
+      ...html.matchAll(/<footer[^>]*class="[^"]*a-section-footer[^"]*"/g),
+    ]).toHaveLength(1);
   });
 
   it("does not contain demo-only markup or copy", () => {
@@ -324,8 +449,12 @@ describe("renderLandingSections", () => {
     }
     expect(html).toContain('data-section-copy-play="workflowVideoPlayLabel"');
     expect(html).toContain('data-section-copy-pause="workflowVideoPauseLabel"');
-    expect(html).toContain('data-section-copy-play-aria="workflowVideoPlayAria"');
-    expect(html).toContain('data-section-copy-pause-aria="workflowVideoPauseAria"');
+    expect(html).toContain(
+      'data-section-copy-play-aria="workflowVideoPlayAria"',
+    );
+    expect(html).toContain(
+      'data-section-copy-pause-aria="workflowVideoPauseAria"',
+    );
   });
 
   it("includes workflow video assets and lifecycle hooks", () => {
@@ -339,7 +468,9 @@ describe("renderLandingSections", () => {
   });
 
   it("places GitHub only in footer utility navigation", () => {
-    const githubLinks = [...html.matchAll(/href="https:\/\/github\.com\/mxrsv\/stackgrid"/g)];
+    const githubLinks = [
+      ...html.matchAll(/href="https:\/\/github\.com\/mxrsv\/stackgrid"/g),
+    ];
     expect(githubLinks).toHaveLength(1);
     expect(html).toContain("a-section-footer__bar");
   });

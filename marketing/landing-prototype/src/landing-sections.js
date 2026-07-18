@@ -206,9 +206,7 @@ function updateVideoToggle(root) {
   const state = isPlaying ? "pause" : "play";
   const label = root.querySelector("[data-video-label]");
   const icon = root.querySelector("[data-video-icon]");
-  const labelValue = label?.getAttribute(
-    `data-section-copy-${state}-value`,
-  );
+  const labelValue = label?.getAttribute(`data-section-copy-${state}-value`);
   const ariaValue = toggle.getAttribute(
     `data-section-copy-${state}-aria-value`,
   );
@@ -264,9 +262,11 @@ function updateVideoCopy(root, copy) {
 function getReducedMotionQuery(root) {
   const view = root.ownerDocument?.defaultView;
 
-  return view?.matchMedia?.("(prefers-reduced-motion: reduce)") ?? {
-    matches: false,
-  };
+  return (
+    view?.matchMedia?.("(prefers-reduced-motion: reduce)") ?? {
+      matches: false,
+    }
+  );
 }
 
 function subscribeMediaQuery(mediaQuery, listener) {
@@ -310,27 +310,52 @@ export function mountLandingSections(root) {
   let videoInView = false;
   let userPaused = false;
   let userStartedVideo = false;
+  let autoplayBlocked = false;
   let revealObserver;
   let videoObserver;
 
   const syncVideoToggle = () => updateVideoToggle(root);
 
+  /**
+   * Whether the video should be running right now, from state alone.
+   *
+   * Under reduced motion it stays still unless the visitor started it by hand;
+   * that opt-in then survives scrolling out of view and back.
+   */
+  const shouldPlay = () => {
+    if (!videoInView || userPaused || autoplayBlocked) {
+      return false;
+    }
+
+    return !reducedMotion.matches || userStartedVideo;
+  };
+
+  const handlePlayRejection = (error) => {
+    // A pause() cutting off a pending play() is routine while scrolling past:
+    // the element already ends up in the state we asked for, so there is
+    // nothing to record. Latching here would kill autoplay for the session.
+    if (error?.name === "AbortError") {
+      return;
+    }
+
+    // Anything else (autoplay policy, decode failure) means the browser will
+    // not start playback on its own. Stop retrying and leave the Play control
+    // showing; a click clears the flag and tries again with a user gesture.
+    console.warn("Workflow video autoplay was refused.", error);
+    autoplayBlocked = true;
+    syncVideoToggle();
+  };
+
   const playVideo = (force = false) => {
-    if (
-      !video ||
-      (!force && (reducedMotion.matches || userPaused))
-    ) {
+    if (!video || (!force && !shouldPlay())) {
       return;
     }
 
     try {
       const playResult = video.play();
-      playResult?.catch?.(() => {
-        userPaused = true;
-        syncVideoToggle();
-      });
-    } catch {
-      userPaused = true;
+      playResult?.catch?.(handlePlayRejection);
+    } catch (error) {
+      handlePlayRejection(error);
     }
 
     syncVideoToggle();
@@ -341,18 +366,13 @@ export function mountLandingSections(root) {
       return;
     }
 
-    if (!videoInView) {
-      video.pause();
-      syncVideoToggle();
+    if (shouldPlay()) {
+      playVideo();
       return;
     }
 
-    if (!reducedMotion.matches && !userPaused) {
-      playVideo();
-    } else if (reducedMotion.matches && !userStartedVideo) {
-      video.pause();
-      syncVideoToggle();
-    }
+    video.pause();
+    syncVideoToggle();
   };
 
   const handleVideoToggle = () => {
@@ -363,6 +383,7 @@ export function mountLandingSections(root) {
     if (video.paused) {
       userPaused = false;
       userStartedVideo = true;
+      autoplayBlocked = false;
       playVideo(true);
     } else {
       userPaused = true;
@@ -417,8 +438,7 @@ export function mountLandingSections(root) {
           return;
         }
 
-        videoInView =
-          entry.isIntersecting && entry.intersectionRatio >= 0.45;
+        videoInView = entry.isIntersecting && entry.intersectionRatio >= 0.45;
         updateVideoForViewport();
       },
       { threshold: 0.45 },

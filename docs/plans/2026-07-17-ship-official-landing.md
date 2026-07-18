@@ -7,7 +7,7 @@
 ## 1. Kết quả mong đợi
 
 - Route `/` render hero hiện tại nguyên trạng, sau đó là workflow, terminal manifest và footer đã duyệt — verify bằng screenshot desktop `1440×900` và mobile `390×844`.
-- Route `/landing-prototype/?direction=A&lang=en` vẫn render đúng hero, stage stream, aurora, CTA, modal và locale toggle như trước — verify bằng checklist regression hero.
+- Route `/` vẫn render đúng hero, stage stream, aurora, CTA, modal và locale toggle như trước — verify bằng checklist regression hero. Route `/landing-prototype/` bị gỡ khỏi build: nó dùng chung `main.js`/`base.css` với `/` nên chỉ là bản trùng lặp bị deploy công khai.
 - EN/VI hoạt động cho toàn bộ section mới mà không rebuild aurora hoặc stage — verify bằng đổi locale liên tiếp 3 lần và quan sát animation chỉ chạy một luồng.
 - Video inline chỉ phát khi vào viewport, có Play/Pause, dừng khi rời viewport và đứng yên với `prefers-reduced-motion: reduce` — verify bằng browser test.
 - Production build tạo static artifact tại `marketing/dist` và Vercel phục vụ route `/` không lỗi asset — verify bằng `npm run landing:build` và `npm run landing:preview`.
@@ -257,11 +257,11 @@
 
 - Tạo shell root dùng cùng `#specimen-root`, `#demo-root` và bootstrap module hiện tại.
 - Thêm favicon thật, title, description, Open Graph/Twitter metadata dùng poster hiện có.
-- Không chỉnh [marketing/landing-prototype/index.html](../../marketing/landing-prototype/index.html); đây tiếp tục là regression surface của hero hiện tại.
+- Gỡ `marketing/landing-prototype/index.html`: sau khi `/` dùng chung `main.js` và `base.css`, route prototype chỉ là bản trùng lặp được deploy công khai. Regression surface của hero giờ chính là `/`.
 
 **Verify**:
 
-- Dev server mở `/` và `/landing-prototype/?direction=A&lang=vi` đều render.
+- Dev server mở `/` và `/?lang=vi` đều render.
 - Accessibility snapshot có một `h1`, section heading đúng cấp, footer landmark và video control có accessible name.
 
 ---
@@ -279,9 +279,9 @@
 
 **Build**:
 
-- Thêm `landing:dev`, `landing:build`, `landing:preview`; giữ `dev`, `build`, `tauri`, `prototype:landing` hiện tại.
+- Thêm `landing:dev`, `landing:build`, `landing:preview`; giữ `dev`, `build`, `tauri`. Gỡ `prototype:landing` — đã trùng chức năng với `landing:dev` và trỏ tới route vừa xoá.
 - Cấu hình Vercel chạy landing build và publish `marketing/dist`.
-- Không thêm rewrite làm ảnh hưởng asset hoặc prototype route.
+- Không thêm rewrite làm ảnh hưởng asset.
 
 **Verify**:
 

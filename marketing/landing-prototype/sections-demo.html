@@ -332,8 +332,7 @@
         overflow: hidden;
         border: 1px solid var(--a-line);
         border-radius: 8px;
-        background:
-          linear-gradient(180deg, #16161e 0%, #12121a 100%);
+        background: linear-gradient(180deg, #16161e 0%, #12121a 100%);
       }
 
       .hero-stage__fade {
@@ -644,7 +643,12 @@
             rgb(var(--a-ambient) / 10%),
             transparent 28rem
           ),
-          linear-gradient(180deg, transparent, rgb(255 255 255 / 2%), transparent);
+          linear-gradient(
+            180deg,
+            transparent,
+            rgb(255 255 255 / 2%),
+            transparent
+          );
       }
 
       .proof::before {
@@ -1074,7 +1078,7 @@
 
       <div class="shell">
         <header class="topbar">
-          <a class="brand" href="/landing-prototype/?direction=A&lang=en">
+          <a class="brand" href="/?lang=en">
             <img src="/landing-prototype/assets/stackgrid-icon.svg" alt="" />
             <strong>Stackgrid</strong>
             <span class="desc">Native macOS / PTY field</span>
@@ -1130,7 +1134,8 @@
             <div class="hero-stage__fade"></div>
           </div>
           <p class="hero-note">
-            Hero above is a static stand-in — use the live prototype for the real stage.
+            Hero above is a static stand-in — use the live prototype for the
+            real stage.
           </p>
         </section>
       </div>
@@ -1156,27 +1161,41 @@
                 <b>01</b>
                 <div>
                   <strong>Start from your workspace</strong>
-                  <span>Open the project once and launch an agent into each pane.</span>
+                  <span
+                    >Open the project once and launch an agent into each
+                    pane.</span
+                  >
                 </div>
               </li>
               <li>
                 <b>02</b>
                 <div>
                   <strong>Read the field at a glance</strong>
-                  <span>Active work and fresh output stay visible without tab-hopping.</span>
+                  <span
+                    >Active work and fresh output stay visible without
+                    tab-hopping.</span
+                  >
                 </div>
               </li>
               <li class="is-key">
                 <b>03</b>
                 <div>
                   <strong>Expand only what needs you</strong>
-                  <span>⌘E grows the active pane while the rest remain in view.</span>
+                  <span
+                    >⌘E grows the active pane while the rest remain in
+                    view.</span
+                  >
                 </div>
               </li>
             </ol>
           </div>
 
-          <div class="workflow__visual" id="workflow-video" data-reveal style="--reveal-order: 1">
+          <div
+            class="workflow__visual"
+            id="workflow-video"
+            data-reveal
+            style="--reveal-order: 1"
+          >
             <div class="workflow__frame">
               <video
                 data-workflow-video
@@ -1247,8 +1266,8 @@
                   <div class="mark">PTY</div>
                   <h3>Real PTY. Your login shell.</h3>
                   <p>
-                    Real processes inherit your PATH, aliases, dotfiles, and
-                    the agent CLIs you already use.
+                    Real processes inherit your PATH, aliases, dotfiles, and the
+                    agent CLIs you already use.
                   </p>
                 </div>
                 <code class="proof__readout">$SHELL -l</code>
@@ -1259,8 +1278,8 @@
                   <div class="mark">Layout</div>
                   <h3>Layouts follow your attention.</h3>
                   <p>
-                    Split, dock, swap, zoom, and Focus Expand without losing
-                    the rest of the field.
+                    Split, dock, swap, zoom, and Focus Expand without losing the
+                    rest of the field.
                   </p>
                 </div>
                 <code class="proof__readout">⌘E · 65%</code>
@@ -1297,9 +1316,7 @@
       <!-- Footer -->
       <footer class="footer">
         <div class="footer__inner">
-          <p class="eyebrow footer__eyebrow">
-            Ready when you are
-          </p>
+          <p class="eyebrow footer__eyebrow">Ready when you are</p>
           <h2>
             Run more agents.
             <span>Lose less context.</span>
@@ -1314,7 +1331,9 @@
               href="https://github.com/mxrsv/stackgrid/releases/latest"
               >Download for macOS <i>↓</i></a
             >
-            <a class="ghost-cta" href="#workflow-video">Watch the 16-sec demo</a>
+            <a class="ghost-cta" href="#workflow-video"
+              >Watch the 16-sec demo</a
+            >
           </div>
           <div class="footer__meta">
             <span>macOS 10.15+</span>
@@ -1331,7 +1350,7 @@
         <div class="footer__bar">
           <span>© Stackgrid · sections demo for layout review</span>
           <nav>
-            <a href="/landing-prototype/?direction=A&lang=en">Live hero</a>
+            <a href="/?lang=en">Live hero</a>
             <a href="https://github.com/mxrsv/stackgrid">GitHub</a>
             <a href="https://github.com/mxrsv/stackgrid/releases/latest"
               >Releases</a
@@ -1360,7 +1379,8 @@
           "aria-label",
           `${isPlaying ? "Pause" : "Play"} Focus Expand demonstration`,
         );
-        if (videoLabel) videoLabel.textContent = isPlaying ? "Pause motion" : "Play motion";
+        if (videoLabel)
+          videoLabel.textContent = isPlaying ? "Pause motion" : "Play motion";
         if (videoIcon) videoIcon.textContent = isPlaying ? "Ⅱ" : "▶";
       }
 

@@ -158,7 +158,7 @@ export function renderDirectionA(copy, locale) {
 
         <div class="a-main">
           <header class="a-topbar">
-            <a class="a-topbar__brand" href="/landing-prototype/?direction=A" aria-label="${copy.navProduct}">
+            <a class="a-topbar__brand" href="/" aria-label="${copy.navProduct}">
               ${renderBrandMark(copy)}
             </a>
             <span class="a-topbar__descriptor">Native macOS / PTY field</span>

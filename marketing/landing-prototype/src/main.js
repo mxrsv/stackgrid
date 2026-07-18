@@ -24,7 +24,45 @@ let locale = readLocale(window.location);
 let disposePage = () => {};
 let landingSectionsRoot;
 
+// Set up front so `[data-reveal]` content starts hidden and never flashes in
+// before its reveal animation. It is dropped again if the reveal observer
+// cannot be installed — see mountSections below.
 document.documentElement.classList.add("has-js");
+
+/**
+ * Mount one page module without letting its failure take down the others.
+ *
+ * @param {string} name
+ * @param {() => (() => void) | void} mount
+ * @returns {() => void}
+ */
+function mountSafely(name, mount) {
+  try {
+    return mount() ?? (() => {});
+  } catch (error) {
+    console.error(`${name} failed to mount.`, error);
+    return () => {};
+  }
+}
+
+/**
+ * Mount the landing sections, falling back to plain visible content.
+ *
+ * `has-js` holds every `[data-reveal]` node at `opacity: 0` until this
+ * observer adds `is-visible`. Without the observer the class would hide the
+ * whole page below the hero, so it has to go with it.
+ *
+ * @returns {() => void}
+ */
+function mountSections() {
+  try {
+    return mountLandingSections(landingSectionsRoot);
+  } catch (error) {
+    console.error("Landing sections failed to mount.", error);
+    document.documentElement.classList.remove("has-js");
+    return () => {};
+  }
+}
 
 function render() {
   disposePage();
@@ -36,9 +74,17 @@ function render() {
     renderLandingSections(sectionMessages[locale]),
   );
   landingSectionsRoot = specimenRoot.querySelector(".a-landing-sections");
-  const disposeRenderer = page.mount(specimenRoot);
-  const disposeSections = mountLandingSections(landingSectionsRoot);
-  const disposeDialog = mountDemoDialog(demoRoot, specimenRoot);
+
+  // The hero renderer drives a WebGL context; a blocked or missing one must
+  // not stop the sections below it from mounting.
+  const disposeRenderer = mountSafely("Hero renderer", () =>
+    page.mount(specimenRoot),
+  );
+  const disposeSections = mountSections();
+  const disposeDialog = mountSafely("Demo dialog", () =>
+    mountDemoDialog(demoRoot, specimenRoot),
+  );
+
   disposePage = () => {
     disposeDialog();
     disposeSections();

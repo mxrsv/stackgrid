@@ -1,3 +1,49 @@
+/*
+ * Sections mount as siblings of `.direction-a`, so they do not inherit its
+ * custom properties. Re-declare the Direction A tokens here and paint a
+ * continuous dark surface — otherwise body (#f4f4f4 from base.css) shows
+ * through and var(--a-*) resolves to nothing (broken grid + ghost text).
+ */
+.a-landing-sections {
+  --a-surface-0: #0a0c0b;
+  --a-surface-1: #101310;
+  --a-surface-2: #151915;
+  --a-surface-3: #1b211b;
+  --a-ink: #ffffff;
+  --a-ink-soft: rgb(255 255 255 / 64%);
+  --a-ink-faint: rgb(255 255 255 / 52%);
+  --a-line: rgb(255 255 255 / 12%);
+  --a-line-strong: rgb(255 255 255 / 21%);
+  --a-accent: #b98cff;
+  --a-accent-rgb: 185 140 255;
+  --a-ambient: 141 39 230;
+  --a-ease-lock: cubic-bezier(0.22, 0.78, 0.18, 1);
+  --a-font-display:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --a-font-mono:
+    "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo,
+    monospace;
+  --a-gutter: clamp(1.5rem, 4vw, 3.25rem);
+  --a-rail: min(72rem, 100%);
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+  color: var(--a-ink);
+  background:
+    radial-gradient(
+      circle at 76% 8%,
+      rgb(var(--a-ambient) / 12%),
+      transparent 28rem
+    ),
+    linear-gradient(180deg, #0a0c0b 0%, #0d100d 48%, #090b0a 100%);
+  font-family: var(--a-font-display);
+}
+
+body:has(.a-landing-sections) {
+  color: #ffffff;
+  background: #0a0c0b;
+}
+
 .a-section-workflow,
 .a-section-proof,
 .a-section-footer {
@@ -37,7 +83,7 @@
 .a-section-proof__inner,
 .a-section-footer__inner,
 .a-section-footer__bar {
-  width: min(100%, 72rem);
+  width: var(--a-rail);
   margin: 0 auto;
 }
 
