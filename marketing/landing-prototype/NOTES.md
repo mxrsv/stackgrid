@@ -4,7 +4,10 @@
 Multi-round elimination — nothing is decided until a variant survives review.
 
 Flip via the MOTION row in the switcher (visible only on direction A), keys `0–5`,
-or `?motion=` in the URL. Base URL: `/landing-prototype/?direction=A&lang=en`.
+or `?motion=` in the URL. Base URL: `/?lang=en`.
+
+> Historical log. The switcher, the losing variants and the `/landing-prototype/`
+> route are all gone — see the verdict at the bottom. The landing is served at `/`.
 
 ## Round 1 candidates (2026-07-11)
 

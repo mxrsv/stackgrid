@@ -6,8 +6,8 @@ export const messages = {
     headlineTail: "Keep every agent in sight.",
     subhead:
       "Stackgrid is a native macOS terminal built to launch, watch, and steer AI coding agents in parallel.",
-    primaryCta: "Watch the 45-sec demo",
-    secondaryCta: "View on GitHub",
+    primaryCta: "Download for macOS",
+    secondaryCta: "Watch the 16-sec demo",
     localeLabel: "Language",
   },
   vi: {
@@ -17,8 +17,8 @@ export const messages = {
     headlineTail: "Không agent nào rời khỏi tầm mắt.",
     subhead:
       "Stackgrid là terminal macOS native để khởi chạy, quan sát và điều phối nhiều AI coding agent song song.",
-    primaryCta: "Xem demo 45 giây",
-    secondaryCta: "Xem trên GitHub",
+    primaryCta: "Tải về cho macOS",
+    secondaryCta: "Xem demo 16 giây",
     localeLabel: "Ngôn ngữ",
   },
 };
