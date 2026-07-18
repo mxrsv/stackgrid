@@ -7,9 +7,11 @@ import {
 } from "../settings/settings-store";
 import {
   clampFontSize,
+  clampScrollback,
   COLOR_KEYS,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
+  SCROLLBACK_CHOICES,
   type TabBarPosition,
   type TerminalColors,
 } from "../settings/settings-schema";
@@ -92,6 +94,26 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     const index = TAB_BAR_CHOICES.indexOf(current.tabBarPosition);
     const next = TAB_BAR_CHOICES[(index + 1) % TAB_BAR_CHOICES.length];
     updateSettings({ tabBarPosition: next });
+  };
+
+  const cycleScrollback = (): void => {
+    const clamped = clampScrollback(current.scrollback);
+    // Off-choice values (legacy / typed) count as the nearest choice at or below.
+    let index = 0;
+    for (let i = 0; i < SCROLLBACK_CHOICES.length; i++) {
+      if (SCROLLBACK_CHOICES[i] <= clamped) {
+        index = i;
+      }
+    }
+    const next = SCROLLBACK_CHOICES[(index + 1) % SCROLLBACK_CHOICES.length];
+    updateSettings({ scrollback: next });
+  };
+
+  const scrollbackLabel = (n: number): string => {
+    if (n >= 1000) {
+      return `${n / 1000}k lines`;
+    }
+    return `${n} lines`;
   };
 
   return (
@@ -202,6 +224,18 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           checked={current.showPaneBar}
           onToggle={() => updateSettings({ showPaneBar: !current.showPaneBar })}
         />
+        <ConfigRow label="Scrollback" desc="lines kept per pane">
+          <button
+            type="button"
+            class="cfg-btn"
+            title="Next scrollback size"
+            aria-label={`Scrollback: ${scrollbackLabel(current.scrollback)}. Switch to next size`}
+            onClick={cycleScrollback}
+          >
+            {scrollbackLabel(current.scrollback)}
+            <span class="cfg-btn__hint">↹</span>
+          </button>
+        </ConfigRow>
 
         <ConfigGroup label="danger" />
         <ConfigRow

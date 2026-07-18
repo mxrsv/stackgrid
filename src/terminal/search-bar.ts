@@ -37,12 +37,16 @@ function searchOptions(incremental: boolean): ISearchOptions {
     decorations: {
       matchBackground: match,
       activeMatchBackground: activeMatch,
-      // Required by ISearchDecorationOptions even though there is no
-      // overview ruler — theme-derived placeholder colors.
+      // Painted on the overview ruler (pane sets overviewRuler.width).
       matchOverviewRuler: match,
       activeMatchColorOverviewRuler: activeMatch,
     },
   };
+}
+
+/** NFC so an IME-typed NFD term still matches composed buffer text. */
+function searchTerm(value: string): string {
+  return value.normalize("NFC");
 }
 
 function barButton(
@@ -82,12 +86,12 @@ export function openSearchBar(pane: Pane): void {
 
   const findNext = (): void => {
     if (input.value !== "") {
-      pane.search.findNext(input.value, searchOptions(false));
+      pane.search.findNext(searchTerm(input.value), searchOptions(false));
     }
   };
   const findPrevious = (): void => {
     if (input.value !== "") {
-      pane.search.findPrevious(input.value, searchOptions(false));
+      pane.search.findPrevious(searchTerm(input.value), searchOptions(false));
     }
   };
 
@@ -112,7 +116,7 @@ export function openSearchBar(pane: Pane): void {
       return;
     }
     // Incremental: the current selection expands instead of jumping ahead
-    pane.search.findNext(input.value, searchOptions(true));
+    pane.search.findNext(searchTerm(input.value), searchOptions(true));
   });
 
   // The global shortcut handler skips inputs outside .pane__term, so the

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, validateSettings } from "./settings-schema";
+import {
+  DEFAULT_SETTINGS,
+  validateSettings,
+} from "./settings-schema";
 
 describe("validateSettings", () => {
   it("silently drops the legacy restoreTabs field", () => {
@@ -61,5 +64,28 @@ describe("focusExpand", () => {
     expect(
       validateSettings({ ...DEFAULT_SETTINGS, focusExpand: "yes" }).focusExpand,
     ).toBe(false);
+  });
+});
+
+describe("scrollback", () => {
+  it("defaults to 10000 when missing", () => {
+    expect(DEFAULT_SETTINGS.scrollback).toBe(10_000);
+    expect(validateSettings({}).scrollback).toBe(10_000);
+  });
+
+  it("falls back to 10000 on a non-number", () => {
+    expect(validateSettings({ scrollback: "abc" }).scrollback).toBe(10_000);
+  });
+
+  it("clamps below the minimum to 1000", () => {
+    expect(validateSettings({ scrollback: 250 }).scrollback).toBe(1000);
+  });
+
+  it("clamps above the maximum to 100000", () => {
+    expect(validateSettings({ scrollback: 999_999 }).scrollback).toBe(100_000);
+  });
+
+  it("keeps an in-range value", () => {
+    expect(validateSettings({ scrollback: 5000 }).scrollback).toBe(5000);
   });
 });
