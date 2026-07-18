@@ -32,6 +32,21 @@ describe("createOscLinkHandler", () => {
     expect(client.openedUrls).toEqual(["https://example.com"]);
   });
 
+  it.each([
+    "file:///Users/me/.ssh/id_rsa",
+    "vscode://file/etc/passwd",
+    "javascript:alert(1)",
+    "not a uri at all",
+  ])("refuses to open %s", (uri) => {
+    const client = createMemoryLinkClient();
+    const handler = createOscLinkHandler(client);
+    handler.activate(mouseEvent(true), uri, {
+      start: { x: 1, y: 1 },
+      end: { x: 1, y: 1 },
+    });
+    expect(client.openedUrls).toEqual([]);
+  });
+
   it("openUrl rejection does not throw an unhandled rejection", async () => {
     const client = createMemoryLinkClient();
     client.openUrl = () => Promise.reject(new Error("blocked"));

@@ -100,8 +100,11 @@ export function createPane(
     overviewRuler: { width: 14 },
     // Smooth wheel scroll (~125ms) feels less jumpy than the default snap.
     smoothScrollDuration: 125,
-    // Lift dark-on-dark ANSI colors so faint text stays readable.
-    minimumContrastRatio: 4.5,
+    // No minimumContrastRatio on purpose: it rewrites *every* color, so an
+    // agent TUI's deliberately dim grays get pulled up to near-white and the
+    // information hierarchy flattens (SGR 2 `dim` stops reading as dim), on
+    // top of a per-cell contrast computation in the render path. A theme
+    // whose ANSI colors are too dark is fixed in `resolveTheme`, not here.
   });
 
   const fitAddon = new FitAddon();

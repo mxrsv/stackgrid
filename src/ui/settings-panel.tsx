@@ -99,12 +99,12 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const cycleScrollback = (): void => {
     const clamped = clampScrollback(current.scrollback);
     // Off-choice values (legacy / typed) count as the nearest choice at or below.
-    let index = 0;
-    for (let i = 0; i < SCROLLBACK_CHOICES.length; i++) {
-      if (SCROLLBACK_CHOICES[i] <= clamped) {
-        index = i;
-      }
-    }
+    // CHOICES is sorted ascending, so the count of choices at or below the
+    // current value is one past its index.
+    const index = Math.max(
+      0,
+      SCROLLBACK_CHOICES.filter((choice) => choice <= clamped).length - 1,
+    );
     const next = SCROLLBACK_CHOICES[(index + 1) % SCROLLBACK_CHOICES.length];
     updateSettings({ scrollback: next });
   };
