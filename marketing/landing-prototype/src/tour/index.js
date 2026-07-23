@@ -22,8 +22,12 @@ import {
   SIDEBAR_STATUS,
   boardRecents,
 } from "./stage-states.js";
+import {
+  CHAPTER_COUNT,
+  chapterForProgress,
+  trackProgress,
+} from "./scroll-progress.js";
 
-const CHAPTER_COUNT = 3;
 const PROMPT = "❯ ";
 
 /** Staggered reveal for the closing band's blocks. */
@@ -406,16 +410,17 @@ export function renderTour(copy) {
         rafId = null;
 
         const rect = track.getBoundingClientRect();
-        const scrollable = rect.height - window.innerHeight;
+        const progress = trackProgress(
+          rect.top,
+          rect.height,
+          window.innerHeight,
+        );
 
-        if (scrollable <= 0) {
+        if (rect.height - window.innerHeight <= 0) {
           return;
         }
 
-        const progress = Math.min(1, Math.max(0, -rect.top / scrollable));
-        const chapter = String(
-          Math.min(CHAPTER_COUNT, Math.floor(progress * CHAPTER_COUNT) + 1),
-        );
+        const chapter = String(chapterForProgress(progress));
 
         if (section.dataset.chapter !== chapter) {
           section.dataset.chapter = chapter;
