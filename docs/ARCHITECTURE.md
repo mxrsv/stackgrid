@@ -1,8 +1,23 @@
 ---
 derived: true
 derived_from:
-  [0001, 0002, 0003, 0005, 0007, 0010, 0012, 0020, 0021, 0022, 0023, 0024, 0025]
-rendered: 2026-07-10
+  [
+    0001,
+    0002,
+    0003,
+    0005,
+    0007,
+    0010,
+    0012,
+    0020,
+    0021,
+    0022,
+    0023,
+    0024,
+    0025,
+    0027,
+  ]
+rendered: 2026-07-24
 ---
 
 # ARCHITECTURE — Stackgrid
@@ -70,13 +85,16 @@ src-tauri/src/
 
 src/
   main.tsx / ui/  Preact chrome (App, tab bar, status bar, settings)
-  terminal/       imperative domain: TabManager, TerminalManager, Pane, layout, keymap
+  terminal/       imperative domain: TabManager, TerminalManager, Pane, layout, keymap,
+                   AgentAttentionTracker, agent-notifier (terminal/agent-attention.ts,
+                   terminal/agent-notifier.ts)
   settings/       settings schema + store + color themes
-  lib/            pure: split-tree, process-info, workspace-recents, geometry, …
+  lib/            pure: split-tree, process-info, workspace-recents, geometry,
+                   osc-progress, osc-notification, native-notification, …
   open-board/, presets/, sidebar/   chrome modules; agent launch in terminal/agent-launch.ts
 ```
 
-**Ownership today:** one `TabManager` per webview owns tabs; each tab has a `TerminalManager` (`tree` + `Map<paneId, Pane>`); Rust `PtyState` owns live PTYs.
+**Ownership today:** one `TabManager` per webview owns tabs; each tab has a `TerminalManager` (`tree` + `Map<paneId, Pane>`); Rust `PtyState` owns live PTYs. `TabManager` also owns one `AgentAttentionTracker` instance per webview (`createAgentAttentionTracker`, §5 D9) — a pure, in-memory reducer over the same `pty:output` / `PaneEvents` / `pty_info` inputs `TabManager` already consumes for `agentBusy`/legacy `unread`, plus pane focus.
 
 **Ownership v1:** same per-webview layout ownership, plus an **app-level Rust coordinator** that owns `pane-id → window-id` and fans out PTY events (see §5).
 
@@ -90,6 +108,7 @@ These are product/architecture invariants — both sibling docs assume the same 
 4. **Move-across-window** = remove pane-id from window A’s tree, insert into window B’s tree; PTY keeps running in the registry; coordinator updates ownership.
 5. **`session.json` = chrome + `workspacePath`** (per-window tab trees, names, colors, window set, and the workspace each tab belongs to). Still no per-pane CWD and no process identity. Restore spawns every pane of a tab at that tab's `workspacePath` — a tab labelled with a repo whose shell sits in `$HOME` would be lying; tabs from files that predate the field have no workspace and still fall back to `$HOME`.
 6. **Layout preset = separate artifact** (tree + optional per-pane CWD map).
+7. **Attention state is in-memory only, additive to the legacy contract.** `AgentAttentionTracker`'s per-pane `phase`/`attention`/`unread` never touch `session.json` or any other persisted artifact and do not survive a restart; `TabView.agentBusy`/`TabView.unread` and the public `selectTab()` clearing keep their exact shipped meaning (ADR 0027, §5 D9 below).
 
 ## 5. Decisions (chosen + rejected)
 
@@ -236,6 +255,30 @@ Supersedes single-window pre-pipeline quit behavior. Busy guard still applies on
 
 **ADR:** `docs/decisions/0003-last-window-close-quits-app.md` (replaces pre-pipeline `docs/adr/0002-last-tab-close-quits-app.md`)
 
+### D9 — Agent attention state pipeline + notification boundary
+
+**Chosen: a pure `AgentAttentionTracker` owned by `TabManager`, fed by the existing PTY/process signals; native notification via `tauri-plugin-notification` behind a minimal capability.**
+
+- `AgentAttentionTracker` (`src/terminal/agent-attention.ts`) is a **pure, in-memory, per-webview** reducer — no Tauri, no DOM, no settings import. It holds one `PaneAttentionSnapshot` per live pane: `phase: AgentPhase` (`unknown`/`idle`/`working`/`exited`, the runtime work signal) and `attention: AttentionKind` (`none`/`completed`/`requested`/`warning`/`error`, a separate latched, actionable state) — a pane can be `working` while still carrying a latched `warning`.
+- **Inputs**, all already flowing into `TabManager` for the legacy `agentBusy`/`unread` contract — no new IPC surface:
+  - `pty:output` → `AgentActivity`'s OSC 9;4 progress parser (state `2`→`error`, `4`→`warning`, clear→phase transition feeding `completed`) plus the existing sustained-output heuristic as a fallback. The heuristic may only ever produce `working → idle → completed`; it can never latch `warning`/`error`/`requested` — explicit protocol signals always outrank it.
+  - `PaneEvents` → OSC 9 / OSC 777 notification and the terminal bell, parsed by xterm's own escape-sequence handling (`src/lib/osc-notification.ts`) and surfaced as `noteSignal(id, { kind: "requested", source, observedAt })`.
+  - `pty_info` (existing poll) → `noteProcess(id, process, isAgent)`: the **process gate**. Every other input above is discarded unless the last poll recognized the pane's foreground process as an agent; a pane that reverts to a shell closes the gate and resets stale state, and nothing observed before the gate reopens is replayed.
+  - Pane focus / window focus → `noteOutputVisibility` (per-pane unread) and `acknowledge(id)` on real DOM focus, independent of `TabView`'s legacy tab-level unread.
+- **Aggregation**: `tracker.summarize(paneIds)` rolls a tab's panes into one `AgentAttentionSummary` (`kind` at precedence `error > warning > requested > completed > working > unread > idle`, plus `actionableCount`/`workingCount`/`unreadCount`) consumed by both chrome surfaces (sidebar `WorkspaceLogo` and the top `TabBar`) through the shared `AgentAttentionMark` component — one status-mark implementation, two chrome positions.
+- **Navigation**: `TabManager.focusNextAttention(tabIndex?)` scans the same precedence order (ties broken oldest-`changedAt`-first) and focuses exactly one candidate pane per call, acknowledging it as a side effect of the focus; `src/ui/attention-focus-coordinator.ts` runs the same overlay preflight for both the status-mark click and the `Cmd+Shift+A` shortcut (keymap action `focus-next-attention`) so neither path can silently drop a `PresetEditor`/`SavePresetDialog` draft or focus an intermediate pane.
+- **Notification boundary**: `src/terminal/agent-notifier.ts` is a pure, injectable policy (`AgentNotifierDeps`: `isEnabled`, `isWindowFocused`, `send`) that fires at most once per `(paneId, revision)` and only when the setting is on **and** the window is not focused. It calls `src/lib/native-notification.ts`, a thin adapter over `@tauri-apps/plugin-notification` (`isPermissionGranted` / `requestPermission` / `sendNotification`) that re-checks permission at send time (a fail-silent no-op if revoked) rather than trusting a cached flag. Tauri capability (`src-tauri/capabilities/default.json`) grants only `notification:allow-is-permission-granted`, `notification:allow-request-permission`, `notification:allow-notify` — no broader `notification:default`. Notification copy is limited to workspace label + normalized agent label + a fixed kind phrase (`finished`/`needs attention`/`warning`/`error`) — never raw terminal or model text.
+- **State lifetime**: attention state lives only for the life of the PTY, in the same per-webview JS context as the rest of `TabManager`'s state (D7) — it is never written to `session.json`/`settings.json` or any other artifact, and does not survive an app restart (§4 seam 7).
+
+**Rejected:**
+
+- _Parsing rendered terminal text or model output_ ("Allow?", "Press Enter", "Done") to infer attention — unreliable across agents/locales and couples Stackgrid to CLI-specific UI copy; protocol signals (OSC 9;4/9/777, bell) plus a capped output heuristic instead.
+- _Reusing `Busy` or the legacy tab-level unread flag as the acknowledge mechanism_ — would silently change close-guard and legacy-unread semantics other flows depend on; kept as two additive, independent axes.
+- _Enabling native notification by default, or requesting OS permission at startup_ — spams users and trips the permission prompt before it's wanted; opt-in via Settings, prompted only on toggle.
+- _Persisting attention as a run ledger/history in v1_ — turns a live coordination aid into an audit system prematurely.
+
+**ADR:** `docs/decisions/0027-agent-attention-signals-and-ack.md`
+
 ## 6. Data flows (main journeys)
 
 ### Open → materialize → picker
@@ -293,20 +336,43 @@ Cmd+click filepath token in pane output
   → Read-only (no write-back)
 ```
 
+### Agent attention signal → status mark → acknowledge
+
+```text
+pty_info poll confirms foreground process is a recognized agent
+  → process gate opens for that pane
+  → pty:output (OSC 9;4) | PaneEvents (OSC 9/777, bell) | sustained-output fallback
+  → AgentAttentionTracker.note{Activity,Signal}(id, …) → PaneAttentionSnapshot
+      (explicit signals outrank the heuristic; heuristic never latches warning/error/requested)
+  → tracker.summarize(tab's paneIds) → AgentAttentionSummary
+  → AgentAttentionMark (sidebar WorkspaceLogo + top TabBar) renders by precedence
+  → deps.isEnabled && !isWindowFocused && kind !== "none" && revision > lastNotified
+      → agent-notifier.maybeNotify → native-notification.send (permission re-checked)
+  → user clicks status mark, or Cmd+Shift+A
+      → attention-focus-coordinator preflight (blocked if PresetEditor/SavePresetDialog has a draft)
+      → TabManager.focusNextAttention(tabIndex?) focuses exactly one candidate pane
+      → tracker.acknowledge(id): clears that pane's attention + per-pane unread, phase untouched
+  → pane's foreground process reverts to shell, or pty:exit
+      → gate closes / record pruned; nothing before the next gate-open is replayed
+```
+
+Legacy `TabView.agentBusy`/`TabView.unread` and public `selectTab()` clearing are unaffected — they run alongside this flow, not through it (§4 seam 7).
+
 ## 7. State ownership
 
-| State                                   | Owner                         | Lifetime                              |
-| --------------------------------------- | ----------------------------- | ------------------------------------- |
-| Live PTY sessions                       | Rust `PtyState`               | Until `kill_pty` / process exit       |
-| pane-id → window                        | Rust coordinator              | Until pane closed or app quit         |
-| Split tree + pane map + focus           | Per-window `TerminalManager`  | Window lifetime                       |
-| Tab list + overrides + closed-tab stack | Per-window `TabManager`       | Window lifetime (closed-tab RAM only) |
-| Tab bar / status signals                | Per-webview `@preact/signals` | Webview lifetime                      |
-| Settings                                | `settings.json` + signals     | Disk + reload events                  |
-| Session chrome                          | `session.json` v2             | Disk; chrome + `workspacePath`        |
-| Layout presets                          | `presets.json`                | Disk; separate from session           |
-| Agent picker pending                    | Per-pane ephemeral UI flag    | One-shot after materialize/restore    |
-| Sidebar open + content                  | Per-window UI state           | Until closed                          |
+| State                                     | Owner                                                     | Lifetime                                                                |
+| ----------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Live PTY sessions                         | Rust `PtyState`                                           | Until `kill_pty` / process exit                                         |
+| pane-id → window                          | Rust coordinator                                          | Until pane closed or app quit                                           |
+| Split tree + pane map + focus             | Per-window `TerminalManager`                              | Window lifetime                                                         |
+| Tab list + overrides + closed-tab stack   | Per-window `TabManager`                                   | Window lifetime (closed-tab RAM only)                                   |
+| Tab bar / status signals                  | Per-webview `@preact/signals`                             | Webview lifetime                                                        |
+| Settings                                  | `settings.json` + signals                                 | Disk + reload events                                                    |
+| Session chrome                            | `session.json` v2                                         | Disk; chrome + `workspacePath`                                          |
+| Layout presets                            | `presets.json`                                            | Disk; separate from session                                             |
+| Agent picker pending                      | Per-pane ephemeral UI flag                                | One-shot after materialize/restore                                      |
+| Sidebar open + content                    | Per-window UI state                                       | Until closed                                                            |
+| Agent phase / attention / per-pane unread | Per-webview `AgentAttentionTracker` (inside `TabManager`) | In-memory only, life of the PTY — never persisted, pruned on `pty:exit` |
 
 ## 8. Artifact persistence
 
@@ -360,23 +426,24 @@ Restore / preset materialize: spawn N shells, `treeFromLayout(serialized, ids)` 
 
 ## 11. ADR index
 
-| ADR                                                            | Topic                              | Kind / relation                        |
-| -------------------------------------------------------------- | ---------------------------------- | -------------------------------------- |
-| `docs/decisions/0001-rust-pty-window-coordinator.md`           | Rust ownership + targeted PTY IPC  | architecture (D1)                      |
-| `docs/decisions/0002-multi-window-session-chrome.md`           | Single multi-window `session.json` | architecture (D3)                      |
-| `docs/decisions/0003-last-window-close-quits-app.md`           | Quit = last window of app          | architecture (D8); replaces adr/0002   |
-| `docs/decisions/0020-pane-id-equals-pty-id.md`                 | Pane-id ≡ PTY id                   | architecture (D2)                      |
-| `docs/decisions/0021-preset-persistence-presets-json.md`       | Separate `presets.json`            | architecture (D4)                      |
-| `docs/decisions/0022-sidebar-data-plane.md`                    | Rust reads + git shell-out         | architecture (D5)                      |
-| `docs/decisions/0023-agent-path-detect-allowlist.md`           | Allowlist PATH detect + spawn      | architecture (D6)                      |
-| `docs/decisions/0024-signals-module-store-multi-window.md`     | Per-webview signals + reload       | architecture (D7)                      |
-| `docs/decisions/0025-v1-stack-tauri-preact-xterm.md`           | v1 stack (revisable)               | architecture (§1)                      |
-| `docs/decisions/0005-macos-only-v1.md`                         | macOS only                         | principle (constrains stack)           |
-| `docs/decisions/0007-real-pty-login-shell.md`                  | Real PTY + login shell             | principle (PTY registry)               |
-| `docs/decisions/0010-session-restore-layout-chrome-not-cwd.md` | Session chrome without CWD         | principle (session schema)             |
-| `docs/decisions/0012-multi-window-workspace-model.md`          | Multi-window product model         | product (drives coordinator + session) |
-| `docs/adr/0001-session-restore-without-cwd.md`                 | Pre-pipeline session-chrome        | history; absorbed by ADR 0010          |
-| `docs/adr/0002-last-tab-close-quits-app.md`                    | Pre-pipeline single-window quit    | history; replaced by ADR 0003          |
+| ADR                                                            | Topic                                      | Kind / relation                        |
+| -------------------------------------------------------------- | ------------------------------------------ | -------------------------------------- |
+| `docs/decisions/0001-rust-pty-window-coordinator.md`           | Rust ownership + targeted PTY IPC          | architecture (D1)                      |
+| `docs/decisions/0002-multi-window-session-chrome.md`           | Single multi-window `session.json`         | architecture (D3)                      |
+| `docs/decisions/0003-last-window-close-quits-app.md`           | Quit = last window of app                  | architecture (D8); replaces adr/0002   |
+| `docs/decisions/0020-pane-id-equals-pty-id.md`                 | Pane-id ≡ PTY id                           | architecture (D2)                      |
+| `docs/decisions/0021-preset-persistence-presets-json.md`       | Separate `presets.json`                    | architecture (D4)                      |
+| `docs/decisions/0022-sidebar-data-plane.md`                    | Rust reads + git shell-out                 | architecture (D5)                      |
+| `docs/decisions/0023-agent-path-detect-allowlist.md`           | Allowlist PATH detect + spawn              | architecture (D6)                      |
+| `docs/decisions/0024-signals-module-store-multi-window.md`     | Per-webview signals + reload               | architecture (D7)                      |
+| `docs/decisions/0025-v1-stack-tauri-preact-xterm.md`           | v1 stack (revisable)                       | architecture (§1)                      |
+| `docs/decisions/0027-agent-attention-signals-and-ack.md`       | Attention pipeline + notification boundary | architecture (D9)                      |
+| `docs/decisions/0005-macos-only-v1.md`                         | macOS only                                 | principle (constrains stack)           |
+| `docs/decisions/0007-real-pty-login-shell.md`                  | Real PTY + login shell                     | principle (PTY registry)               |
+| `docs/decisions/0010-session-restore-layout-chrome-not-cwd.md` | Session chrome without CWD                 | principle (session schema)             |
+| `docs/decisions/0012-multi-window-workspace-model.md`          | Multi-window product model                 | product (drives coordinator + session) |
+| `docs/adr/0001-session-restore-without-cwd.md`                 | Pre-pipeline session-chrome                | history; absorbed by ADR 0010          |
+| `docs/adr/0002-last-tab-close-quits-app.md`                    | Pre-pipeline single-window quit            | history; replaced by ADR 0003          |
 
 Rationale lives in the ADRs; this document records the chosen shape only.
 
@@ -384,6 +451,6 @@ Rationale lives in the ADRs; this document records the chosen shape only.
 
 Against PRINCIPLES: agent-CLI first, macOS, mouse+keyboard, real PTY, local-by-default, MIT, session-chrome-not-CWD — all reflected in seams and persistence.
 
-Against PRD / BUSINESS-FLOW journeys: Open board → materialize → picker; restore-all + picker; swap; move-across-window; sidebar; presets — each has a data flow and owning layer.
+Against PRD / BUSINESS-FLOW journeys: Open board → materialize → picker; restore-all + picker; swap; move-across-window; sidebar; presets; agent attention signal → status mark → acknowledge — each has a data flow and owning layer.
 
 Against brownfield: shipped modules named; net-new called out; session-chrome-without-CWD (ADR 0010) preserved. Some net-new modules (Rust coordinator, tab-materialize / layout-engine / close-coordinator seams) are actively landing in the codebase; this document tracks the decisions, not a code snapshot — see `CONTEXT.md` for current implementation state.

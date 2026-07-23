@@ -49,6 +49,15 @@ Every pane is backed by a real PTY running your **login shell** (`$SHELL -l`) vi
 - **Workspace logos** — each workspace auto-detects a favicon from the repo as its icon, or drag-drop your own image onto it.
 - **Agent status at a glance** — in the vertical workspace sidebar, each avatar shows a spinning ring while an agent is **actively working on a prompt** (not merely open at its prompt — Stackgrid reads the agent's own OSC 9;4 progress reports, the same signal Ghostty renders as a progress bar), a **yellow dot** when a background tab has printed new output you haven't seen yet, and nothing when it's idle — so you can track every workspace without switching to it. Opening a tab clears its unread dot.
 
+### 🔔 Agent attention rail
+
+A per-pane layer on top of the status above: every pane tracks whether its agent is **working**, **finished**, **needs attention**, hit a **warning**, or hit an **error**, surfaced as a small status mark on the same workspace sidebar avatar and on the top tab bar (whichever chrome mode you're using) — red for error, yellow for warning, magenta for needs attention, green for finished, with a count badge when more than one pane needs you.
+
+- **Jump to what needs you** — click a status mark, or press **⌘⇧A**, to focus the highest-priority pane across every tab and window; press it again to move to the next one. Focusing a pane only acknowledges that pane's own attention — a still-working agent keeps showing as working right after.
+- **Native notifications, opt-in** — turn on **agent notifications** in Settings to get a background macOS notification (workspace + agent label + a one-word status, never terminal content) when an agent finishes or needs you, sent only while Stackgrid's window isn't focused.
+
+v1 uses one generic "needs attention" label — it doesn't yet distinguish a prompt asking for input from one asking for approval — and reads only protocol signals (OSC 9;4, OSC 9/777, the terminal bell) plus a conservative output heuristic; Stackgrid never parses agent or terminal text to guess at attention, and this state is in-memory only, so it resets on restart.
+
 ### 🤖 Launch agents into every pane
 
 - Pick an agent once on the Open board and Stackgrid launches it in **every pane** of the new tab — four panes, four agents running in parallel.
@@ -103,15 +112,16 @@ A pane is **busy** when its foreground process is something other than an idle s
 
 **Panes**
 
-| Shortcut  | Action                     |
-| --------- | -------------------------- |
-| ⌘D        | Split pane vertically      |
-| ⌘⇧D       | Split pane horizontally    |
-| ⌘] / ⌘[   | Focus next / previous pane |
-| ⌘⌥ + ←→↑↓ | Focus pane by direction    |
-| ⌘⇧⏎       | Zoom / restore active pane |
-| ⌘E        | Toggle Focus Expand        |
-| ⌘W        | Close pane                 |
+| Shortcut  | Action                                                       |
+| --------- | ------------------------------------------------------------ |
+| ⌘D        | Split pane vertically                                        |
+| ⌘⇧D       | Split pane horizontally                                      |
+| ⌘] / ⌘[   | Focus next / previous pane                                   |
+| ⌘⌥ + ←→↑↓ | Focus pane by direction                                      |
+| ⌘⇧A       | Jump to the pane that needs attention (agent attention rail) |
+| ⌘⇧⏎       | Zoom / restore active pane                                   |
+| ⌘E        | Toggle Focus Expand                                          |
+| ⌘W        | Close pane                                                   |
 
 **Tabs**
 

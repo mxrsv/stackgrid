@@ -1,7 +1,7 @@
 ---
 derived: true
-derived_from: [0006, 0013, 0014, 0015, 0016, 0017, 0026]
-rendered: 2026-07-10
+derived_from: [0006, 0013, 0014, 0015, 0016, 0017, 0026, 0027]
+rendered: 2026-07-24
 ---
 
 # UX-DESIGN — Stackgrid
@@ -12,7 +12,9 @@ clickable prototype reviewed by eye. Complements `PRD.md` (intent/journey/scope)
 rules. Shipped surfaces (focus, split, drag-dock rearrange, pane zoom, busy/agent
 chrome, tab bar, settings slide-over) are **referenced, not redefined** — this document
 covers only what v1 adds. **Pane swap and cross-window move are net-new** (PRD
-Brownfield note; ARCHITECTURE §2) and are defined in §6.
+Brownfield note; ARCHITECTURE §2) and are defined in §6. **The Agent Attention Rail is
+net-new** (ADR 0027) — a per-pane signal layered on top of the shipped spinner/unread
+chrome referenced above, not a replacement for it — and is defined in §9.
 
 Rule references like `BF-Rule 14` / `BF-Inv 6` point at `BUSINESS-FLOW.md`.
 
@@ -408,3 +410,116 @@ Edge cases:
 These were set as least-surprise defaults during prototype review (items 4–6 added
 later, in the requirements phase); none are load-bearing for the architecture and each
 can change without reshaping a surface.
+
+---
+
+## 9. Agent attention rail
+
+A per-pane signal layered **on top of** the shipped agent/busy chrome and the shipped
+sidebar spinner + unread dot (README "Agent status at a glance") — it answers _which_
+pane needs you, not just _that_ a tab has new output (BF states: **Agent phase**,
+**Attention**; ADR 0027; REQUIREMENTS E9). It lives entirely inside the **existing**
+workspace sidebar and top tab bar — no new panel, inbox, or notification center is
+introduced.
+
+The shipped spinner ("actively working on a prompt", OSC 9;4-driven) and the shipped
+yellow unread dot keep their exact meaning and continue to work exactly as before; this
+section only adds the actionable layer (`completed`/`requested`/`warning`/`error`) and
+per-pane acknowledge on top.
+
+### Layout
+
+One shared component, `AgentAttentionMark`, renders in both **chrome modes** the user
+already picks between in Settings (`Tab bar position`: sidebar vs. top bar) — same
+precedence, same colors, same accessible name, only the surrounding chrome differs.
+
+```
+Vertical workspace sidebar             Horizontal top tab bar
+┌────────────────────┐                 ┌───────────────────────────────────┐
+│ ◆ monorepo    🔴 2  │  error pill     │ monorepo 🔴2 │ infra ⟳ │ sandbox   │
+│ ◆ infra        ⟳    │  working spin   └───────────────────────────────────┘
+│ ◆ sandbox           │  idle, no mark
+└────────────────────┘
+```
+
+- **Actionable mark** (`error` / `warning` / `requested` / `completed`): a small pill
+  button with a numeric badge — the count of that tab's panes currently at that
+  precedence tier.
+- **Working mark**: the same tick-ring spinner as the shipped workspace-logo "agent
+  actively working" ring — status only, not clickable.
+- **Unread mark**: the same shipped small solid dot used for "background tab has new
+  output" — status only, not clickable.
+- **Idle**: no mark.
+
+### States
+
+Every tab/workspace shows its **single highest-precedence** state across its panes —
+never a stack of marks (BF-Rule 40):
+
+| Precedence  | Kind        | Color   | Rendering                      |
+| ----------- | ----------- | ------- | ------------------------------ |
+| 1 (highest) | `error`     | red     | pill + count, interactive      |
+| 2           | `warning`   | yellow  | pill + count, interactive      |
+| 3           | `requested` | magenta | pill + count, interactive      |
+| 4           | `completed` | green   | pill + count, interactive      |
+| 5           | `working`   | —       | tick-ring spinner, status-only |
+| 6           | `unread`    | yellow  | small dot, status-only         |
+| 7 (lowest)  | `idle`      | —       | nothing                        |
+
+`working` and `unread` share the shipped yellow-family palette but stay visually
+distinct shapes (spinner ring vs. static dot) so an agent mid-task is never mistaken for
+a pane that's merely gone unseen.
+
+### Interactions
+
+- **Mouse:** click an actionable mark → jump to that tab/workspace's highest-precedence
+  pane (scoped to that tab). Working/unread marks are not clickable — they are `role`
+  status decoration only.
+- **Keyboard: `Cmd+Shift+A`** → the same navigation, scoped **globally** across every
+  tab and window instead of one tab (FR-083). Press it again after the candidate pane is
+  acknowledged and it advances to the next-highest-precedence candidate, since the pane
+  just focused no longer carries actionable attention.
+- **Shared preflight, one path for both entry points**
+  (`attention-focus-coordinator`): no actionable candidate anywhere → complete no-op.
+  `PresetEditor` / `SavePresetDialog` holding an unsaved draft → **blocked**: nothing is
+  dismissed, no draft is lost, no pane is focused. Otherwise, Open board / Settings are
+  dismissed (via non-focusing state, not their own Cancel/close handlers, so the active
+  pane isn't focused first) and then exactly one candidate pane is focused — a single
+  click or shortcut press never focuses or acknowledges an intermediate pane (BF-Rule 41).
+
+### Edge cases
+
+- **No actionable candidate anywhere** → the action is a full no-op: nothing opens,
+  closes, or gains focus.
+- **Acknowledge is per-pane, not per-tab, and never touches phase**: focusing the
+  candidate pane — by click or via navigation — clears **only** that pane's own
+  `Attention` (back to `none`) and its own per-pane `Unread`; it never clears the
+  pane's `Agent phase`. A pane still `working` keeps showing `working` immediately
+  after being acknowledged (BF-Rule 41).
+- **Opening or selecting a tab still only clears the legacy tab-level unread flag**
+  (`TabView.unread`) through the existing public `selectTab()` — exactly the shipped
+  behavior described in the sidebar's "Agent status at a glance" note. Selecting a tab
+  does **not** acknowledge any pane's new `Attention` or per-pane `Unread` — only
+  **focusing a pane** does that. The two unread concepts are additive and run side by
+  side; neither replaces the other (BF-Rule 41, BF-Inv 11).
+- **Native notification is opt-in and background-only** (Settings toggle, default off;
+  denied OS permission keeps it off): fires only while the Stackgrid window is not
+  focused, at most once per attention transition, and its copy is limited to the
+  workspace label plus a normalized agent label plus a fixed kind word (`finished` /
+  `needs attention` / `warning` / `error`) — never raw terminal or model output
+  (BF-Rule 42–44).
+
+### Accessibility
+
+- The actionable mark is a real `<button>`; its accessible name is built as
+  `"{workspace/tab label}: {count} need(s) attention ({kind})"` — always contains the
+  **workspace/tab name, the kind, and the count**, so the information carried by color
+  and badge alone is also available to a screen reader.
+- The working and unread marks are `role="status"` with an accessible name of
+  `"{label}: agent working"` / `"{label}: unread output"` — announced as status changes,
+  not exposed as interactive controls.
+- The actionable button shows a visible **focus ring** (`:focus-visible`, accent-colored)
+  so a keyboard or `Cmd+Shift+A` user can see which pane's mark they just landed on.
+- The working spinner reuses the shipped workspace-logo spinner asset, which already
+  respects `prefers-reduced-motion: reduce`; the attention rail adds no motion of its
+  own that bypasses that setting.
