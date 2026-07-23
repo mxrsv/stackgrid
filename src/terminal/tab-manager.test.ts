@@ -1007,3 +1007,136 @@ describe("createTabManager window focus (Task 11)", () => {
     expect(windowFocus.unlistenFocus).toHaveBeenCalledTimes(1);
   });
 });
+
+// Task 11B: the private attention-navigation primitive. The window mock's
+// `initialFocused` defaults to true (foreground), so every ack below fires —
+// see the Task 11 describe block above for the controller itself.
+describe("createTabManager activateForAttention (Task 11B)", () => {
+  it("same-tab: acknowledges only the candidate pane; the active pane's attention stays latched", async () => {
+    vi.useFakeTimers();
+    try {
+      const infos = new Map<number, PaneProcessInfo>([
+        [1, { id: 1, cwd: "/repo", process: "claude" }],
+        [2, { id: 2, cwd: "/repo", process: "claude" }],
+      ]);
+      const { tm, pty } = setup({ infos });
+      await tm.init();
+      await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+        workspacePath: "/repo",
+      });
+      await tm.splitActive("row"); // pane 2 is now the tab's active pane (A)
+      // Pane 2 was spawned after materialize's one-shot poll, so its gate is
+      // still closed — advance past the periodic poll so both panes' agent
+      // gate is open before emitting OSC 9;4.
+      await vi.advanceTimersByTimeAsync(2000);
+
+      pty.emitOutput(2, "\x1b]9;4;2\x07"); // A (active pane): error
+      pty.emitOutput(1, "\x1b]9;4;4\x07"); // B (candidate, background): warning
+      expect(tabViews.value[0].attention?.actionableCount).toBe(2);
+      expect(tabViews.value[0].attention?.kind).toBe("error");
+
+      tm.activateForAttention(0, 1); // same tab (0), candidate = pane 1 (B)
+
+      // Only B was acknowledged — A's error is still latched, so the tab
+      // still reads "error" with exactly one actionable pane left.
+      expect(activeTabIndex.value).toBe(0); // no tab switch
+      expect(tabViews.value[0].attention?.actionableCount).toBe(1);
+      expect(tabViews.value[0].attention?.kind).toBe("error");
+
+      tm.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cross-tab: switches tabs without acknowledging the target's own active pane, only the candidate", async () => {
+    vi.useFakeTimers();
+    try {
+      const infos = new Map<number, PaneProcessInfo>([
+        [1, { id: 1, cwd: "/a", process: "zsh" }],
+        [2, { id: 2, cwd: "/b", process: "claude" }],
+        [3, { id: 3, cwd: "/b", process: "claude" }],
+      ]);
+      const { tm, pty } = setup({ infos });
+      await tm.init();
+      await tm.materialize({ layout: null, cwds: ["/a"] }); // tab 0 → pane 1
+      await tm.materialize({ layout: null, cwds: ["/b"] }); // tab 1 → pane 2 (active)
+      await tm.splitActive("row"); // tab 1: pane 3 spawned, becomes its active pane (A)
+      await vi.advanceTimersByTimeAsync(2000); // panes 2 and 3's agent gate opens
+
+      tm.selectTab(0); // back to tab 0 — tab 1 becomes the background target
+
+      pty.emitOutput(3, "\x1b]9;4;4\x07"); // A (tab 1's active pane): warning
+      pty.emitOutput(2, "\x1b]9;4;2\x07"); // B (candidate, tab 1's other pane): error
+      expect(tabViews.value[1].attention?.actionableCount).toBe(2);
+      expect(tabViews.value[1].attention?.kind).toBe("error");
+
+      // ONE call: switches to tab 1 AND acknowledges only the candidate (B).
+      // If this went through show({focus:true}) or a second focus call, A's
+      // warning would also clear — it must not.
+      tm.activateForAttention(1, 2);
+
+      expect(activeTabIndex.value).toBe(1); // the tab DID switch
+      expect(tabViews.value[1].attention?.actionableCount).toBe(1); // only B cleared
+      expect(tabViews.value[1].attention?.kind).toBe("warning"); // A's warning survives
+
+      tm.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("same-tab: an id that never belonged to any pane is a complete no-op", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { tm, pty } = setup({ infos });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+
+    pty.emitOutput(1, "\x1b]9;4;2\x07"); // the only pane errors
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+
+    tm.activateForAttention(0, 999); // unknown id — never a pane anywhere
+
+    expect(activeTabIndex.value).toBe(0); // no tab change
+    expect(tabViews.value[0].attention?.kind).toBe("error"); // untouched
+
+    tm.dispose();
+  });
+
+  it("cross-tab: a candidate that belongs to a different tab is a complete no-op — no ack anywhere, no tab switch", async () => {
+    // Simulates the "target died mid-selection" race: a candidate that was
+    // valid somewhere is no longer a member of the tab it's requested
+    // against. Validate-first checks `paneIds()` before any hide/active
+    // change, so this must be indistinguishable from a truly dead id.
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/a", process: "claude" }],
+      [2, { id: 2, cwd: "/b", process: "claude" }],
+    ]);
+    const { tm, pty } = setup({ infos });
+    await tm.materialize({ layout: null, cwds: ["/a"] }); // tab 0 → pane 1
+    await tm.materialize({ layout: null, cwds: ["/b"] }); // tab 1 → pane 2 (active)
+    await tm.init();
+    await flush();
+
+    // Both panes carry latched attention.
+    pty.emitOutput(1, "\x1b]9;4;2\x07"); // tab 0's pane errors
+    pty.emitOutput(2, "\x1b]9;4;2\x07"); // tab 1's pane errors too
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+    expect(tabViews.value[1].attention?.kind).toBe("error");
+
+    // Pane 2 is real and alive, but not a member of tab 0 — must be treated
+    // exactly like a dead/unknown candidate: complete no-op.
+    tm.activateForAttention(0, 2);
+
+    expect(activeTabIndex.value).toBe(1); // no tab switch (still tab 1)
+    expect(tabViews.value[0].attention?.kind).toBe("error"); // untouched
+    expect(tabViews.value[1].attention?.kind).toBe("error"); // pane 2 NOT acked
+
+    tm.dispose();
+  });
+});

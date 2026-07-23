@@ -100,6 +100,14 @@ export interface TabManager {
   /** Close a tab after the busy guard; every pane's process is checked. */
   closeTab(index: number): Promise<void>;
   selectTab(index: number): void;
+  /**
+   * Internal attention-navigation primitive (Task 12/15) — NOT the
+   * user-facing tab switch (`selectTab` stays that). Activates exactly the
+   * candidate pane: same-tab focuses only it; cross-tab switches without
+   * focusing the target's own active pane, so only the candidate is ever
+   * acknowledged. Unknown/dead candidate → complete no-op.
+   */
+  activateForAttention(index: number, paneId: number): void;
   /** Set or clear (null) a custom tab name; overrides the process label. */
   renameTab(index: number, name: string | null): void;
   /** Set or clear (null) a custom tab dot color token. */
@@ -315,6 +323,39 @@ export function createTabManager(
     active = index;
     unread.delete(tabs[index].key); // opening the tab clears its unread badge
     tabs[index].manager.show();
+    syncViews();
+  }
+
+  /**
+   * Attention-navigation primitive — activates exactly the CANDIDATE pane,
+   * never the tab's regular active pane. Same-tab focuses only the
+   * candidate; cross-tab switches via `show({ focus: false })` so the old
+   * active pane is never (re-)focused/acked, then focuses (acks) only the
+   * candidate. Must NOT call public `selectTab()`, which would focus (and
+   * ack) the target's own active pane.
+   *
+   * Validates the candidate is still live on the target BEFORE touching any
+   * tab/active state (unknown/dead candidate → complete no-op: no tab
+   * change, no ack of any other pane), and everything after validation is a
+   * single synchronous block (no `await`) so nothing can invalidate the
+   * candidate between the check and the focus call that acks it.
+   */
+  function activateForAttention(index: number, paneId: number): void {
+    const target = tabs[index];
+    if (!target || !target.manager.paneIds().includes(paneId)) {
+      return; // unknown/dead candidate — no tab change, no ack of any pane
+    }
+    if (index === active) {
+      target.manager.focusPane(paneId); // same-tab: ack ONLY the candidate
+      return;
+    }
+    // Cross-tab: switch without focusing (thus without acking) the target's
+    // own active pane — only the candidate below gets acknowledged.
+    activeManager()?.hide();
+    active = index;
+    unread.delete(target.key); // opening the tab clears legacy unread too
+    target.manager.show({ focus: false }); // display + fit only, no focus/ack
+    target.manager.focusPane(paneId); // acks ONLY the candidate
     syncViews();
   }
 
@@ -821,6 +862,7 @@ export function createTabManager(
     reopenTab,
     closeTab: (index) => close.closeTab(index),
     selectTab,
+    activateForAttention,
     renameTab(index, name) {
       const trimmed = name?.trim() ?? "";
       setOverride(index, { name: trimmed === "" ? undefined : trimmed });
