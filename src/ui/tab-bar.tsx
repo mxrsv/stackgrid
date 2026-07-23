@@ -1,7 +1,12 @@
 import { useSignal } from "@preact/signals";
-import { activeTabIndex, tabViews } from "../terminal/tabs-store";
+import {
+  activeTabIndex,
+  IDLE_ATTENTION_SUMMARY,
+  tabViews,
+} from "../terminal/tabs-store";
 import { dotColor } from "../lib/process-info";
 import { tabDotCssColor, type TabDotColor } from "../lib/tab-colors";
+import { AgentAttentionMark } from "./agent-attention-mark";
 import { ChromeActions } from "./chrome-actions";
 import { TabPopover } from "./tab-popover";
 
@@ -18,6 +23,8 @@ interface TabBarProps {
   onToggleSettings(): void;
   expandActive: boolean;
   onToggleExpand(): void;
+  /** Invoked when a tab's actionable attention mark is clicked. */
+  onFocusAttention?(index: number): void;
 }
 
 export function TabBar(props: TabBarProps) {
@@ -77,6 +84,22 @@ export function TabBar(props: TabBarProps) {
               }}
             />
             <span class="tab__label">{tab.name ?? tab.process ?? "shell"}</span>
+            {/* stopPropagation keeps a click on the mark from bubbling to
+                the tab's own onClick (select tab / toggle popover). */}
+            <span
+              class="tab__attn"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <AgentAttentionMark
+                summary={tab.attention ?? IDLE_ATTENTION_SUMMARY}
+                label={tab.name ?? tab.process ?? "shell"}
+                onActivate={
+                  props.onFocusAttention
+                    ? () => props.onFocusAttention!(index)
+                    : undefined
+                }
+              />
+            </span>
             <button
               type="button"
               class="tab__close"

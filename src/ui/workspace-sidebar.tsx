@@ -2,7 +2,12 @@ import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { activeTabIndex, statusInfo, tabViews } from "../terminal/tabs-store";
+import {
+  activeTabIndex,
+  IDLE_ATTENTION_SUMMARY,
+  statusInfo,
+  tabViews,
+} from "../terminal/tabs-store";
 import { tildify } from "../lib/process-info";
 import { workspaceLabel } from "../lib/workspace-label";
 import { type TabDotColor } from "../lib/tab-colors";
@@ -24,6 +29,8 @@ interface WorkspaceSidebarProps {
   onNewTab(): void;
   onRenameTab(index: number, name: string | null): void;
   onSetTabColor(index: number, color: TabDotColor | null): void;
+  /** Invoked when a row's actionable attention mark is clicked. */
+  onFocusAttention?(index: number): void;
 }
 
 /** Vertical workspace list: one row per tab, with a per-workspace logo. */
@@ -182,6 +189,12 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps) {
                 label={label}
                 pending={tab.agentBusy}
                 unread={tab.unread}
+                attention={tab.attention ?? IDLE_ATTENTION_SUMMARY}
+                onFocusAttention={
+                  props.onFocusAttention
+                    ? () => props.onFocusAttention!(index)
+                    : undefined
+                }
               />
               <span class="wsitem__text">
                 <span class="wsitem__label">{label}</span>
