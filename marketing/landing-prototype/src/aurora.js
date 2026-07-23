@@ -117,24 +117,25 @@ void main() {
 const DEFAULT_COLOR_STOPS = ["#8d27e6", "#9167d6", "#3e15df"];
 
 const toRgb = (hex) => {
-    const color = new Color(hex);
-    return [color.r, color.g, color.b];
+  const color = new Color(hex);
+  return [color.r, color.g, color.b];
 };
 
 export function mountAurora(layer, options = {}) {
-    if (!layer) {
-        return () => {};
-    }
+  if (!layer) {
+    return { setScene: () => {}, dispose: () => {} };
+  }
 
-    const settings = {
-        colorStops: options.colorStops ?? DEFAULT_COLOR_STOPS,
-        amplitude: options.amplitude ?? 1.0,
-        blend: options.blend ?? 0.5,
-        speed: options.speed ?? 0.4,
-    };
+  const settings = {
+    colorStops: options.colorStops ?? DEFAULT_COLOR_STOPS,
+    amplitude: options.amplitude ?? 1.0,
+    blend: options.blend ?? 0.5,
+    speed: options.speed ?? 0.4,
+  };
 
-    const prefersReducedMotion =
-        typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const prefersReducedMotion =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Cap at 2× so the shader stays crisp on Retina without paying for 3× panels.
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -144,32 +145,58 @@ export function mountAurora(layer, options = {}) {
     antialias: true,
     dpr,
   });
-    const gl = renderer.gl;
-    gl.clearColor(0, 0, 0, 0);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    gl.canvas.style.backgroundColor = "transparent";
-    gl.canvas.classList.add("aurora-canvas");
+  const gl = renderer.gl;
+  gl.clearColor(0, 0, 0, 0);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.canvas.style.backgroundColor = "transparent";
+  gl.canvas.classList.add("aurora-canvas");
 
-    const geometry = new Triangle(gl);
-    if (geometry.attributes.uv) {
-        delete geometry.attributes.uv;
+  const geometry = new Triangle(gl);
+  if (geometry.attributes.uv) {
+    delete geometry.attributes.uv;
+  }
+
+  // Scene state — current values ease toward targets inside the rAF loop, so
+  // setScene() sweeps the curtain to a new palette instead of snapping it.
+  const sceneState = {
+    stops: settings.colorStops.map(toRgb),
+    targetStops: settings.colorStops.map(toRgb),
+    amplitude: settings.amplitude,
+    targetAmplitude: settings.amplitude,
+  };
+
+  const program = new Program(gl, {
+    vertex: VERT,
+    fragment: FRAG,
+    uniforms: {
+      uTime: { value: 0 },
+      uAmplitude: { value: sceneState.amplitude },
+      uColorStops: { value: sceneState.stops },
+      uResolution: { value: [layer.offsetWidth, layer.offsetHeight] },
+      uBlend: { value: settings.blend },
+    },
+  });
+
+  const mesh = new Mesh(gl, { geometry, program });
+  layer.appendChild(gl.canvas);
+
+  const SCENE_LERP = 0.045;
+
+  function stepScene() {
+    for (let stop = 0; stop < sceneState.stops.length; stop += 1) {
+      for (let channel = 0; channel < 3; channel += 1) {
+        const current = sceneState.stops[stop][channel];
+        const target = sceneState.targetStops[stop][channel];
+        sceneState.stops[stop][channel] =
+          current + (target - current) * SCENE_LERP;
+      }
     }
 
-    const program = new Program(gl, {
-        vertex: VERT,
-        fragment: FRAG,
-        uniforms: {
-            uTime: { value: 0 },
-            uAmplitude: { value: settings.amplitude },
-            uColorStops: { value: settings.colorStops.map(toRgb) },
-            uResolution: { value: [layer.offsetWidth, layer.offsetHeight] },
-            uBlend: { value: settings.blend },
-        },
-    });
-
-    const mesh = new Mesh(gl, { geometry, program });
-    layer.appendChild(gl.canvas);
+    sceneState.amplitude +=
+      (sceneState.targetAmplitude - sceneState.amplitude) * SCENE_LERP;
+    program.uniforms.uAmplitude.value = sceneState.amplitude;
+  }
 
   function resize() {
     const width = layer.offsetWidth;
@@ -178,37 +205,87 @@ export function mountAurora(layer, options = {}) {
     // keeps the curtain sharp instead of locking to the launch display.
     renderer.dpr = Math.min(window.devicePixelRatio || 1, 2);
     renderer.setSize(width, height);
-    program.uniforms.uResolution.value = [
-      gl.canvas.width,
-      gl.canvas.height,
-    ];
+    program.uniforms.uResolution.value = [gl.canvas.width, gl.canvas.height];
   }
 
-    window.addEventListener("resize", resize);
-    resize();
+  window.addEventListener("resize", resize);
+  resize();
 
-    let animateId = 0;
-    const update = (t) => {
-        animateId = requestAnimationFrame(update);
-        program.uniforms.uTime.value = t * 0.01 * settings.speed * 0.1;
-        renderer.render({ scene: mesh });
-    };
+  let animateId = 0;
+  const update = (t) => {
+    animateId = requestAnimationFrame(update);
+    stepScene();
+    program.uniforms.uTime.value = t * 0.01 * settings.speed * 0.1;
+    renderer.render({ scene: mesh });
+  };
 
-    if (prefersReducedMotion) {
-        // Freeze the curtain in a resolved state instead of animating — mirrors
-        // how the other hero motion trials honour reduced-motion.
-        program.uniforms.uTime.value = 12.0;
-        renderer.render({ scene: mesh });
-    } else {
-        animateId = requestAnimationFrame(update);
+  function start() {
+    if (animateId === 0) {
+      animateId = requestAnimationFrame(update);
+    }
+  }
+
+  function stop() {
+    cancelAnimationFrame(animateId);
+    animateId = 0;
+  }
+
+  // Skip GPU work while the curtain is scrolled offscreen — with two mounts
+  // on the page (hero + tour) only the visible one should render.
+  const observer =
+    typeof IntersectionObserver === "function"
+      ? new IntersectionObserver(([entry]) => {
+          if (prefersReducedMotion) {
+            return;
+          }
+
+          if (entry?.isIntersecting ?? true) {
+            start();
+          } else {
+            stop();
+          }
+        })
+      : null;
+  observer?.observe(layer);
+
+  if (prefersReducedMotion) {
+    // Freeze the curtain in a resolved state instead of animating — mirrors
+    // how the other hero motion trials honour reduced-motion.
+    program.uniforms.uTime.value = 12.0;
+    renderer.render({ scene: mesh });
+  } else {
+    start();
+  }
+
+  function setScene(next = {}) {
+    if (Array.isArray(next.colorStops)) {
+      sceneState.targetStops = next.colorStops.map(toRgb);
     }
 
-    return () => {
-        cancelAnimationFrame(animateId);
-        window.removeEventListener("resize", resize);
-        if (gl.canvas.parentNode === layer) {
-            layer.removeChild(gl.canvas);
-        }
-        gl.getExtension("WEBGL_lose_context")?.loseContext();
-    };
+    if (typeof next.amplitude === "number") {
+      sceneState.targetAmplitude = next.amplitude;
+    }
+
+    if (prefersReducedMotion) {
+      // No sweep under reduced motion — snap to the resolved palette.
+      sceneState.stops = sceneState.targetStops.map((stop) => [...stop]);
+      sceneState.amplitude = sceneState.targetAmplitude;
+      program.uniforms.uColorStops.value = sceneState.stops;
+      program.uniforms.uAmplitude.value = sceneState.amplitude;
+      renderer.render({ scene: mesh });
+    }
+  }
+
+  return {
+    setScene,
+    dispose() {
+      stop();
+      observer?.disconnect();
+      window.removeEventListener("resize", resize);
+      if (gl.canvas.parentNode === layer) {
+        layer.removeChild(gl.canvas);
+      }
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
+    },
+  };
 }

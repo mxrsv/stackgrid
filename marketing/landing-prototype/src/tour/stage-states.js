@@ -1,16 +1,16 @@
 /**
  * Tour stage data — English-only, mirroring the released app just like the
- * hero stage (see the 2026-07-23 scroll-tour spec). Sidebar data is shared
- * with the hero via product-stage.js.
+ * hero stage. Pane transcripts and the workspace sidebar are shared with the
+ * hero (product-stage.js); this module holds only tour-specific state.
  */
 
 import { deepFreeze } from "../product-stage.js";
 
-/** Agent identity chips reused across board rows and pane chrome. */
+/** Agent identity chips on the Open board rows. */
 export const AGENTS = deepFreeze({
-  claude: { monogram: "C", name: "claude", tint: "#bb9af7" },
-  codex: { monogram: "X", name: "codex", tint: "#9ece6a" },
-  gemini: { monogram: "G", name: "gemini", tint: "#7dcfff" },
+  claude: { monogram: "C", tint: "#bb9af7" },
+  codex: { monogram: "X", tint: "#9ece6a" },
+  gemini: { monogram: "G", tint: "#7dcfff" },
 });
 
 /** Open board recent rows — the top one carries the remembered combo. */
@@ -41,60 +41,25 @@ export const boardRecents = deepFreeze([
   },
 ]);
 
-/** Cells per preset thumbnail; layout itself lives in tour.css. */
+/** Cells per preset thumbnail; the layouts themselves live in tour.css. */
 export const PRESET_CELLS = deepFreeze({ duo: 2, trio: 3, quad: 4 });
 
 /**
- * Static transcripts for chapters 2–3. The mock renders these frozen (plus a
- * blinking cursor); the live typing engine is a post-review follow-up.
+ * Sidebar avatar indicators, as in the released app: "busy" = spinning ring
+ * (agent working on a prompt), "unread" = yellow dot (new output not seen).
  */
-export const tourPanes = deepFreeze([
-  {
-    id: "claude",
-    focused: true,
-    prompt: "❯",
-    lines: [
-      {
-        text: "● I'll trace why the pane divider drifts on resize.",
-        cls: "t-body",
-      },
-      { text: "● Read(src/terminal/layout-engine.ts)", cls: "t-tool" },
-      { text: "  ⎿ 312 lines", cls: "t-dim" },
-      { text: "● Update(src/terminal/layout-engine.ts)", cls: "t-tool" },
-      {
-        text: "  ⎿ +14 -6 · keep the fractional ratio in the tree",
-        cls: "t-dim",
-      },
-      {
-        text: "● 214 tests passed — the divider stays put now.",
-        cls: "t-ok",
-      },
-    ],
-  },
-  {
-    id: "codex",
-    focused: false,
-    prompt: "▌",
-    lines: [
-      { text: "› trace the flicker when a pane closes", cls: "t-user" },
-      { text: "The old pane's canvas paints one frame late.", cls: "t-body" },
-      { text: "✓ Applied patch src/terminal/pane-lifecycle.ts", cls: "t-ok" },
-      { text: "  └ requestAnimationFrame before detach", cls: "t-dim" },
-    ],
-  },
-  {
-    id: "gemini",
-    focused: false,
-    prompt: ">",
-    lines: [
-      {
-        text: "> why does the status bar lose the branch after cd?",
-        cls: "t-user",
-      },
-      { text: "The watcher only re-reads HEAD on focus.", cls: "t-body" },
-      { text: "edit src/lib/git-status.ts", cls: "t-tool" },
-      { text: "  + watch cwd from osc-7 events", cls: "t-dim" },
-      { text: "✓ typecheck clean · branch follows cwd now", cls: "t-ok" },
-    ],
-  },
-]);
+export const SIDEBAR_STATUS = deepFreeze({
+  stackgrid: "busy",
+  glowarena: "unread",
+  "glow-api": "busy",
+});
+
+/**
+ * Aurora palette per chapter: ambient violet → the three agent brand colors
+ * as agents launch → converging deep violet around the focused pane.
+ */
+export const AURORA_SCENES = deepFreeze({
+  1: { colorStops: ["#8d27e6", "#9167d6", "#3e15df"], amplitude: 1.0 },
+  2: { colorStops: ["#bb9af7", "#9ece6a", "#7dcfff"], amplitude: 1.15 },
+  3: { colorStops: ["#3b1477", "#b98cff", "#2e1065"], amplitude: 1.25 },
+});

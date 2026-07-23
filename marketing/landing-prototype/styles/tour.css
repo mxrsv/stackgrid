@@ -1,12 +1,10 @@
-/* Scroll tour + closing band — MOCK fidelity (2026-07-23 spec).
-   Tokens mirror direction-a.css values; duplicated on purpose so the shipped
-   hero file stays untouched (shared-token extraction is a follow-up). */
+/* Scroll tour + closing band. The window itself is the shared ".a-appwin"
+   chrome from direction-a.css — this file only adds the tour scaffold, the
+   Open-board scene, chapter morphs, and the closing band. Design tokens
+   mirror direction-a.css values; duplicated on purpose so the shipped hero
+   file stays untouched (shared-token extraction is a follow-up). */
 
 .tour {
-  --t-surface-0: #0a0c0b;
-  --t-surface-1: #101310;
-  --t-surface-2: #151915;
-  --t-surface-3: #1b211b;
   --t-ink: #ffffff;
   --t-ink-soft: rgb(255 255 255 / 64%);
   --t-ink-faint: rgb(255 255 255 / 45%);
@@ -14,15 +12,17 @@
   --t-line-strong: rgb(255 255 255 / 21%);
   --t-accent: #b98cff;
   --t-accent-rgb: 185 140 255;
-  --t-ok: #9ece6a;
-  --t-font-display:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-  --t-font-mono:
-    "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
+  --t-surface-2: #151915;
   --t-gutter: clamp(2rem, 3.4vw, 3.25rem);
   --t-morph: 620ms cubic-bezier(0.22, 0.78, 0.18, 1);
+  /* The shared .a-appwin chrome reads these; in the hero they come from
+     .direction-a — redefine them here so the window renders identically. */
+  --a-font-display:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --a-font-mono:
+    "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
   color: var(--t-ink);
-  font-family: var(--t-font-display);
+  font-family: var(--a-font-display);
   background:
     radial-gradient(circle at 24% 30%, rgb(141 39 230 / 9%), transparent 30rem),
     linear-gradient(180deg, #090b0a 0%, #0c0e0c 55%, #0a0c0b 100%);
@@ -44,12 +44,51 @@
   overflow: clip;
 }
 
+/* Crosshair plus-grid backdrop — brightens as the chapters advance. */
+.tour__sticky::before {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cpath d='M0 4h8M4 0v8' fill='none' stroke='%23b98cff' stroke-opacity='.16' stroke-width='.65'/%3E%3C/svg%3E");
+  content: "";
+  mask-image: radial-gradient(circle at 64% 50%, #000 0%, transparent 72%);
+  opacity: 0.35;
+  pointer-events: none;
+  transition: opacity 700ms ease;
+}
+
+.tour[data-chapter="2"] .tour__sticky::before {
+  opacity: 0.6;
+}
+
+.tour[data-chapter="3"] .tour__sticky::before {
+  opacity: 0.85;
+}
+
+/* Aurora curtain behind the window — palette driven per chapter from JS. */
+.tour__motion {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  mask-image: linear-gradient(
+    180deg,
+    transparent 0%,
+    #000 16%,
+    #000 84%,
+    transparent 100%
+  );
+  opacity: 0.85;
+  pointer-events: none;
+}
+
 .tour__layout {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: minmax(17rem, 24rem) minmax(0, 1fr);
   gap: clamp(2rem, 4vw, 4.25rem);
   align-items: center;
-  width: min(74rem, 100% - var(--t-gutter) * 2);
+  width: min(78rem, 100% - var(--t-gutter) * 2);
   margin-inline: auto;
 }
 
@@ -59,7 +98,7 @@
   display: block;
   margin-bottom: 1.6rem;
   color: var(--t-accent);
-  font-family: var(--t-font-mono);
+  font-family: var(--a-font-mono);
   font-size: 0.72rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -87,7 +126,7 @@
 
 .tour__chapnum {
   color: var(--t-accent);
-  font-family: var(--t-font-mono);
+  font-family: var(--a-font-mono);
   font-size: 0.78rem;
   line-height: 1.9;
 }
@@ -107,61 +146,26 @@
   line-height: 1.55;
 }
 
-/* ---------- app window ---------- */
+/* ---------- the app window (shared .a-appwin chrome) ---------- */
 
-.tour__stage {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-height: 72svh;
-  aspect-ratio: 16 / 10.5;
+.tour__layout .a-appwin {
   margin: 0;
-  overflow: hidden;
-  border: 1px solid var(--t-line-strong);
-  border-radius: 12px;
-  background: var(--t-surface-1);
   box-shadow:
     0 32px 70px rgb(0 0 0 / 45%),
-    0 0 0 1px rgb(0 0 0 / 40%),
-    0 0 90px rgb(var(--t-accent-rgb) / 7%);
-}
-
-.tour__titlebar {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  padding: 0.55rem 0.9rem;
-  border-bottom: 1px solid var(--t-line);
-}
-
-.tour__lights {
-  display: inline-flex;
-  gap: 6px;
-}
-
-.tour__lights i {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: rgb(255 255 255 / 16%);
-}
-
-.tour__wintitle {
-  color: var(--t-ink-faint);
-  font-family: var(--t-font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
+    0 0 90px rgb(var(--t-accent-rgb) / 8%);
 }
 
 .tour__scene {
   position: relative;
   display: grid;
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 
 .tour__scene > * {
   grid-area: 1 / 1;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -173,10 +177,9 @@
     transform var(--t-morph);
 }
 
-.tour__grid {
+.tour__scenegrid {
   opacity: 0;
   transform: scale(0.985);
-  pointer-events: none;
   transition:
     opacity var(--t-morph),
     transform var(--t-morph),
@@ -189,122 +192,84 @@
   transform: scale(1.015);
 }
 
-.tour[data-chapter="2"] .tour__grid,
-.tour[data-chapter="3"] .tour__grid {
+.tour[data-chapter="2"] .tour__scenegrid,
+.tour[data-chapter="3"] .tour__scenegrid {
   opacity: 1;
   transform: none;
 }
 
-/* ---------- chapter 1: open board ---------- */
+/* ---------- chapter 1: Open board scene ---------- */
 
 .tour__board {
-  display: grid;
-  grid-template-columns: 11rem 1fr;
-}
-
-.tour__boardside {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  padding: 0.75rem 0.55rem;
-  border-right: 1px solid var(--t-line);
-}
-
-.tour__boarditem {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.55rem;
-  border-radius: 8px;
-  color: var(--t-ink-soft);
-  font-size: 0.78rem;
-}
-
-.tour__boarditem.is-active {
-  background: var(--t-surface-3);
-  color: var(--t-ink);
-}
-
-.tour__boarditem img {
-  width: 18px;
-  height: 18px;
-}
-
-.tour__boardmono {
-  display: inline-grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--chip-tint) 22%, transparent);
-  color: var(--chip-tint);
-  font-family: var(--t-font-mono);
-  font-size: 0.6rem;
-}
-
-.tour__boardmain {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1.4rem;
-  padding: 1.4rem;
+  gap: 2.4cqw;
+  padding: 2.5cqw;
 }
 
 .tour__boardlogo {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.95rem;
-  font-weight: 600;
+  gap: 1cqw;
+  color: var(--sg-fg);
+  font-size: max(1.6cqw, 11px);
+  font-weight: 650;
   letter-spacing: 0.02em;
+}
+
+.tour__boardlogo img {
+  width: 5cqw;
+  height: 5cqw;
 }
 
 .tour__recents {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  width: min(26rem, 100%);
+  gap: 0.9cqw;
+  width: min(48cqw, 100%);
 }
 
 .tour__recent {
   display: grid;
   grid-template-columns: auto 1fr auto auto;
   align-items: center;
-  gap: 0.8rem;
-  padding: 0.55rem 0.8rem;
-  border: 1px solid var(--t-line);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--t-surface-2) 55%, transparent);
+  gap: 1.2cqw;
+  padding: 0.9cqw 1.2cqw;
+  border: 1px solid var(--sg-hairline-soft);
+  border-radius: 0.8cqw;
+  background: color-mix(in srgb, #c0caf5 3%, transparent);
 }
 
 .tour__recent.is-hot {
-  border-color: rgb(var(--t-accent-rgb) / 55%);
-  background: var(--t-surface-3);
-  box-shadow: 0 0 24px rgb(var(--t-accent-rgb) / 12%);
+  border-color: color-mix(in srgb, var(--sg-purple) 55%, transparent);
+  background: color-mix(in srgb, var(--sg-purple) 8%, transparent);
+  box-shadow: 0 0 2.4cqw color-mix(in srgb, var(--sg-purple) 16%, transparent);
 }
 
 .tour__thumb {
   display: grid;
-  gap: 2px;
-  width: 34px;
-  height: 24px;
-  padding: 2px;
-  border: 1px solid var(--t-line);
-  border-radius: 4px;
+  gap: 0.25cqw;
+  width: 4.6cqw;
+  height: 3.2cqw;
+  padding: 0.3cqw;
+  border: 1px solid var(--sg-hairline);
+  border-radius: 0.4cqw;
 }
 
 .tour__thumb i {
-  border-radius: 1.5px;
-  background: rgb(var(--t-accent-rgb) / 28%);
+  border-radius: 0.15cqw;
+  background: color-mix(in srgb, var(--sg-accent) 32%, transparent);
 }
 
 .tour__thumb[data-preset="duo"] {
   grid-template-columns: 1fr 1fr;
 }
 
-.tour__thumb[data-preset="trio"] {
+.tour__thumb[data-preset="trio"],
+.tour__thumb[data-preset="quad"] {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
 }
@@ -313,235 +278,144 @@
   grid-area: 1 / 2 / 3 / 3;
 }
 
-.tour__thumb[data-preset="quad"] {
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
+.tour__rectext {
+  min-width: 0;
 }
 
 .tour__rectext strong {
   display: block;
-  font-size: 0.82rem;
+  overflow: hidden;
+  color: var(--sg-fg);
+  font-size: max(1.25cqw, 8px);
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tour__rectext span {
   display: block;
-  color: var(--t-ink-faint);
-  font-family: var(--t-font-mono);
-  font-size: 0.66rem;
+  color: var(--sg-fg-faint);
+  font-family: var(--a-font-mono);
+  font-size: max(1cqw, 7px);
 }
 
 .tour__recagents {
   display: inline-flex;
-  gap: 4px;
+  gap: 0.4cqw;
 }
 
 .tour__agentchip {
   display: inline-grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 2.2cqw;
+  height: 2.2cqw;
   border: 1px solid color-mix(in srgb, var(--chip-tint) 50%, transparent);
   border-radius: 50%;
   background: color-mix(in srgb, var(--chip-tint) 20%, transparent);
   color: var(--chip-tint);
-  font-family: var(--t-font-mono);
-  font-size: 0.58rem;
+  font-family: var(--a-font-mono);
+  font-size: max(0.9cqw, 6px);
+  font-weight: 700;
 }
 
 .tour__openkbd {
-  padding: 2px 7px;
-  border: 1px solid rgb(var(--t-accent-rgb) / 60%);
-  border-radius: 6px;
-  background: rgb(var(--t-accent-rgb) / 12%);
-  color: var(--t-accent);
-  font-family: var(--t-font-mono);
-  font-size: 0.66rem;
+  padding: 0.25cqw 0.8cqw;
+  border: 1px solid color-mix(in srgb, var(--sg-purple) 60%, transparent);
+  border-radius: 0.5cqw;
+  background: color-mix(in srgb, var(--sg-purple) 12%, transparent);
+  color: var(--sg-purple);
+  font-family: var(--a-font-mono);
+  font-size: max(1cqw, 7px);
 }
 
-/* ---------- chapters 2–3: pane grid ---------- */
+/* ---------- chapters 2–3: live pane grid ---------- */
 
-.tour__grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
-  padding: 8px;
+.tour__scenegrid .a-appwin__pane {
+  position: relative;
+  transition:
+    flex-grow var(--t-morph),
+    border-color 320ms ease;
 }
 
-.tour__col {
-  display: grid;
-  grid-template-rows: 1fr 1fr;
-  gap: 7px;
-  min-height: 0;
-  transition: grid-template-rows var(--t-morph);
-}
-
-.tour[data-chapter="3"] .tour__grid {
+.tour[data-chapter="3"] .tour__scenegrid {
   grid-template-columns: 65fr 35fr;
 }
 
-.tour[data-chapter="3"] .tour__col {
-  grid-template-rows: 65fr 35fr;
+.tour[data-chapter="3"]
+  .tour__scenegrid
+  .a-appwin__col
+  .a-appwin__pane.is-focused {
+  flex-grow: 65;
 }
 
-.tour__pane {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--pane-tint) 26%, var(--t-line));
-  border-radius: 8px;
-  background: var(--t-surface-0);
+.tour[data-chapter="3"]
+  .tour__scenegrid
+  .a-appwin__col
+  .a-appwin__pane:not(.is-focused) {
+  flex-grow: 35;
 }
 
-.tour[data-chapter="3"] .tour__pane.is-focused {
-  border-color: color-mix(in srgb, var(--pane-tint) 60%, transparent);
-  box-shadow: 0 0 28px color-mix(in srgb, var(--pane-tint) 14%, transparent);
-}
-
-.tour__panehead {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.32rem 0.6rem;
-  border-bottom: 1px solid var(--t-line);
-  background: color-mix(in srgb, var(--pane-tint) 7%, var(--t-surface-1));
-  color: var(--pane-tint);
-  font-family: var(--t-font-mono);
-  font-size: 0.66rem;
-}
-
-.tour__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--pane-tint);
-}
-
-.tour[data-chapter="2"] .tour__dot,
-.tour[data-chapter="3"] .tour__dot {
-  animation: tour-pulse 1.6s ease-in-out infinite;
-}
-
-.tour__panebody {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 1px;
-  min-height: 0;
-  padding: 0.5rem 0.65rem;
-  overflow: hidden;
-  font-family: var(--t-font-mono);
-  font-size: 0.66rem;
-  line-height: 1.6;
-}
-
-.tour__line {
-  overflow: hidden;
-  color: var(--t-ink-soft);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.tour__line.t-user {
-  color: var(--t-ink);
-}
-
-.tour__line.t-tool {
-  color: var(--t-accent);
-}
-
-.tour__line.t-dim {
-  color: var(--t-ink-faint);
-}
-
-.tour__line.t-ok {
-  color: var(--t-ok);
-}
-
-.tour__prompt {
-  margin-top: auto;
-  color: var(--t-ink-faint);
-}
-
-.tour__cursor {
-  display: inline-block;
-  width: 0.45em;
-  height: 1em;
-  vertical-align: text-bottom;
-  background: var(--t-accent);
-  animation: tour-blink 1.1s steps(2, start) infinite;
-}
-
-.tour__expandkbd {
+/* ⌘E badge on the focused pane, revealed in chapter 3. */
+.tour__scenegrid .a-appwin__pane.is-focused::after {
   position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  padding: 0.18rem 0.55rem;
-  border: 1px solid rgb(var(--t-accent-rgb) / 60%);
-  border-radius: 6px;
-  background: rgb(10 12 11 / 80%);
-  color: var(--t-accent);
-  font-family: var(--t-font-mono);
-  font-size: 0.72rem;
+  top: 0.8cqw;
+  right: 0.8cqw;
+  padding: 0.25cqw 0.7cqw;
+  border: 1px solid color-mix(in srgb, var(--sg-purple) 60%, transparent);
+  border-radius: 0.5cqw;
+  background: rgb(22 22 30 / 85%);
+  color: var(--sg-purple);
+  content: "⌘E";
+  font-family: var(--a-font-mono);
+  font-size: max(1.2cqw, 8px);
   opacity: 0;
-  transform: translateY(-4px);
+  transform: translateY(-0.4cqw);
   transition:
     opacity 320ms ease,
     transform 320ms ease;
 }
 
-.tour[data-chapter="3"] .tour__expandkbd {
+.tour[data-chapter="3"] .tour__scenegrid .a-appwin__pane.is-focused::after {
   opacity: 1;
   transform: none;
 }
 
-/* ---------- status bar ---------- */
+/* ---------- sidebar live indicators (busy ring / unread dot) ---------- */
 
-.tour__status {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  padding: 0.4rem 0.85rem;
-  border-top: 1px solid var(--t-line);
-  color: var(--t-ink-faint);
-  font-family: var(--t-font-mono);
-  font-size: 0.64rem;
-}
-
-.tour__statusdim {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.tour__statusright {
+.tour .a-appwin__wsavatar {
+  position: relative;
   display: inline-flex;
-  align-items: center;
-  gap: 0.8rem;
-  margin-left: auto;
+  flex: 0 0 auto;
 }
 
-.tour__status kbd {
-  padding: 1px 5px;
-  border: 1px solid var(--t-line);
-  border-radius: 4px;
-  font-family: inherit;
-  transition:
-    color 320ms ease,
-    border-color 320ms ease;
+.tour .a-appwin__wsavatar[data-ws-status="busy"]::after {
+  position: absolute;
+  inset: -0.45cqw;
+  border: 0.22cqw solid transparent;
+  border-top-color: var(--sg-purple);
+  border-radius: 50%;
+  content: "";
+  animation: tour-ringspin 900ms linear infinite;
 }
 
-.tour[data-chapter="3"] .tour__status kbd {
-  border-color: rgb(var(--t-accent-rgb) / 60%);
-  color: var(--t-accent);
+.tour .a-appwin__wsavatar[data-ws-status="unread"]::after {
+  position: absolute;
+  top: -0.2cqw;
+  right: -0.2cqw;
+  width: 0.9cqw;
+  height: 0.9cqw;
+  border-radius: 50%;
+  background: var(--sg-yellow);
+  box-shadow: 0 0 0.8cqw color-mix(in srgb, var(--sg-yellow) 60%, transparent);
+  content: "";
 }
 
 /* ---------- closing band ---------- */
 
 .tour__finale {
-  width: min(74rem, 100% - var(--t-gutter) * 2);
+  position: relative;
+  z-index: 1;
+  width: min(78rem, 100% - var(--t-gutter) * 2);
   margin-inline: auto;
   padding-block: clamp(4rem, 8vw, 7rem) clamp(5rem, 9vw, 8rem);
 }
@@ -596,7 +470,7 @@
   border-radius: 6px;
   background: var(--t-surface-2);
   color: var(--t-ink-soft);
-  font-family: var(--t-font-mono);
+  font-family: var(--a-font-mono);
   font-size: 0.76rem;
 }
 
@@ -677,18 +551,6 @@
     display: none;
   }
 
-  .tour__stage {
-    max-height: 58svh;
-  }
-
-  .tour__boardside {
-    display: none;
-  }
-
-  .tour__board {
-    grid-template-columns: 1fr;
-  }
-
   .tour__proofs {
     grid-template-columns: 1fr;
   }
@@ -705,19 +567,8 @@
   }
 }
 
-@keyframes tour-blink {
-  50% {
-    opacity: 0;
-  }
-}
-
-@keyframes tour-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.35;
+@keyframes tour-ringspin {
+  to {
+    transform: rotate(360deg);
   }
 }

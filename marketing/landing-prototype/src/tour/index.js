@@ -1,18 +1,27 @@
 /**
- * Scroll tour — sticky app window morphing through three chapters, plus the
- * closing band. MOCK fidelity (2026-07-23 spec): static transcripts, no
- * entrance animation; native scroll only, no wheel hijacking.
+ * Scroll tour — a real ".a-appwin" window (same chrome as the hero stage,
+ * live transcripts included) sticky at viewport center, morphing through
+ * three chapters as the visitor scrolls, over an aurora curtain whose palette
+ * follows the chapter. Native scroll only — no wheel hijacking.
  */
 
-import { stageSidebar } from "../product-stage.js";
+import {
+  STACKGRID_ICON_SRC,
+  renderStagePane,
+  renderStageSidebar,
+  renderStageStatus,
+  renderStageTitlebar,
+} from "../appwin.js";
+import { mountAurora } from "../aurora.js";
+import { mountStageStream, stagePanes } from "../product-stage.js";
 import {
   AGENTS,
+  AURORA_SCENES,
   PRESET_CELLS,
+  SIDEBAR_STATUS,
   boardRecents,
-  tourPanes,
 } from "./stage-states.js";
 
-const STACKGRID_ICON_SRC = "/landing-prototype/assets/stackgrid-icon.svg";
 const CHAPTER_COUNT = 3;
 
 function renderChapterRail(copy) {
@@ -64,90 +73,39 @@ function renderBoardRecent(row) {
   `;
 }
 
+/** Open board main area (chapter 1) — the sidebar persists across scenes. */
 function renderBoard() {
-  const sideItems = stageSidebar
-    .map(
-      (item) => `
-        <div class="tour__boarditem${item.active ? " is-active" : ""}">
-          ${
-            item.monogram === null
-              ? `<img src="${STACKGRID_ICON_SRC}" alt="" />`
-              : `<span class="tour__boardmono" style="--chip-tint: ${item.tint}">${item.monogram}</span>`
-          }
-          <span>${item.label}</span>
-        </div>
-      `,
-    )
-    .join("");
-
   return `
     <div class="tour__board">
-      <aside class="tour__boardside">${sideItems}</aside>
-      <div class="tour__boardmain">
-        <div class="tour__boardlogo">
-          <img src="${STACKGRID_ICON_SRC}" alt="" width="40" height="40" />
-          <span>Stackgrid</span>
-        </div>
-        <div class="tour__recents">${boardRecents.map(renderBoardRecent).join("")}</div>
+      <div class="tour__boardlogo">
+        <img src="${STACKGRID_ICON_SRC}" alt="" />
+        <span>Stackgrid</span>
       </div>
-    </div>
-  `;
-}
-
-function renderPane(pane) {
-  const agent = AGENTS[pane.id];
-  const lines = pane.lines
-    .map(
-      (line) =>
-        `<span class="tour__line${line.cls ? ` ${line.cls}` : ""}">${line.text}</span>`,
-    )
-    .join("");
-
-  return `
-    <article class="tour__pane${pane.focused ? " is-focused" : ""}" style="--pane-tint: ${agent.tint}">
-      <header class="tour__panehead"><i class="tour__dot"></i>${agent.name}</header>
-      <div class="tour__panebody">
-        ${lines}
-        <span class="tour__prompt">${pane.prompt} <i class="tour__cursor"></i></span>
-      </div>
-      ${pane.focused ? '<kbd class="tour__expandkbd">⌘E</kbd>' : ""}
-    </article>
-  `;
-}
-
-function renderGrid() {
-  const [claude, codex, gemini] = tourPanes;
-
-  return `
-    <div class="tour__grid">
-      <div class="tour__col">
-        ${renderPane(claude)}
-        ${renderPane(codex)}
-      </div>
-      ${renderPane(gemini)}
+      <div class="tour__recents">${boardRecents.map(renderBoardRecent).join("")}</div>
     </div>
   `;
 }
 
 function renderStage() {
+  const [claudePane, codexPane, opencodePane] = stagePanes;
+
   return `
-    <figure class="tour__stage" role="img" aria-label="Stackgrid tour preview">
-      <div class="tour__titlebar">
-        <span class="tour__lights"><i></i><i></i><i></i></span>
-        <span class="tour__wintitle">Stackgrid</span>
+    <figure class="a-appwin tour__appwin" role="img" aria-label="Stackgrid app window tour preview">
+      ${renderStageTitlebar()}
+      <div class="a-appwin__body" aria-hidden="true">
+        ${renderStageSidebar(SIDEBAR_STATUS)}
+        <div class="tour__scene">
+          ${renderBoard()}
+          <div class="a-appwin__grid tour__scenegrid">
+            <div class="a-appwin__col">
+              ${renderStagePane(claudePane)}
+              ${renderStagePane(codexPane)}
+            </div>
+            ${renderStagePane(opencodePane)}
+          </div>
+        </div>
       </div>
-      <div class="tour__scene" aria-hidden="true">
-        ${renderBoard()}
-        ${renderGrid()}
-      </div>
-      <footer class="tour__status" aria-hidden="true">
-        <span>main</span>
-        <span class="tour__statusdim">~/…/stackgrid</span>
-        <span class="tour__statusright">
-          <span>3 panes</span>
-          <kbd>⌘E</kbd>
-        </span>
-      </footer>
+      ${renderStageStatus()}
     </figure>
   `;
 }
@@ -220,6 +178,7 @@ export function renderTour(copy) {
       <section class="tour" data-chapter="1">
         <div class="tour__track">
           <div class="tour__sticky">
+            <div class="tour__motion" aria-hidden="true"></div>
             <div class="tour__layout">
               ${renderChapterRail(copy)}
               ${renderStage()}
@@ -240,6 +199,15 @@ export function renderTour(copy) {
       const reduceMotion = window.matchMedia(
         "(prefers-reduced-motion: reduce)",
       );
+
+      const aurora = mountAurora(
+        section.querySelector(".tour__motion"),
+        AURORA_SCENES[1],
+      );
+      const disposeStream = mountStageStream(
+        section.querySelector(".tour__scenegrid"),
+      );
+
       let rafId = null;
 
       function update() {
@@ -259,6 +227,7 @@ export function renderTour(copy) {
 
         if (section.dataset.chapter !== chapter) {
           section.dataset.chapter = chapter;
+          aurora.setScene(AURORA_SCENES[chapter]);
         }
       }
 
@@ -302,14 +271,17 @@ export function renderTour(copy) {
         if (rafId !== null) {
           cancelAnimationFrame(rafId);
         }
+
+        disposeStream();
+        aurora.dispose();
       };
     },
   };
 }
 
 /**
- * Swap localized tour copy in place (same reasoning as the hero: keep the DOM
- * and scroll state alive across a locale toggle).
+ * Swap localized tour copy in place (same reasoning as the hero: keep the DOM,
+ * stream timers, and scroll state alive across a locale toggle).
  *
  * @param {Element} root
  * @param {Record<string, string>} copy
