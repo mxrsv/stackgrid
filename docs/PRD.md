@@ -1,8 +1,23 @@
 ---
 derived: true
 derived_from:
-  [0004, 0005, 0006, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019]
-rendered: 2026-07-10
+  [
+    0004,
+    0005,
+    0006,
+    0010,
+    0011,
+    0012,
+    0013,
+    0014,
+    0015,
+    0016,
+    0017,
+    0018,
+    0019,
+    0027,
+  ]
+rendered: 2026-07-24
 ---
 
 # PRD — Stackgrid
@@ -41,6 +56,14 @@ Stackgrid is a **minimal macOS terminal for people who run AI agent CLIs** (Clau
 2. User **moves a pane to a new window** or **joins it back** into another window/tab (iTerm-style, bidirectional). No busy confirm on swap/move — only close uses the busy guard.
 3. Closing the last tab of **one** window closes that window; the app quits only when the last window/tab of the whole app is gone.
 
+### Observe — attention across panes
+
+1. While panes run agents in parallel, each pane carries two independent signals: an **Agent phase** (`working` / `idle` / `exited`) and a latched **Attention** (`completed` / `requested` / `warning` / `error`) once an agent finishes, asks for input, warns, or errors. Ordinary output in a pane the user hasn't looked at only marks it **unread** — volume alone never promotes a pane to "needs attention".
+2. The existing sidebar and tab bar stay the rail — no new inbox/panel. Each workspace/tab shows its highest-priority status mark, in order `error > warning > requested > completed > working > unread > idle`.
+3. User clicks a status mark, or presses **Cmd+Shift+A**, to jump straight to the pane that needs them most. That jump **focuses the pane**, which acknowledges that pane's own attention and per-pane unread; pressing the shortcut again advances to the next pane in the queue.
+4. Opening or selecting a tab still only clears that tab's **legacy unread badge**, exactly as before — it does not acknowledge any pane's attention. Only **focusing the pane itself** acknowledges the new per-pane attention/unread; the two unread concepts run side by side.
+5. User can opt into **native OS notifications** from Settings (default off). Once enabled, a finished/needs-attention/warning/error signal still reaches them while Stackgrid is in the background; each transition notifies at most once, and the copy never includes raw terminal or model text.
+
 ### Inspect — file from the CLI
 
 1. User **Cmd+clicks** a filepath in pane output.
@@ -67,6 +90,10 @@ Stackgrid is a **minimal macOS terminal for people who run AI agent CLIs** (Clau
 - Session restore remains **layout chrome only** (no CWD in session file); closed-tab in-memory CWD stack remains as today.
 - Distribution: **unsigned** macOS build acceptable for v1 (Gatekeeper friction documented); signed/notarized later.
 - Mouse and keyboard both first-class for the above flows.
+- **Attention Rail**: per-pane `Agent phase` (`working`/`idle`/`exited`) plus a latched `Attention` (`completed`/`requested`/`warning`/`error`), surfaced through the existing sidebar/tab-bar status marks — no new inbox/panel.
+- **Per-pane acknowledge**: focusing a pane clears that pane's own attention and per-pane unread; additive to, and independent from, the legacy tab-level unread cleared by `selectTab()`.
+- **Focus-next-attention navigation**: `Cmd+Shift+A` and status-mark click jump to the highest-priority pane across tabs/windows; one pane acknowledged per action.
+- **Native notification opt-in**: Settings toggle (default off), fires only while Stackgrid is backgrounded, one notification per transition, never contains terminal/model text.
 
 ### Out — v1
 
@@ -76,12 +103,14 @@ Stackgrid is a **minimal macOS terminal for people who run AI agent CLIs** (Clau
 - Editing files inside the sidebar.
 - Signed/notarized release as a v1 ship gate.
 - Persisting CWDs or running processes inside `session.json`.
+- Orchestration on top of the Attention Rail: task graphs, run recipes, role-per-pane, or a run history/ledger for agent attention.
 
 ### Later (explicitly deferred)
 
 - Richer agent discovery / user-configured agent list (v1 is PATH detect only).
 - Signed/notarized distribution.
 - Any embed-agent or deeper IDE adjacency.
+- Agent-specific attention adapters (e.g. splitting "needs input" from "needs approval" per agent CLI).
 
 ### Brownfield note
 

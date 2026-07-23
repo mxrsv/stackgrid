@@ -1,7 +1,25 @@
 ---
 derived: true
-derived_from: [0001, 0002, 0003, 0010, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0020, 0021, 0022, 0023]
-rendered: 2026-07-10
+derived_from:
+  [
+    0001,
+    0002,
+    0003,
+    0010,
+    0012,
+    0013,
+    0014,
+    0015,
+    0016,
+    0017,
+    0018,
+    0020,
+    0021,
+    0022,
+    0023,
+    0027,
+  ]
+rendered: 2026-07-24
 version: 1
 ---
 
@@ -26,16 +44,17 @@ decomposition; this document plans nothing.
 
 ## Epic index
 
-| Epic | Label         | Scope                                     |
-| ---- | ------------- | ----------------------------------------- |
-| E1   | open-board    | Workspace ∥ preset chooser, Open flow     |
-| E2   | presets       | Preset store, editor (mini mock), CRUD    |
-| E3   | agent-picker  | PATH detect, one-shot pick / spawn        |
-| E4   | pane-movement | Swap, move across windows                 |
-| E5   | multi-window  | Coordinator, window lifecycle, quit       |
-| E6   | session       | `session.json` v2, restore-all, migration |
-| E7   | sidebar       | Cmd+click path → preview + diff           |
-| E8   | foundation    | Cross-cutting behavioral guards           |
+| Epic | Label          | Scope                                                                        |
+| ---- | -------------- | ---------------------------------------------------------------------------- |
+| E1   | open-board     | Workspace ∥ preset chooser, Open flow                                        |
+| E2   | presets        | Preset store, editor (mini mock), CRUD                                       |
+| E3   | agent-picker   | PATH detect, one-shot pick / spawn                                           |
+| E4   | pane-movement  | Swap, move across windows                                                    |
+| E5   | multi-window   | Coordinator, window lifecycle, quit                                          |
+| E6   | session        | `session.json` v2, restore-all, migration                                    |
+| E7   | sidebar        | Cmd+click path → preview + diff                                              |
+| E8   | foundation     | Cross-cutting behavioral guards                                              |
+| E9   | attention-rail | Per-pane agent phase/attention, acknowledge, navigation, notification opt-in |
 
 ---
 
@@ -540,6 +559,69 @@ Refs: BF-Rule 22, 23 · BF-Inv 3.
 
 ---
 
+## E9 — attention-rail
+
+### FR-080 — Agent phase detection (process-gated)
+
+Per-pane `Agent phase` only tracks a pane once its foreground process is confirmed
+to be a recognized agent. Story: phase-gate.
+
+- AC-1: `Agent phase` for a pane only leaves `unknown`, or reverts to `unknown`-equivalent gating, after the existing `pty_info` process poll confirms (or reverts) its foreground process as a recognized agent; OSC 9;4 progress, the sustained-output heuristic, OSC 9/777 notification, and bell observed before that confirmation, or after the pane reverts to a shell, are discarded and never replayed once the gate reopens.
+- AC-2: Phase values are exactly `unknown` / `idle` / `working` / `exited`; a pane in `working` phase can simultaneously carry a latched `warning`/`error`/`requested` attention — phase and attention are independent axes (FR-081).
+- AC-3: A `pty:exit` for the pane sets phase to `exited` and prunes its attention record; no stale badge remains after the pane is gone.
+
+Refs: BF-Rule 35, 36 · BF-Inv 12, 13 · ADR decisions/0027.
+
+### FR-081 — Attention classification & latching
+
+Explicit protocol signals and a conservative output heuristic latch one of
+`completed` / `requested` / `warning` / `error` per pane. Story: attention.
+
+- AC-1: OSC 9;4 progress state `2` latches `error`; state `4` latches `warning`; an OSC 9 / OSC 777 notification or the terminal bell latches `requested` — each accepted only from a pane whose process gate is open (FR-080).
+- AC-2: A `working → idle` transition latches `completed` only when it follows an observed working streak (explicit OSC clear or the sustained-output heuristic); an idle observed with no prior `working` transition never latches `completed`.
+- AC-3: The sustained-output heuristic may only ever produce `working → idle → completed`; it must never latch `warning`, `error`, or `requested`.
+- AC-4: `warning` / `error` / `requested` / `completed` latch until the pane is acknowledged (FR-082); an OSC clear that ends the underlying `working` phase does not itself clear a latched attention.
+- AC-5: Display and navigation precedence is `error > warning > requested > completed`.
+
+Refs: BF-Rule 36, 37, 38, 39, 40 · BF-Inv 13 · ADR decisions/0027.
+
+### FR-082 — Per-pane acknowledge (additive to legacy tab unread)
+
+Focusing a pane acknowledges only that pane's new attention state, distinct from
+the legacy tab-level unread flag. Story: acknowledge.
+
+- AC-1: Focusing a pane — by click, or via focus-next-attention navigation (FR-083) — clears that pane's own `Attention` (back to `none`) and its own per-pane `Unread`; it never clears `Agent phase` (a pane still `working` keeps showing working after acknowledge).
+- AC-2: Per-pane acknowledge is independent of the legacy tab-level unread flag. Opening/selecting a tab continues to clear only `TabView.unread` through the existing public `selectTab()` call, exactly as shipped — selecting a tab does **not** acknowledge any pane's attention or per-pane unread, and pane focus does **not** clear `TabView.unread`. The two unread concepts run side by side.
+- AC-3: Attention state (phase + attention + per-pane unread) is held only in memory for the life of the PTY; it is never written to `session.json` or any other persisted artifact and does not survive an app restart.
+
+Refs: BF-Rule 41 · BF-Inv 10, 11, 12 · ADR decisions/0027.
+
+### FR-083 — Focus-next-attention navigation
+
+`Cmd+Shift+A` and status-mark click jump to the pane with the highest-priority
+attention, acknowledging exactly one pane per action. Story: navigate.
+
+- AC-1: `Cmd+Shift+A` focuses the pane with the highest-precedence attention across all tabs/windows (`error > warning > requested > completed`, then oldest-changed-first); clicking a workspace/tab's status mark scopes the same selection to that tab.
+- AC-2: A single navigation action (click or shortcut) acknowledges exactly one pane — the candidate — and never focuses or acknowledges an intermediate or previously active pane.
+- AC-3: Pressing `Cmd+Shift+A` again after a pane is acknowledged advances to the next-highest-precedence candidate, since the previously focused pane no longer carries actionable attention.
+- AC-4: With no actionable candidate, the action is a complete no-op: no overlay opens or closes, no pane is focused, and unread-only panes (no latched attention) are never selected as a candidate.
+
+Refs: BF-Rule 40, 41 · BF-Inv 10 · ADR decisions/0027.
+
+### FR-084 — Native notification opt-in + background-only
+
+Native OS notification is opt-in, fires only while Stackgrid is backgrounded, and
+never carries terminal content. Story: notify.
+
+- AC-1: Native OS notification defaults to off; it is enabled only by an explicit toggle in Settings, which triggers the OS permission prompt at that moment (never at startup); a denied OS permission keeps the setting `false`.
+- AC-2: A notification is sent only while the Stackgrid window is not focused; while the app is foregrounded, only the in-app status marks surface the change.
+- AC-3: Each attention transition (`completed`/`requested`/`warning`/`error`) sends at most one native notification, deduped by pane + revision — a re-render or repeated poll of the same transition never sends a duplicate.
+- AC-4: Notification copy is limited to the workspace label, a normalized agent/process label, and a fixed kind string (`finished` / `needs attention` / `warning` / `error`); it never includes raw terminal content or model output.
+
+Refs: BF-Rule 42, 43, 44 · ADR decisions/0027.
+
+---
+
 ## NFR
 
 ### NFR-001 — macOS only
@@ -664,6 +746,16 @@ Refs: BF-Rule 5 · BF-Inv 8.
 | 32      | NFR-002                              |
 | 33      | NFR-001                              |
 | 34      | NFR-004                              |
+| 35      | FR-080                               |
+| 36      | FR-080, FR-081                       |
+| 37      | FR-081                               |
+| 38      | FR-081                               |
+| 39      | FR-081                               |
+| 40      | FR-081, FR-083                       |
+| 41      | FR-082, FR-083                       |
+| 42      | FR-084                               |
+| 43      | FR-084                               |
+| 44      | FR-084                               |
 
 ### BUSINESS-FLOW invariants → requirements
 
@@ -678,6 +770,10 @@ Refs: BF-Rule 5 · BF-Inv 8.
 | 7      | FR-042                                       |
 | 8      | NFR-009                                      |
 | 9      | NFR-003                                      |
+| 10     | FR-082                                       |
+| 11     | FR-082                                       |
+| 12     | FR-080, FR-082                               |
+| 13     | FR-080, FR-081                               |
 
 ### PRD journeys → requirements
 
@@ -686,6 +782,7 @@ Refs: BF-Rule 5 · BF-Inv 8.
 | Happy path (Open board → materialize → picker) | FR-001…FR-006, FR-005, FR-020…FR-026 |
 | Resume (restore-all + picker)                  | FR-050…FR-053, FR-021                |
 | Steer (swap, move/join, quit rule)             | FR-030…FR-036, FR-040…FR-042         |
+| Observe (attention across panes)               | FR-080…FR-084                        |
 | Inspect (Cmd+click → sidebar)                  | FR-060…FR-066                        |
 | Capture (presets, mock → new tab)              | FR-010…FR-016                        |
 

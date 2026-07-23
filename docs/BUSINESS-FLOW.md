@@ -1,7 +1,8 @@
 ---
 derived: true
-derived_from: [0003, 0007, 0008, 0010, 0012, 0013, 0014, 0015, 0016, 0017, 0018]
-rendered: 2026-07-10
+derived_from:
+  [0003, 0007, 0008, 0010, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0027]
+rendered: 2026-07-24
 ---
 
 # BUSINESS-FLOW — Stackgrid
@@ -44,6 +45,32 @@ States, rules, and invariants for v1 product behavior. Complements `PRD.md`; doe
 | **Busy**         | Foreground process is not an idle shell (agent or other).                  |
 | **Agent-styled** | Foreground process name matches a recognized agent — header/badge styling. |
 | **Picker**       | Overlay/chooser visible for agent vs Shell (during agent-pick pending).    |
+
+### Agent phase (per-pane)
+
+Two independent per-pane axes track agent attention: **Agent phase** below is the
+runtime work signal; **Attention** (next table) is a separate, latched, actionable
+state — a pane can be `Working` while still carrying a latched `Warning`. Each pane
+also carries its own **Unread** boolean (output not yet seen while its window is
+foregrounded), additive to and independent from the legacy tab-level unread flag
+(`TabView.unread`, unaffected — see Rule 41).
+
+| State       | Meaning                                                                                                                                   |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **Unknown** | No signal yet, or the pane's foreground process has not (or no longer) been confirmed as a recognized agent — the process gate is closed. |
+| **Idle**    | Recognized agent confirmed; not currently producing working output/progress.                                                              |
+| **Working** | Recognized agent actively producing output/progress (explicit OSC 9;4 progress, or the sustained-output heuristic).                       |
+| **Exited**  | The pane's PTY is gone; its attention record is pruned.                                                                                   |
+
+### Attention (per-pane, latched)
+
+| State         | Meaning                                                                                               |
+| ------------- | ----------------------------------------------------------------------------------------------------- |
+| **None**      | No latched actionable state.                                                                          |
+| **Completed** | A `working → idle` transition observed after a real working streak (explicit OSC clear or heuristic). |
+| **Requested** | OSC 9 / OSC 777 notification, or terminal bell, from a gate-open (recognized-agent) pane.             |
+| **Warning**   | OSC 9;4 progress state `4` from a gate-open pane.                                                     |
+| **Error**     | OSC 9;4 progress state `2` from a gate-open pane.                                                     |
 
 ### Sidebar
 
@@ -118,6 +145,19 @@ States, rules, and invariants for v1 product behavior. Complements `PRD.md`; doe
 33. macOS only for v1 product commitment.
 34. v1 may ship **unsigned**; Gatekeeper first-run friction is accepted.
 
+### Agent attention
+
+35. **Process gate**: `Agent phase`, `Attention`, and per-pane `Unread` only respond to a pane once its foreground process has been confirmed as a recognized agent by the existing `pty_info` poll (Rule 10). OSC 9;4 progress, the sustained-output heuristic, OSC 9/777 notification, and the terminal bell observed before that confirmation, or after the pane reverts to a shell, are discarded and never replayed once the gate reopens.
+36. **Phase and attention are two independent axes**: `Agent phase` (`unknown`/`idle`/`working`/`exited`) is the runtime work signal; `Attention` (`none`/`completed`/`requested`/`warning`/`error`) is a separate latched state. A pane can be `working` while still carrying a latched `warning` that has not been acknowledged; the status mark shows attention ahead of phase.
+37. **Explicit signals outrank the heuristic**: OSC 9;4 progress severity, OSC 9/777 notification, and the bell always outrank the sustained-output heuristic. The heuristic may only ever produce `working → idle → completed`; it must never latch `warning`, `error`, or `requested`.
+38. **Completion requires a real working streak**: an OSC clear or an idle observation with no prior `working` transition is just `idle`, never `completed`.
+39. **Warning/error/requested latch until acknowledged**: ending the underlying `working` phase (e.g. an OSC clear) does not itself clear a latched `warning`/`error`/`requested`; only acknowledging the pane (Rule 41) clears it.
+40. **Attention precedence**: when several panes carry attention, the mark shown and the navigation order (Rule 41) both use `error > warning > requested > completed`, then oldest-changed first; unread-only panes are never selected by that navigation.
+41. **Per-pane acknowledge is additive, distinct from legacy tab-level unread clearing**: focusing a pane — by click, or via `Cmd+Shift+A` / status-mark navigation — clears that pane's own `Attention` (back to `none`) and its own per-pane `Unread`. It never clears `Agent phase`. **Opening or selecting a tab still only clears that tab's legacy unread flag** through the existing public `selectTab()` call, exactly as before — selecting a tab does **not** acknowledge any pane's attention or per-pane unread, and pane focus does **not** clear the legacy tab-level unread flag. The two unread concepts run side by side; neither replaces the other.
+42. **Notification is opt-in and background-only**: native OS notification defaults to off and is enabled only by an explicit Settings toggle; a denied OS permission keeps the setting `false`. It fires only while the Stackgrid window is not focused — the in-app status marks are the primary channel while the app is foregrounded.
+43. **One notification per transition**: each attention transition sends at most one native notification, deduped by pane + revision; a later re-render or poll of the same transition never sends a duplicate.
+44. **No terminal content in notifications**: notification copy is limited to the workspace label, a normalized agent/process label, and a fixed kind string (`finished` / `needs attention` / `warning` / `error`) — never raw terminal or model text.
+
 ## Invariants
 
 1. **Every pane has exactly one real PTY** (login shell or child process tree) — no fake terminal surfaces for agent work.
@@ -129,3 +169,7 @@ States, rules, and invariants for v1 product behavior. Complements `PRD.md`; doe
 7. **App quit ⟺ no windows left** (or explicit Quit). Closing a non-last window never quits the app.
 8. **Workspace ≠ Window ≠ Session** in language: workspace = folder; window = OS window; session = persisted chrome.
 9. Features in v1 must not contradict PRINCIPLES (agent-CLI first, macOS, mouse+keyboard, real PTY, local-by-default, MIT, session-chrome-not-CWD).
+10. **Acknowledge clears `Attention` and per-pane `Unread`, never `Agent phase`** — focusing a pane never marks a still-working agent as done, and never fabricates work it isn't doing.
+11. **Per-pane attention/unread is additive, never a replacement for legacy tab-level unread** — `TabView.unread` and its clearing via the public `selectTab()` call keep their existing meaning and behavior unchanged.
+12. **Attention state lives only in memory for the life of the PTY** — it is not persisted to `session.json` or any other artifact and does not survive an app restart.
+13. **Stackgrid never parses terminal or model text for attention** — only protocol signals (OSC 9;4, OSC 9/777, bell) and the sustained-output heuristic feed `Agent phase`/`Attention`; no regex over rendered strings like "Allow?" or "Done".
