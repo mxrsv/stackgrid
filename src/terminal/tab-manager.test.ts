@@ -687,5 +687,48 @@ describe("createTabManager attention tracker", () => {
         vi.useRealTimers();
       }
     });
+
+    it("synthesizes a completed transition when heuristic-working silence outlasts the resync timer", async () => {
+      // codex/gemini never emit OSC 9;4 — the ONLY signal they ever produce
+      // is the sustained-output heuristic. This locks the silence-completion
+      // path: the pane goes working via the heuristic, then falls fully
+      // silent (no OSC clear, no further output, no poll transition) for
+      // longer than the ~3200ms resync one-shot, and the tab must still
+      // reach `completed` on its own.
+      vi.useFakeTimers();
+      try {
+        const infos = new Map<number, PaneProcessInfo>([
+          [1, { id: 1, cwd: "/repo", process: "codex" }],
+        ]);
+        const { tm, pty } = setup({ infos });
+        await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+          workspacePath: "/repo",
+        });
+        await tm.init();
+        await vi.advanceTimersByTimeAsync(0); // materialize poll → gate open (codex)
+
+        // One isolated chunk starts the streak but isn't sustained yet…
+        pty.emitOutput(1, "streaming tokens…");
+        // …a second chunk past minStreakMs flips the heuristic to working.
+        await vi.advanceTimersByTimeAsync(500);
+        pty.emitOutput(1, "more tokens…");
+        expect(tabViews.value[0].attention?.kind).toBe("working");
+        expect(tabViews.value[0].attention?.workingCount).toBe(1);
+
+        // Go fully silent — no more output, no OSC clear, no process change —
+        // past the resync one-shot. `activity.working` decays to false while
+        // the tracker still reads "working", so the one-shot synthesizes an
+        // idle transition with no new output ever having arrived.
+        await vi.advanceTimersByTimeAsync(3400);
+
+        expect(tabViews.value[0].attention?.kind).toBe("completed");
+        expect(tabViews.value[0].attention?.actionableCount).toBe(1);
+        expect(tabViews.value[0].attention?.workingCount).toBe(0);
+
+        tm.dispose();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
