@@ -10,6 +10,19 @@ import {
   type TabManagerDeps,
 } from "./tab-manager";
 import { activeTabIndex, tabViews, statusInfo } from "./tabs-store";
+import type { AgentNotifier, AttentionNotification } from "./agent-notifier";
+import { settings } from "../settings/settings-store";
+import { DEFAULT_SETTINGS } from "../settings/settings-schema";
+import { sendAgentNotification } from "../lib/native-notification";
+
+// Task 23: the production-default notifier sends through this adapter. Mock
+// it at the module boundary so NO test — including every pre-Task-23 test
+// above that never touches the notifier at all — can ever reach the real
+// Tauri `@tauri-apps/plugin-notification` API, regardless of the
+// `agentNotifications` setting's value at the time.
+vi.mock("../lib/native-notification", () => ({
+  sendAgentNotification: vi.fn(),
+}));
 
 // init() installs the file-drop listener, which reaches into the Tauri window
 // and webview. Stub them so init() can register the pty output listener the
@@ -165,7 +178,10 @@ function setup(options: {
  * it, i.e. never recognized). Mutating the map then advancing the poll
  * interval drives the tracker's process gate open/closed deterministically.
  */
-function setupControllable(processByPane: Map<number, string | null>): {
+function setupControllable(
+  processByPane: Map<number, string | null>,
+  deps: Partial<TabManagerDeps> = {},
+): {
   tm: TabManager;
   pty: ReturnType<typeof createMemoryPtyClient>;
   emitSignal: EmitSignal;
@@ -180,7 +196,7 @@ function setupControllable(processByPane: Map<number, string | null>): {
       });
     },
   };
-  const { tm, emitSignal } = wire(pty);
+  const { tm, emitSignal } = wire(pty, deps);
   return { tm, pty, emitSignal };
 }
 
@@ -188,11 +204,31 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/**
+ * Fake `AgentNotifier` — records every `maybeNotify` call verbatim instead
+ * of applying the real enabled/focus/dedupe policy, so a test can assert
+ * exactly what TabManager routed through the Task 23 choke point without
+ * that policy masking it (and without ever touching the real Tauri API).
+ */
+function fakeNotifierSpy(): {
+  notifier: AgentNotifier;
+  maybeNotify: ReturnType<typeof vi.fn<(n: AttentionNotification) => void>>;
+  prune: ReturnType<typeof vi.fn<(live: readonly number[]) => void>>;
+} {
+  const maybeNotify = vi.fn<(n: AttentionNotification) => void>();
+  const prune = vi.fn<(live: readonly number[]) => void>();
+  return { notifier: { maybeNotify, prune }, maybeNotify, prune };
+}
+
 beforeEach(() => {
   document.body.innerHTML = "";
   tabViews.value = [];
   activeTabIndex.value = 0;
   windowFocus = freshWindowFocusController();
+  // Task 23: reset the live setting the production-default notifier reads,
+  // and clear the mocked native adapter so per-test call counts start fresh.
+  settings.value = DEFAULT_SETTINGS;
+  vi.mocked(sendAgentNotification).mockClear();
 });
 
 describe("createTabManager materialize (through the createPane seam)", () => {
@@ -1384,6 +1420,227 @@ describe("createTabManager Cmd+Shift+A shortcut routing (Task 12)", () => {
     expect(() => window.dispatchEvent(attentionKeydown())).not.toThrow();
 
     expect(tabViews.value[0].attention?.kind).toBe("error"); // untouched
+
+    tm.dispose();
+  });
+});
+
+// Task 23: wiring the notifier into TabManager. Every non-null tracker
+// snapshot from a real transition routes through ONE choke point
+// (`maybeNotify`); the notifier itself owns the enabled/focus/dedupe policy.
+describe("createTabManager notifier deps (Task 23)", () => {
+  it("compiles and constructs with the 3rd arg omitted", () => {
+    const pty = createMemoryPtyClient({ nextId: 1 });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+
+    expect(() => createTabManager(host, pty)).not.toThrow();
+  });
+
+  it("compiles and constructs with only { createPane }", () => {
+    const pty = createMemoryPtyClient({ nextId: 1 });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const createPane: CreatePaneFn = (id, _settings, events) =>
+      fakePane(id, events);
+
+    expect(() => createTabManager(host, pty, { createPane })).not.toThrow();
+  });
+
+  it("compiles and constructs with { createPane, notifier }", () => {
+    const pty = createMemoryPtyClient({ nextId: 1 });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const createPane: CreatePaneFn = (id, _settings, events) =>
+      fakePane(id, events);
+    const { notifier } = fakeNotifierSpy();
+
+    expect(() =>
+      createTabManager(host, pty, { createPane, notifier }),
+    ).not.toThrow();
+  });
+});
+
+describe("createTabManager notifier — production default reads the setting LIVE (Task 23)", () => {
+  it("does not send while agentNotifications is off, then sends once flipped on — without reconstructing the manager", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    // Window starts backgrounded so only the `agentNotifications` setting
+    // gates the send below — isolates the "read live" behavior under test.
+    windowFocus.initialFocused = false;
+    const { tm, pty, emitSignal } = setup({ infos }); // no injected notifier
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+
+    // `agentNotifications` defaults to false (beforeEach resets it) — a real
+    // actionable, backgrounded transition must NOT send.
+    emitSignal(1, { kind: "requested", source: "osc-notification" });
+    expect(tabViews.value[0].attention?.kind).toBe("requested");
+    expect(sendAgentNotification).not.toHaveBeenCalled();
+
+    // Flip the setting AFTER construction — a captured startup snapshot of
+    // `agentNotifications` would stay false and this would still not send.
+    settings.value = { ...settings.value, agentNotifications: true };
+
+    // A higher-severity transition on the same pane — genuinely new revision.
+    pty.emitOutput(1, "\x1b]9;4;2\x07"); // error
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+
+    expect(sendAgentNotification).toHaveBeenCalledTimes(1);
+    const payload = vi.mocked(sendAgentNotification).mock.calls[0][0];
+    expect(payload.title).toBe("repo");
+    expect(payload.body).toBe("claude error");
+
+    tm.dispose();
+  });
+});
+
+describe("createTabManager notifier integration — fake notifier (Task 23)", () => {
+  it("routes a background agent→shell completion transition through maybeNotify once, with the right paneId/kind/labels", async () => {
+    vi.useFakeTimers();
+    try {
+      const processByPane = new Map<number, string | null>([[1, "claude"]]);
+      const { notifier, maybeNotify } = fakeNotifierSpy();
+      const { tm, pty } = setupControllable(processByPane, { notifier });
+      await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+        workspacePath: "/repo",
+      });
+      await tm.init();
+      await vi.advanceTimersByTimeAsync(0); // materialize poll → gate open (claude)
+
+      pty.emitOutput(1, "\x1b]9;4;1\x07"); // working
+      maybeNotify.mockClear(); // discard the gate-open + working calls (kind "none")
+
+      processByPane.set(1, "zsh"); // foreground process becomes the shell
+      await vi.advanceTimersByTimeAsync(2000); // poll closes the gate → inferred completion
+
+      expect(maybeNotify).toHaveBeenCalledTimes(1);
+      const n = maybeNotify.mock.calls[0][0];
+      expect(n.paneId).toBe(1);
+      expect(n.kind).toBe("completed");
+      expect(n.workspaceLabel).toBe("repo");
+      expect(n.agentLabel).toBe("claude");
+
+      tm.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("routes a transition through maybeNotify even while the window is foreground — window-focus gating is the notifier's job, not TabManager's", async () => {
+    vi.useFakeTimers();
+    try {
+      // windowFocus stays at its default (focused) — the "foreground" case.
+      const processByPane = new Map<number, string | null>([[1, "claude"]]);
+      const { notifier, maybeNotify } = fakeNotifierSpy();
+      const { tm, pty } = setupControllable(processByPane, { notifier });
+      await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+        workspacePath: "/repo",
+      });
+      await tm.init();
+      await vi.advanceTimersByTimeAsync(0);
+
+      pty.emitOutput(1, "\x1b]9;4;1\x07");
+      maybeNotify.mockClear();
+
+      processByPane.set(1, "zsh");
+      await vi.advanceTimersByTimeAsync(2000);
+
+      // Routed regardless of window focus — a real notifier would gate this
+      // on `isWindowFocused()`, but this fake proves TabManager itself
+      // never pre-filters on focus before the choke point.
+      expect(maybeNotify).toHaveBeenCalledTimes(1);
+      expect(maybeNotify.mock.calls[0][0].kind).toBe("completed");
+
+      tm.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('routes a warning transition through maybeNotify with kind "warning"', async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { notifier, maybeNotify } = fakeNotifierSpy();
+    const { tm, pty } = setup({ infos, deps: { notifier } });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+    maybeNotify.mockClear(); // discard the gate-open call (kind "none")
+
+    pty.emitOutput(1, "\x1b]9;4;4\x07"); // warning
+
+    expect(maybeNotify).toHaveBeenCalledTimes(1);
+    const n = maybeNotify.mock.calls[0][0];
+    expect(n.paneId).toBe(1);
+    expect(n.kind).toBe("warning");
+    expect(n.workspaceLabel).toBe("repo");
+
+    tm.dispose();
+  });
+
+  it("does not call maybeNotify for ordinary output with no attention transition", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { notifier, maybeNotify } = fakeNotifierSpy();
+    const { tm, pty } = setup({ infos, deps: { notifier } });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+    maybeNotify.mockClear(); // discard the gate-open call
+
+    // A single isolated chunk never crosses the sustained-output heuristic —
+    // no activity transition, so the tracker is never even touched.
+    pty.emitOutput(
+      1,
+      "plain agent output, no OSC markers, no sustained streak",
+    );
+
+    expect(maybeNotify).not.toHaveBeenCalled();
+
+    tm.dispose();
+  });
+
+  it("uses the tab rename override as the workspace label when one is set", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { notifier, maybeNotify } = fakeNotifierSpy();
+    const { tm, pty } = setup({ infos, deps: { notifier } });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    tm.renameTab(0, "my custom name");
+    await tm.init();
+    await flush();
+    maybeNotify.mockClear();
+
+    pty.emitOutput(1, "\x1b]9;4;4\x07"); // warning
+
+    expect(maybeNotify).toHaveBeenCalledTimes(1);
+    expect(maybeNotify.mock.calls[0][0].workspaceLabel).toBe("my custom name");
+
+    tm.dispose();
+  });
+
+  it("prunes the notifier alongside the tracker when a tab closes", async () => {
+    const { notifier, prune } = fakeNotifierSpy();
+    const { tm } = setup({ deps: { notifier } });
+    await tm.materialize({ layout: null, cwds: ["/a"] });
+
+    await tm.closeTab(0);
+
+    expect(prune).toHaveBeenCalledWith([]);
 
     tm.dispose();
   });

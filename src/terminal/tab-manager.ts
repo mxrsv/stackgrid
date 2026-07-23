@@ -13,7 +13,8 @@ import {
 } from "../settings/settings-store";
 import { type Direction, type SerializedNode } from "../lib/split-tree";
 import { isAgent } from "../lib/process-info";
-import { normalizeWorkspacePath } from "../lib/workspace-label";
+import { normalizeWorkspacePath, workspaceLabel } from "../lib/workspace-label";
+import { sendAgentNotification } from "../lib/native-notification";
 import type { AgentChoice } from "../lib/workspace-recents";
 import { matchBinding, selectTabIndex, type ShortcutAction } from "./keymap";
 import { installFileDrop } from "./file-drop";
@@ -24,7 +25,11 @@ import {
 } from "./terminal-manager";
 import { createPaneInfoPoller } from "./pane-info-poller";
 import { createAgentActivity } from "./agent-activity";
-import { createAgentAttentionTracker } from "./agent-attention";
+import {
+  createAgentAttentionTracker,
+  type PaneAttentionSnapshot,
+} from "./agent-attention";
+import { createAgentNotifier, type AgentNotifier } from "./agent-notifier";
 import type { PaneAttentionSignal } from "./pane";
 import {
   popClosedTab,
@@ -82,6 +87,12 @@ export interface TabManagerDeps extends TerminalManagerDeps {
    * click (Task 15) before any pane is actually focused. Missing = no-op.
    */
   onRequestAttentionFocus?: (tabIndex?: number) => void;
+  /**
+   * Test seam — defaults to a real `createAgentNotifier` wired to the live
+   * settings store, live window focus, and the Task 20 Tauri adapter.
+   * Injected notifier wins, so tests never hit the real native API.
+   */
+  notifier?: AgentNotifier;
 }
 
 /** Owns all tabs: routing, keyboard, agent launch; info polling lives in PaneInfoPoller. */
@@ -180,6 +191,16 @@ export function createTabManager(
   // every input passes a process gate: activity and signals only count once a
   // poll has recognised the pane's foreground process as an agent.
   const tracker = createAgentAttentionTracker({ now });
+  // Injected notifier wins (tests); production default reads the setting and
+  // window focus LIVE (function seams, not captured values) and sends
+  // through Task 20's permission-guarded Tauri adapter.
+  const notifier: AgentNotifier =
+    deps.notifier ??
+    createAgentNotifier({
+      isEnabled: () => settings.value.agentNotifications,
+      isWindowFocused: () => windowFocused,
+      send: sendAgentNotification,
+    });
   // Working→idle can expire with no event attached (3s of silence). The 2s
   // poll usually resyncs, but a one-shot timer per pane makes the transition
   // self-sufficient even if pty_info is failing — keyed by pane so a chatty
@@ -278,6 +299,31 @@ export function createTabManager(
     return tabs.flatMap((tab) => tab.manager.paneIds());
   }
 
+  /**
+   * ONE choke point for every tracker transition that might be worth a
+   * native notification — every call site below that gets a non-null
+   * snapshot back from a tracker mutation routes it here. Label derivation
+   * mirrors the sidebar's own `tab.name ?? workspaceLabel(tab.workspacePath)`
+   * (workspace-sidebar.tsx) — never raw terminal/OSC text. The notifier
+   * itself gates on actionable-kind + background + unsent-revision, so
+   * routing every non-null snapshot (including `kind: "none"`) is safe.
+   */
+  function maybeNotify(id: number, snap: PaneAttentionSnapshot): void {
+    const owner = tabs.find((t) => t.manager.paneIds().includes(id));
+    const label =
+      (owner ? overrides.get(owner.key)?.name : undefined) ??
+      (owner?.workspacePath == null
+        ? "Unknown"
+        : workspaceLabel(owner.workspacePath));
+    notifier.maybeNotify({
+      paneId: id,
+      revision: snap.revision,
+      kind: snap.attention,
+      workspaceLabel: label,
+      agentLabel: snap.agentLabel,
+    });
+  }
+
   const callbacks = {
     onLayoutChange(): void {
       syncViews();
@@ -285,6 +331,7 @@ export function createTabManager(
       launcher.prune(live);
       activity.prune(live);
       tracker.prune(live);
+      notifier.prune(live);
       // Every pane of every tab is polled now, so a long session would
       // otherwise leave one cache entry behind per pane ever opened.
       poller.prune(live);
@@ -293,13 +340,13 @@ export function createTabManager(
       // Structured OSC 9/777 notification or bell from a pane. Stamp it with
       // the shared clock and hand it to the tracker; the gate drops it for
       // shell / pre-poll panes, and a real change triggers a re-render.
-      if (
-        tracker.noteSignal(id, {
-          kind: "requested",
-          source: signal.source,
-          observedAt: now(),
-        }) !== null
-      ) {
+      const signalSnap = tracker.noteSignal(id, {
+        kind: "requested",
+        source: signal.source,
+        observedAt: now(),
+      });
+      if (signalSnap !== null) {
+        maybeNotify(id, signalSnap);
         syncViews();
       }
     },
@@ -609,6 +656,7 @@ export function createTabManager(
     launcher.prune(live);
     activity.prune(live);
     tracker.prune(live);
+    notifier.prune(live);
     poller.prune(live);
     if (tabs.length === 0) {
       // Closing the last tab quits the app (ADR 0002). CloseCoordinator
@@ -657,7 +705,14 @@ export function createTabManager(
       // aggregated: opening/closing the gate and the agent→shell inferred
       // completion both key off the last polled process.
       for (const info of infos) {
-        tracker.noteProcess(info.id, info.process, isAgent(info.process));
+        const snap = tracker.noteProcess(
+          info.id,
+          info.process,
+          isAgent(info.process),
+        );
+        if (snap !== null) {
+          maybeNotify(info.id, snap);
+        }
       }
       syncViews();
     },
@@ -802,8 +857,10 @@ export function createTabManager(
         // means a visible change worth re-rendering for.
         let trackerChanged = false;
         for (const transition of transitions) {
-          if (tracker.noteActivity(id, transition) !== null) {
+          const activitySnap = tracker.noteActivity(id, transition);
+          if (activitySnap !== null) {
             trackerChanged = true;
+            maybeNotify(id, activitySnap);
           }
         }
         // Per-pane visibility for THIS step only: the window must be
@@ -849,13 +906,16 @@ export function createTabManager(
               !activity.working(id) &&
               tracker.snapshot(id)?.phase === "working"
             ) {
-              tracker.noteActivity(id, {
+              const resyncSnap = tracker.noteActivity(id, {
                 phase: "idle",
                 source: "output-heuristic",
                 severity: null,
                 oscState: null,
                 observedAt: now(),
               });
+              if (resyncSnap !== null) {
+                maybeNotify(id, resyncSnap);
+              }
             }
             syncViews();
           }, 3200),
@@ -867,12 +927,17 @@ export function createTabManager(
         // Note the exit BEFORE fanning out: a multi-pane tab auto-closes the
         // pane inside handleExit, which prunes it from the tracker — running
         // noteExit first updates the live record instead of re-creating one
-        // that prune already dropped.
-        const exitChanged = tracker.noteExit(id) !== null;
+        // that prune already dropped. `maybeNotify` also runs before the
+        // fan-out for the same reason: handleExit can drop `id` from its
+        // owning tab's paneIds, and the owner lookup needs it still there.
+        const exitSnap = tracker.noteExit(id);
+        if (exitSnap !== null) {
+          maybeNotify(id, exitSnap);
+        }
         for (const tab of tabs) {
           tab.manager.handleExit(id);
         }
-        if (exitChanged) {
+        if (exitSnap !== null) {
           syncViews();
         }
       }),
