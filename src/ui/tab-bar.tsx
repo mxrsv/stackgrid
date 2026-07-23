@@ -84,22 +84,27 @@ export function TabBar(props: TabBarProps) {
               }}
             />
             <span class="tab__label">{tab.name ?? tab.process ?? "shell"}</span>
-            {/* stopPropagation keeps a click on the mark from bubbling to
-                the tab's own onClick (select tab / toggle popover). */}
-            <span
-              class="tab__attn"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <AgentAttentionMark
-                summary={tab.attention ?? IDLE_ATTENTION_SUMMARY}
-                label={tab.name ?? tab.process ?? "shell"}
-                onActivate={
-                  props.onFocusAttention
-                    ? () => props.onFocusAttention!(index)
-                    : undefined
-                }
-              />
-            </span>
+            {/* Only mount when the mark actually renders something — an
+                idle summary renders null, and an unconditional wrapper
+                would still consume a flex `gap` gutter on every idle tab. */}
+            {(tab.attention ?? IDLE_ATTENTION_SUMMARY).kind !== "idle" && (
+              // stopPropagation keeps a click on the mark from bubbling to
+              // the tab's own onClick (select tab / toggle popover).
+              <span
+                class="tab__attn"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <AgentAttentionMark
+                  summary={tab.attention ?? IDLE_ATTENTION_SUMMARY}
+                  label={tab.name ?? tab.process ?? "shell"}
+                  onActivate={
+                    props.onFocusAttention
+                      ? () => props.onFocusAttention!(index)
+                      : undefined
+                  }
+                />
+              </span>
+            )}
             <button
               type="button"
               class="tab__close"
