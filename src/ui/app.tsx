@@ -34,18 +34,55 @@ import { ChromeActions } from "./chrome-actions";
 import { WorkspaceSidebar } from "./workspace-sidebar";
 import { StatusBar } from "./status-bar";
 import { SettingsPanel } from "./settings-panel";
+import { runAttentionFocus } from "./attention-focus-coordinator";
 
 export function App() {
   const panelOpen = useSignal(false);
   const stagesRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<TabManager | null>(null);
 
+  /**
+   * Single coordinator-backed entry point for every attention-focus trigger
+   * (sidebar/tab-bar status click, Cmd+Shift+A). Reads `hasCandidate` and the
+   * overlay snapshot at request time so status click and shortcut always run
+   * the same preflight (Task 15). Defined before the mount effect below —
+   * which passes it into `createTabManager` as the shortcut seam — so the
+   * effect's closure captures the real callback, not a stale reference; the
+   * function itself is stable in behavior across renders since every read
+   * (`tabsRef.current`, the signals) is live, not closed-over.
+   */
+  const requestAttentionFocus = (index?: number): void => {
+    runAttentionFocus({
+      tabIndex: index,
+      hasCandidate: tabsRef.current?.hasActionableAttention(index) ?? false,
+      overlays: {
+        board: boardOpen.value,
+        settings: panelOpen.value,
+        presetEditor: editorRequest.value !== null,
+        savePresetDialog: saveDialogOpen.value,
+      },
+      // Non-focusing set-state — NOT `OpenBoard.onCancel` / `closePanel()`,
+      // which focus the active pane and could ack the wrong pane first.
+      dismissBoard: () => {
+        boardOpen.value = false;
+      },
+      dismissSettings: () => {
+        panelOpen.value = false;
+      },
+      focusAttention: (i) => {
+        tabsRef.current?.focusNextAttention(i);
+      },
+    });
+  };
+
   useEffect(() => {
     const host = stagesRef.current;
     if (!host) {
       return;
     }
-    const manager = createTabManager(host);
+    const manager = createTabManager(host, undefined, {
+      onRequestAttentionFocus: (tabIndex) => requestAttentionFocus(tabIndex),
+    });
     tabsRef.current = manager;
     // Session restore is gone: the app always opens on the board (Intent §Constraint).
     boardOpen.value = true;
@@ -285,6 +322,7 @@ export function App() {
           onSetTabColor={(index, color) =>
             tabsRef.current?.setTabDotColor(index, color)
           }
+          onFocusAttention={requestAttentionFocus}
         />
       ) : (
         <TabBar
@@ -304,6 +342,7 @@ export function App() {
             updateSettings({ focusExpand: !settings.value.focusExpand })
           }
           onToggleSettings={toggleSettings}
+          onFocusAttention={requestAttentionFocus}
         />
       )}
       <main class="stage">
