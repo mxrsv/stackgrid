@@ -55,11 +55,14 @@ export const SIDEBAR_STATUS = deepFreeze({
 });
 
 /**
- * Aurora palette per chapter: ambient violet → the three agent brand colors
- * as agents launch → converging deep violet around the focused pane.
+ * Aurora palette per chapter — every stop comes from the app's own Tokyo
+ * Night theme so each chapter reads distinct while staying on-brand:
+ * ① calm blue (the app's UI accent, "ready") → ② the three agent brand
+ * colors as agents launch → ③ hot magenta-into-violet around the focused
+ * pane (the climax; deliberately away from the hero's ambient violet).
  */
 export const AURORA_SCENES = deepFreeze({
-  1: { colorStops: ["#8d27e6", "#9167d6", "#3e15df"], amplitude: 1.0 },
+  1: { colorStops: ["#3d59a1", "#7aa2f7", "#2a3f7e"], amplitude: 1.0 },
   2: { colorStops: ["#bb9af7", "#9ece6a", "#7dcfff"], amplitude: 1.15 },
-  3: { colorStops: ["#3b1477", "#b98cff", "#2e1065"], amplitude: 1.25 },
+  3: { colorStops: ["#f7768e", "#bb9af7", "#8d27e6"], amplitude: 1.25 },
 });
