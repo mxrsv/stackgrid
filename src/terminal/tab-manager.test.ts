@@ -33,6 +33,10 @@ function fakePane(id: number, events: PaneEvents): Pane {
     },
     applySettings() {},
     setHeaderInfo() {},
+    captureSelection() {
+      return null;
+    },
+    restoreSelection() {},
     dispose() {},
   };
 }

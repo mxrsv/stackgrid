@@ -28,6 +28,10 @@ function fakePane(
     },
     applySettings() {},
     setHeaderInfo() {},
+    captureSelection() {
+      return null;
+    },
+    restoreSelection() {},
     dispose() {},
   };
   return pane;
