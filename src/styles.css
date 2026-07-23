@@ -309,6 +309,90 @@ body,
   line-height: 1;
 }
 
+/* ── Agent attention mark (AgentAttentionMark) ──────────────
+   Shared status mark for a tab/workspace's attention state.
+   Actionable kinds render an interactive pill button; working/unread
+   render non-interactive status decoration. Colors are semantic vars
+   only — never hardcoded hex. ── */
+.attn-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+button.attn-mark {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    filter 0.15s ease;
+}
+
+button.attn-mark:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button.attn-mark:hover {
+  filter: brightness(1.12);
+}
+
+.attn-mark__badge {
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.attn-mark--error {
+  background: color-mix(in srgb, var(--red) 20%, transparent);
+  color: var(--red);
+}
+
+.attn-mark--warning {
+  background: color-mix(in srgb, var(--yellow) 20%, transparent);
+  color: var(--yellow);
+}
+
+.attn-mark--requested {
+  background: color-mix(in srgb, var(--magenta) 20%, transparent);
+  color: var(--magenta);
+}
+
+.attn-mark--completed {
+  background: color-mix(in srgb, var(--green) 20%, transparent);
+  color: var(--green);
+}
+
+/* Working: the same tick-ring spinner as the workspace logo, in a sized
+   relative box so its absolute-positioned SVG (see .wsitem__spinner) has a
+   frame to sit in. Reduced-motion is already handled by that shared rule. */
+.attn-mark--working {
+  position: relative;
+  width: 20px;
+  height: 20px;
+}
+
+/* Unread: a small solid dot, same semantic color as the workspace logo's
+   unread badge. */
+.attn-mark--unread {
+  width: 14px;
+  height: 14px;
+}
+
+.attn-mark__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-unread);
+}
+
 /* ── Tab bar ─────────────────────────────────────────────── */
 
 .tabbar {
