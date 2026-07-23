@@ -934,6 +934,15 @@
   .tour--static .tour__chaptext span {
     display: block;
   }
+
+  /* Static payoff is shown frozen; it must never keep the entrance start
+     state (opacity:0), whose IntersectionObserver may not fire once the
+     un-pinned window is taller than the viewport. Specificity (0,3,0) beats
+     the base .tour__appwin[data-enter] (0,2,0). */
+  .tour--static .tour__appwin[data-enter] {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* ---------- reduced motion ---------- */
@@ -951,6 +960,12 @@
 
   /* Reveal targets must not stay hidden without their transition. */
   .tour__finale [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  /* Entrance target must not stay hidden without its transition either. */
+  .tour__appwin[data-enter] {
     opacity: 1 !important;
     transform: none !important;
   }

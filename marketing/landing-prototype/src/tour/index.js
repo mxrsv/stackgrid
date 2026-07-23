@@ -83,13 +83,14 @@ function mountWindowEntrance(section, reduceMotion) {
  * Below 768px, un-pin the window and freeze it in the chapter-3 payoff state
  * (the CSS handles the static layout). Above it, hand control back to scroll.
  */
-function mountResponsiveMode(section, update) {
+function mountResponsiveMode(section, update, aurora) {
   const narrow = window.matchMedia("(max-width: 768px)");
 
   function apply() {
     if (narrow.matches) {
       section.classList.add("tour--static");
       section.dataset.chapter = "3";
+      aurora.setScene(AURORA_SCENES[3]);
     } else {
       section.classList.remove("tour--static");
       update();
@@ -492,6 +493,10 @@ export function renderTour(copy) {
       }
 
       function handleRailClick(event) {
+        if (section.classList.contains("tour--static")) {
+          return;
+        }
+
         const button = event.target.closest(".tour__chapter");
 
         if (!button || !section.contains(button)) {
@@ -515,7 +520,7 @@ export function renderTour(copy) {
       window.addEventListener("scroll", schedule, { passive: true });
       window.addEventListener("resize", schedule, { passive: true });
       section.addEventListener("click", handleRailClick);
-      const disposeResponsive = mountResponsiveMode(section, update);
+      const disposeResponsive = mountResponsiveMode(section, update, aurora);
 
       return () => {
         window.removeEventListener("scroll", schedule);
