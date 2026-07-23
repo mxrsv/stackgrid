@@ -27,6 +27,7 @@ import { createPaneInfoPoller } from "./pane-info-poller";
 import { createAgentActivity } from "./agent-activity";
 import {
   createAgentAttentionTracker,
+  type AttentionKind,
   type PaneAttentionSnapshot,
 } from "./agent-attention";
 import { createAgentNotifier, type AgentNotifier } from "./agent-notifier";
@@ -299,16 +300,41 @@ export function createTabManager(
     return tabs.flatMap((tab) => tab.manager.paneIds());
   }
 
+  // Per-pane identity of the last ATTENTION KIND actually forwarded to the
+  // notifier — the dedupe key `maybeNotify` uses below. The tracker bumps
+  // `revision` on ANY visible-signature change, including a PHASE-ONLY
+  // re-emit of an already-latched kind (e.g. the agent→shell poll's
+  // working→idle, or `pty:exit`'s idle→exited) — neither changes `attention`.
+  // Deduping on raw revision alone (the notifier's own layer) would still
+  // fire on those, so this map is the layer that actually prevents the
+  // duplicate: only a NEWLY raised or ESCALATED kind gets forwarded.
+  const lastNotifiedKind = new Map<number, AttentionKind>();
+
   /**
    * ONE choke point for every tracker transition that might be worth a
    * native notification — every call site below that gets a non-null
    * snapshot back from a tracker mutation routes it here. Label derivation
    * mirrors the sidebar's own `tab.name ?? workspaceLabel(tab.workspacePath)`
-   * (workspace-sidebar.tsx) — never raw terminal/OSC text. The notifier
-   * itself gates on actionable-kind + background + unsent-revision, so
-   * routing every non-null snapshot (including `kind: "none"`) is safe.
+   * (workspace-sidebar.tsx) — never raw terminal/OSC text.
+   *
+   * Dedupes on the ATTENTION LATCH IDENTITY, not the raw snapshot revision:
+   * `snap.attention === "none"` only resets `lastNotifiedKind` (so a future
+   * re-raise of any kind notifies again) and never itself notifies; a
+   * `snap.attention` equal to the last-forwarded kind is a phase-only
+   * re-emit of the same latched attention and is dropped. Only a kind that
+   * differs from the last one forwarded (a fresh latch, or an escalation)
+   * reaches `notifier.maybeNotify` — which still owns the actionable-kind +
+   * background + unsent-revision policy as a harmless second layer.
    */
   function maybeNotify(id: number, snap: PaneAttentionSnapshot): void {
+    const prevKind = lastNotifiedKind.get(id) ?? "none";
+    lastNotifiedKind.set(id, snap.attention);
+    if (snap.attention === "none") {
+      return; // reset only — a future re-raise of any kind will notify
+    }
+    if (snap.attention === prevKind) {
+      return; // same latched kind re-emitted (phase-only change) — no dup
+    }
     const owner = tabs.find((t) => t.manager.paneIds().includes(id));
     const label =
       (owner ? overrides.get(owner.key)?.name : undefined) ??
@@ -322,6 +348,20 @@ export function createTabManager(
       workspaceLabel: label,
       agentLabel: snap.agentLabel,
     });
+  }
+
+  /** Forget latch-identity dedupe state for panes outside `live`. */
+  function pruneNotifiedKinds(live: readonly number[]): void {
+    const keep = new Set(live);
+    const doomed: number[] = [];
+    for (const id of lastNotifiedKind.keys()) {
+      if (!keep.has(id)) {
+        doomed.push(id);
+      }
+    }
+    for (const id of doomed) {
+      lastNotifiedKind.delete(id);
+    }
   }
 
   const callbacks = {
@@ -352,7 +392,16 @@ export function createTabManager(
     },
     onPaneFocus(id: number): void {
       if (!windowFocused) return; // only ack when the window is foreground
-      if (tracker.acknowledge(id)) syncViews(); // acknowledge clears attention+unread, not phase
+      const ackSnap = tracker.acknowledge(id); // clears attention+unread, not phase
+      if (ackSnap !== null) {
+        // Routes through the same choke point so its "none" resets
+        // `lastNotifiedKind` — a genuinely NEW error/warning/etc. raised
+        // after this ack must notify again. Acknowledge only happens while
+        // the window is foreground, and the notifier is background-only, so
+        // this call itself never sends; it only maintains the reset state.
+        maybeNotify(id, ackSnap);
+        syncViews();
+      }
     },
   };
 
@@ -657,6 +706,7 @@ export function createTabManager(
     activity.prune(live);
     tracker.prune(live);
     notifier.prune(live);
+    pruneNotifiedKinds(live);
     poller.prune(live);
     if (tabs.length === 0) {
       // Closing the last tab quits the app (ADR 0002). CloseCoordinator
@@ -927,13 +977,15 @@ export function createTabManager(
         // Note the exit BEFORE fanning out: a multi-pane tab auto-closes the
         // pane inside handleExit, which prunes it from the tracker — running
         // noteExit first updates the live record instead of re-creating one
-        // that prune already dropped. `maybeNotify` also runs before the
-        // fan-out for the same reason: handleExit can drop `id` from its
-        // owning tab's paneIds, and the owner lookup needs it still there.
+        // that prune already dropped.
+        //
+        // Deliberately NOT routed through `maybeNotify`: `noteExit` only ever
+        // sets `phase: "exited"` and never touches `attention`, so any
+        // non-null snapshot it returns is a phase-only re-emit of whatever
+        // was already latched — forwarding it can only ever duplicate a
+        // notification already sent (or send a bare "none"/no-op). The
+        // tracker bookkeeping and `syncViews` re-render still run as before.
         const exitSnap = tracker.noteExit(id);
-        if (exitSnap !== null) {
-          maybeNotify(id, exitSnap);
-        }
         for (const tab of tabs) {
           tab.manager.handleExit(id);
         }

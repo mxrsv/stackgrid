@@ -1645,3 +1645,130 @@ describe("createTabManager notifier integration — fake notifier (Task 23)", ()
     tm.dispose();
   });
 });
+
+// Whole-branch review bugfix: dedupe on the ATTENTION LATCH IDENTITY, not raw
+// tracker revision. The tracker bumps `revision` on ANY visible-signature
+// change (including a phase-only re-emit of an already-latched kind), so
+// routing every non-null snapshot straight to the notifier double/triple-
+// fires for one real attention event (agent→shell poll, then pty:exit).
+describe("createTabManager notifier — dedupe on attention latch identity, not raw revision", () => {
+  it("does not re-notify when a latched error re-emits on a phase-only agent→shell poll, then again on pty:exit", async () => {
+    vi.useFakeTimers();
+    try {
+      const processByPane = new Map<number, string | null>([[1, "claude"]]);
+      windowFocus.initialFocused = false; // background
+      settings.value = { ...settings.value, agentNotifications: true };
+      const { notifier, maybeNotify } = fakeNotifierSpy();
+      const { tm, pty } = setupControllable(processByPane, { notifier });
+      await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+        workspacePath: "/repo",
+      });
+      await tm.init();
+      await vi.advanceTimersByTimeAsync(0); // materialize poll → gate open (claude)
+      maybeNotify.mockClear(); // discard the gate-open call (kind "none")
+
+      pty.emitOutput(1, "\x1b]9;4;2\x07"); // error latches — the one real event
+      expect(maybeNotify).toHaveBeenCalledTimes(1);
+      expect(maybeNotify.mock.calls[0][0].kind).toBe("error");
+
+      // agent→shell poll: phase working→idle, error stays latched — a
+      // phase-only re-emit of the SAME latched kind, not a new event.
+      processByPane.set(1, "zsh");
+      await vi.advanceTimersByTimeAsync(2000);
+
+      // pty:exit: phase→exited, attention unchanged — another phase-only
+      // re-emit of the same latched error.
+      pty.emitExit(1);
+
+      // Exactly one notification total for this one error.
+      expect(maybeNotify).toHaveBeenCalledTimes(1);
+
+      tm.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("notifies again for a genuinely new error raised after the previous one was acknowledged", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    windowFocus.initialFocused = false; // background
+    settings.value = { ...settings.value, agentNotifications: true };
+    const { notifier, maybeNotify } = fakeNotifierSpy();
+    const { tm, pty, focusPaneDirectly } = setup({ infos, deps: { notifier } });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+    maybeNotify.mockClear(); // discard the gate-open call (kind "none")
+
+    pty.emitOutput(1, "\x1b]9;4;2\x07"); // first error — background, notified
+    expect(maybeNotify).toHaveBeenCalledTimes(1);
+    expect(maybeNotify.mock.calls[0][0].kind).toBe("error");
+
+    // Window regains foreground, user focuses the pane — acknowledges it.
+    windowFocus.emitFocusChanged?.(true);
+    focusPaneDirectly(1);
+    expect(tabViews.value[0].attention?.kind).not.toBe("error"); // sanity: cleared
+
+    // Backgrounded again; a genuinely NEW error on the same pane must notify.
+    windowFocus.emitFocusChanged?.(false);
+    pty.emitOutput(1, "\x1b]9;4;2\x07");
+
+    expect(maybeNotify).toHaveBeenCalledTimes(2);
+    expect(maybeNotify.mock.calls[1][0].kind).toBe("error");
+
+    tm.dispose();
+  });
+
+  it("notifies twice for an escalation from warning to error on the same pane", async () => {
+    windowFocus.initialFocused = false; // background
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { notifier, maybeNotify } = fakeNotifierSpy();
+    const { tm, pty } = setup({ infos, deps: { notifier } });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+    maybeNotify.mockClear();
+
+    pty.emitOutput(1, "\x1b]9;4;4\x07"); // warning latches
+    pty.emitOutput(1, "\x1b]9;4;2\x07"); // escalates to error
+
+    expect(maybeNotify).toHaveBeenCalledTimes(2);
+    expect(maybeNotify.mock.calls[0][0].kind).toBe("warning");
+    expect(maybeNotify.mock.calls[1][0].kind).toBe("error");
+
+    tm.dispose();
+  });
+
+  it("does not re-notify when a latched warning's phase flips working→idle with no attention change", async () => {
+    windowFocus.initialFocused = false; // background
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { notifier, maybeNotify } = fakeNotifierSpy();
+    const { tm, pty } = setup({ infos, deps: { notifier } });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+    maybeNotify.mockClear();
+
+    pty.emitOutput(1, "\x1b]9;4;4\x07"); // warning latches, phase working
+    expect(maybeNotify).toHaveBeenCalledTimes(1);
+
+    pty.emitOutput(1, "\x1b]9;4;0\x07"); // phase clears to idle, warning stays latched
+    expect(tabViews.value[0].attention?.kind).toBe("warning"); // sanity: still latched
+
+    expect(maybeNotify).toHaveBeenCalledTimes(1); // no re-notify on phase-only change
+
+    tm.dispose();
+  });
+});
