@@ -372,6 +372,7 @@ export function createTabManager(
       activity.prune(live);
       tracker.prune(live);
       notifier.prune(live);
+      pruneNotifiedKinds(live);
       // Every pane of every tab is polled now, so a long session would
       // otherwise leave one cache entry behind per pane ever opened.
       poller.prune(live);
