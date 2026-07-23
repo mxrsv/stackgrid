@@ -179,11 +179,7 @@ describe("createAgentNotifier", () => {
     expect(send).toHaveBeenCalledTimes(3);
   });
 
-  it("never leaks raw terminal/OSC text into the notification payload", () => {
-    // Red herring: a raw terminal/OSC string that must never reach `send`.
-    // AttentionNotification has no field for it — this asserts the built
-    // payload is composed only from workspaceLabel + agentLabel + kind.
-    const rawOsc = "\x1b]9;4;1;RAW_SECRET_PROGRESS_TEXT\x07";
+  it("builds the payload copy EXACTLY and ONLY from workspaceLabel + agentLabel + the fixed kind phrase", () => {
     const { deps, send } = makeDeps();
     const notifier = createAgentNotifier(deps);
 
@@ -196,10 +192,57 @@ describe("createAgentNotifier", () => {
     );
 
     expect(send).toHaveBeenCalledOnce();
-    const serialized = JSON.stringify(send.mock.calls[0][0]);
-    expect(serialized).not.toContain(rawOsc);
-    expect(serialized).not.toContain("RAW_SECRET_PROGRESS_TEXT");
-    expect(serialized).toContain("my-workspace");
-    expect(serialized).toContain("claude-code");
+    const payload = send.mock.calls[0][0];
+    // Exact equality, not `.toContain` — this fails if the notifier ever
+    // injects any extra/other content beyond the two labels + fixed phrase.
+    expect(payload.title).toBe("my-workspace");
+    expect(payload.body).toBe("claude-code warning");
+  });
+
+  it("carries an OSC-like string placed in workspaceLabel (an actual field) verbatim into the title, with nothing else appended", () => {
+    // Unlike a string with no field to travel through, workspaceLabel is a
+    // real, caller-controlled input — proving the notifier neither adds nor
+    // mangles field content, and that raw text can only ever reach a
+    // notification via a field the caller controls (Task 23 normalizes it).
+    const oscLikeLabel = "\x1b]9;4;1;RAW_SECRET_PROGRESS_TEXT\x07";
+    const { deps, send } = makeDeps();
+    const notifier = createAgentNotifier(deps);
+
+    notifier.maybeNotify(
+      makeNotification({
+        kind: "completed",
+        workspaceLabel: oscLikeLabel,
+        agentLabel: "claude-code",
+      }),
+    );
+
+    expect(send).toHaveBeenCalledOnce();
+    const payload = send.mock.calls[0][0];
+    expect(payload.title).toBe(oscLikeLabel);
+    expect(payload.body).toBe("claude-code finished");
+  });
+
+  it("does not fire for a revision lower than the last notified revision on that pane, and does not corrupt the stored high-water mark", () => {
+    const { deps, send } = makeDeps();
+    const notifier = createAgentNotifier(deps);
+
+    // Notify at revision 5 first.
+    notifier.maybeNotify(
+      makeNotification({ paneId: 4, revision: 5, kind: "completed" }),
+    );
+    expect(send).toHaveBeenCalledOnce();
+
+    // A lower, out-of-order revision must not fire.
+    notifier.maybeNotify(
+      makeNotification({ paneId: 4, revision: 4, kind: "warning" }),
+    );
+    expect(send).toHaveBeenCalledOnce();
+
+    // If the lower revision had overwritten the stored value downward, a
+    // repeat of revision 5 would now look "higher" and re-fire. It must not.
+    notifier.maybeNotify(
+      makeNotification({ paneId: 4, revision: 5, kind: "completed" }),
+    );
+    expect(send).toHaveBeenCalledOnce();
   });
 });

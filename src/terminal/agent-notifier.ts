@@ -69,15 +69,22 @@ const KIND_PHRASE: Record<Exclude<AttentionKind, "none">, string> = {
  * 1. `deps.isEnabled()` is true.
  * 2. `deps.isWindowFocused()` is false (background-only).
  * 3. `n.kind` is actionable (anything but `"none"`).
- * 4. This exact `(paneId, revision)` pair has not been notified yet.
+ * 4. `n.revision` is strictly greater than the last revision notified for
+ *    that pane (monotonic guard — see below).
  *
  * Dedupe state is only recorded once a notification actually fires, so a
  * transition suppressed by an earlier gate (disabled, foreground, or
  * non-actionable) never blocks a later, otherwise-eligible attempt at the
  * same revision.
+ *
+ * The guard is `revision > lastNotified` rather than `revision !==
+ * lastNotified`: a caller that ever hands back a revision at or below the
+ * one already notified for that pane (a stale re-poll, an out-of-order
+ * delivery, a tracker reset) must not fire again and must not drag the
+ * stored high-water mark downward.
  */
 export function createAgentNotifier(deps: AgentNotifierDeps): AgentNotifier {
-  // paneId -> last revision actually notified for that pane.
+  // paneId -> highest revision actually notified for that pane so far.
   const lastNotified = new Map<number, number>();
 
   return {
@@ -85,8 +92,9 @@ export function createAgentNotifier(deps: AgentNotifierDeps): AgentNotifier {
       if (!deps.isEnabled() || deps.isWindowFocused() || n.kind === "none") {
         return;
       }
-      if (lastNotified.get(n.paneId) === n.revision) {
-        return; // duplicate revision — already notified, not a re-render/next-poll fire
+      const previous = lastNotified.get(n.paneId) ?? -Infinity;
+      if (n.revision <= previous) {
+        return; // same or older revision — already notified, or out of order
       }
       lastNotified.set(n.paneId, n.revision);
 
