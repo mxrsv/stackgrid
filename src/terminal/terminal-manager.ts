@@ -22,6 +22,7 @@ import { shellEscapePaths } from "../lib/shell-escape";
 import { reportPersistError } from "../chrome/events";
 import { createLayoutEngine } from "./layout-engine";
 import { createPaneLifecycle, type CreatePaneFn } from "./pane-lifecycle";
+import type { PaneAttentionSignal } from "./pane";
 import { clearPaneCwd, setPaneCwd } from "./pane-cwd";
 import { freshCwd } from "./pane-info";
 import { defaultPtyClient, type PtyClient } from "./pty-client";
@@ -31,6 +32,8 @@ import { closeSearchBarForPane, openSearchBar } from "./search-bar";
 export interface ManagerCallbacks {
   /** Fired after any structural change (split, close, ratio commit). */
   onLayoutChange(): void;
+  /** Fired when a pane requests attention (OSC 9/777 notification or bell). */
+  onAttentionSignal?(id: number, signal: PaneAttentionSignal): void;
 }
 
 /** Optional seams forwarded to PaneLifecycle — production uses the defaults. */
@@ -116,6 +119,9 @@ export function createTerminalManager(
     },
     onFocus(id) {
       setActive(id);
+    },
+    onAttentionSignal(id, signal) {
+      callbacks.onAttentionSignal?.(id, signal);
     },
   });
 
