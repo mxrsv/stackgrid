@@ -66,3 +66,31 @@ export const AURORA_SCENES = deepFreeze({
   2: { colorStops: ["#bb9af7", "#9ece6a", "#7dcfff"], amplitude: 1.15 },
   3: { colorStops: ["#f7768e", "#bb9af7", "#8d27e6"], amplitude: 1.25 },
 });
+
+/**
+ * Closing-band proof terminal: each exchange proves one claim and lights the
+ * matching proof chip (`chip` = the proof key in renderFinale). English-only,
+ * like everything rendered inside terminal chrome.
+ */
+export const PROOF_TERM_STEPS = deepFreeze([
+  {
+    cmd: "echo $SHELL && alias claude",
+    out: ["/bin/zsh", "claude='~/.claude/local/claude'"],
+    chip: "Pty",
+  },
+  {
+    cmd: 'echo "Tiếng Việt · 漢字 · └─ box drawing ✓"',
+    out: ["Tiếng Việt · 漢字 · └─ box drawing ✓"],
+    chip: "Pty",
+  },
+  {
+    cmd: "grep -ri telemetry /Applications/Stackgrid.app",
+    out: ["(no matches)"],
+    chip: "Local",
+  },
+  {
+    cmd: "du -sh /Applications/Stackgrid.app",
+    out: [" 18M\t/Applications/Stackgrid.app"],
+    chip: "Native",
+  },
+]);

@@ -18,11 +18,152 @@ import {
   AGENTS,
   AURORA_SCENES,
   PRESET_CELLS,
+  PROOF_TERM_STEPS,
   SIDEBAR_STATUS,
   boardRecents,
 } from "./stage-states.js";
 
 const CHAPTER_COUNT = 3;
+const PROMPT = "❯ ";
+
+/** Staggered reveal for the closing band's blocks. */
+function mountFinaleReveal(section) {
+  const targets = [...section.querySelectorAll("[data-reveal]")];
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-revealed");
+          observer.unobserve(entry.target);
+        }
+      }
+    },
+    { threshold: 0.25 },
+  );
+
+  targets.forEach((target) => observer.observe(target));
+
+  return () => observer.disconnect();
+}
+
+/**
+ * Proof terminal: once scrolled into view, type each command, print its
+ * output, and light the matching proof chip. Runs once, then rests on a
+ * blinking prompt. Reduced motion renders the finished session instantly.
+ */
+function mountProofTerm(section, reduceMotion) {
+  const body = section.querySelector("[data-proof-term]");
+  const chips = new Map(
+    [...section.querySelectorAll("[data-proof]")].map((el) => [
+      el.dataset.proof,
+      el,
+    ]),
+  );
+
+  if (!body) {
+    throw new Error("Proof terminal markup is missing.");
+  }
+
+  let timerId = null;
+  let started = false;
+  let disposed = false;
+
+  function addLine(cls) {
+    const line = document.createElement("div");
+    line.className = cls;
+    body.append(line);
+    return line;
+  }
+
+  function addIdlePrompt() {
+    addLine("tour__tl tour__tl--cmd tour__tl--idle").textContent = PROMPT;
+  }
+
+  function renderFinished() {
+    for (const step of PROOF_TERM_STEPS) {
+      addLine("tour__tl tour__tl--cmd").textContent = PROMPT + step.cmd;
+      for (const out of step.out) {
+        addLine("tour__tl tour__tl--out").textContent = out;
+      }
+      chips.get(step.chip)?.classList.add("is-lit");
+    }
+    addIdlePrompt();
+  }
+
+  function run(stepIndex) {
+    if (disposed) {
+      return;
+    }
+
+    if (stepIndex >= PROOF_TERM_STEPS.length) {
+      addIdlePrompt();
+      return;
+    }
+
+    const step = PROOF_TERM_STEPS[stepIndex];
+    const lineEl = addLine("tour__tl tour__tl--cmd tour__tl--typing");
+    lineEl.textContent = PROMPT;
+    let charIndex = 0;
+
+    function typeChar() {
+      if (disposed) {
+        return;
+      }
+
+      if (charIndex < step.cmd.length) {
+        charIndex += 1;
+        lineEl.textContent = PROMPT + step.cmd.slice(0, charIndex);
+        timerId = setTimeout(typeChar, 26 + Math.random() * 38);
+        return;
+      }
+
+      lineEl.classList.remove("tour__tl--typing");
+      printOut(0);
+    }
+
+    function printOut(outIndex) {
+      if (disposed) {
+        return;
+      }
+
+      if (outIndex < step.out.length) {
+        addLine("tour__tl tour__tl--out").textContent = step.out[outIndex];
+        timerId = setTimeout(() => printOut(outIndex + 1), 150);
+        return;
+      }
+
+      chips.get(step.chip)?.classList.add("is-lit");
+      timerId = setTimeout(() => run(stepIndex + 1), 680);
+    }
+
+    timerId = setTimeout(typeChar, 220);
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      if (started || !entries.some((entry) => entry.isIntersecting)) {
+        return;
+      }
+
+      started = true;
+      observer.disconnect();
+
+      if (reduceMotion.matches) {
+        renderFinished();
+      } else {
+        run(0);
+      }
+    },
+    { threshold: 0.35 },
+  );
+  observer.observe(body);
+
+  return () => {
+    disposed = true;
+    clearTimeout(timerId);
+    observer.disconnect();
+  };
+}
 
 function renderChapterRail(copy) {
   const chapters = [1, 2, 3]
@@ -113,8 +254,8 @@ function renderStage() {
 function renderFinale(copy) {
   const proofs = ["Pty", "Local", "Native"]
     .map(
-      (key) => `
-        <article class="tour__proof">
+      (key, index) => `
+        <article class="tour__proof" data-proof="${key}" data-reveal style="--reveal-delay: ${80 + index * 80}ms">
           <strong data-copy="proof${key}Title">${copy[`proof${key}Title`]}</strong>
           <p data-copy="proof${key}Body">${copy[`proof${key}Body`]}</p>
         </article>
@@ -142,10 +283,23 @@ function renderFinale(copy) {
 
   return `
     <footer class="tour__finale">
-      <h2 data-copy="finaleTitle">${copy.finaleTitle}</h2>
-      <div class="tour__proofs">${proofs}</div>
-      <div class="tour__shortcuts">${shortcuts}</div>
-      <div class="tour__ctas">
+      <h2 data-reveal data-copy="finaleTitle">${copy.finaleTitle}</h2>
+      <div class="tour__finale-grid">
+        <div class="tour__proofs">${proofs}</div>
+        <figure
+          class="tour__proofterm"
+          data-reveal
+          style="--reveal-delay: 200ms"
+          aria-label="Terminal session proving the shell is untouched"
+        >
+          <div class="tour__proofterm-head" aria-hidden="true">
+            <i></i>zsh — stackgrid
+          </div>
+          <div class="tour__proofterm-body" data-proof-term aria-hidden="true"></div>
+        </figure>
+      </div>
+      <div class="tour__shortcuts" data-reveal style="--reveal-delay: 120ms">${shortcuts}</div>
+      <div class="tour__ctas" data-reveal style="--reveal-delay: 220ms">
         <a
           class="tour__cta tour__cta--primary"
           href="https://github.com/mxrsv/stackgrid/releases/latest"
@@ -207,6 +361,8 @@ export function renderTour(copy) {
       const disposeStream = mountStageStream(
         section.querySelector(".tour__scenegrid"),
       );
+      const disposeReveal = mountFinaleReveal(section);
+      const disposeProofTerm = mountProofTerm(section, reduceMotion);
 
       let rafId = null;
 
@@ -272,6 +428,8 @@ export function renderTour(copy) {
           cancelAnimationFrame(rafId);
         }
 
+        disposeProofTerm();
+        disposeReveal();
         disposeStream();
         aurora.dispose();
       };
