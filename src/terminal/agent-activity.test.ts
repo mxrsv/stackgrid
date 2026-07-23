@@ -161,3 +161,162 @@ describe("createAgentActivity — prune", () => {
     expect(activity.working(2)).toBe(true);
   });
 });
+
+describe("createAgentActivity — working() compatibility invariant", () => {
+  it("is true for every non-zero oscState, including 2, 4, and unknown 7", () => {
+    const { activity } = setup();
+    activity.noteOutput(1, "\x1b]9;4;2\x07");
+    activity.noteOutput(2, "\x1b]9;4;4\x07");
+    activity.noteOutput(3, "\x1b]9;4;7\x07");
+    expect(activity.working(1)).toBe(true);
+    expect(activity.working(2)).toBe(true);
+    expect(activity.working(3)).toBe(true);
+  });
+});
+
+describe("createAgentActivity — noteOutputEvents", () => {
+  it("state 2 (error) differs from state 4 (warning) in severity", () => {
+    const { activity } = setup();
+    const [errorTransition] = activity.noteOutputEvents(1, "\x1b]9;4;2\x07");
+    const [warningTransition] = activity.noteOutputEvents(2, "\x1b]9;4;4\x07");
+    expect(errorTransition).toMatchObject({
+      phase: "working",
+      source: "osc-progress",
+      severity: "error",
+      oscState: 2,
+    });
+    expect(warningTransition).toMatchObject({
+      phase: "working",
+      source: "osc-progress",
+      severity: "warning",
+      oscState: 4,
+    });
+  });
+
+  it("keeps raw oscState 7 with severity null for an unknown non-zero state", () => {
+    const { activity } = setup();
+    const transitions = activity.noteOutputEvents(1, "\x1b]9;4;7\x07");
+    expect(transitions).toEqual([
+      {
+        phase: "working",
+        source: "osc-progress",
+        severity: null,
+        oscState: 7,
+        observedAt: expect.any(Number),
+      },
+    ]);
+    expect(activity.snapshot(1)).toEqual({
+      phase: "working",
+      source: "osc-progress",
+      severity: null,
+      oscState: 7,
+    });
+  });
+
+  it("returns all three ordered transitions for working→error→clear in one chunk", () => {
+    const { activity } = setup();
+    const chunk = "\x1b]9;4;1\x07working\x1b]9;4;2\x07uh-oh\x1b]9;4;0\x07done";
+    const transitions = activity.noteOutputEvents(1, chunk);
+    expect(transitions).toEqual([
+      {
+        phase: "working",
+        source: "osc-progress",
+        severity: null,
+        oscState: 1,
+        observedAt: expect.any(Number),
+      },
+      {
+        phase: "working",
+        source: "osc-progress",
+        severity: "error",
+        oscState: 2,
+        observedAt: expect.any(Number),
+      },
+      {
+        phase: "idle",
+        source: "osc-progress",
+        severity: null,
+        oscState: 0,
+        observedAt: expect.any(Number),
+      },
+    ]);
+  });
+
+  it("a sustained fallback stream emits exactly one output-heuristic transition on the flip", () => {
+    const { activity, tick } = setup();
+    const flips: Array<ReturnType<AgentActivity["noteOutputEvents"]>> = [];
+    for (let elapsed = 0; elapsed <= 600; elapsed += 200) {
+      flips.push(activity.noteOutputEvents(1, "tokens..."));
+      tick(200);
+    }
+    const nonEmpty = flips.filter((f) => f.length > 0);
+    expect(nonEmpty).toHaveLength(1);
+    expect(nonEmpty[0]).toEqual([
+      {
+        phase: "working",
+        source: "output-heuristic",
+        severity: null,
+        oscState: null,
+        observedAt: expect.any(Number),
+        evidenceStartedAt: expect.any(Number),
+      },
+    ]);
+    expect(activity.snapshot(1)).toEqual({
+      phase: "working",
+      source: "output-heuristic",
+      severity: null,
+      oscState: null,
+    });
+  });
+
+  it("OSC beats fallback — a clear report overrides sustained plain output", () => {
+    const { activity, tick } = setup();
+    const first = activity.noteOutputEvents(1, "\x1b]9;4;0\x07 done.");
+    expect(first).toEqual([
+      {
+        phase: "idle",
+        source: "osc-progress",
+        severity: null,
+        oscState: 0,
+        observedAt: expect.any(Number),
+      },
+    ]);
+    for (let elapsed = 0; elapsed <= 800; elapsed += 200) {
+      const events = activity.noteOutputEvents(1, "tokens...");
+      expect(events).toEqual([]);
+      tick(200);
+    }
+    expect(activity.snapshot(1)).toEqual({
+      phase: "idle",
+      source: "osc-progress",
+      severity: null,
+      oscState: 0,
+    });
+  });
+});
+
+describe("createAgentActivity — snapshot", () => {
+  it("a pane with no signal yet has phase unknown", () => {
+    const { activity } = setup();
+    expect(activity.snapshot(42)).toEqual({
+      phase: "unknown",
+      source: null,
+      severity: null,
+      oscState: null,
+    });
+  });
+
+  it("returns to unknown after a process reset until new signal arrives", () => {
+    const { activity } = setup();
+    activity.noteProcess(1, "claude");
+    activity.noteOutputEvents(1, "\x1b]9;4;3\x07");
+    expect(activity.snapshot(1).phase).toBe("working");
+    activity.noteProcess(1, "zsh");
+    expect(activity.snapshot(1)).toEqual({
+      phase: "unknown",
+      source: null,
+      severity: null,
+      oscState: null,
+    });
+  });
+});
