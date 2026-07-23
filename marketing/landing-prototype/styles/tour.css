@@ -2,7 +2,7 @@
    chrome from direction-a.css — this file only adds the tour scaffold, the
    Open-board scene, chapter morphs, and the closing band. Design tokens are
    sourced from the shared tokens.css :root: the accent + font stacks are
-   aliased to the local --t-*/--a-* names here, and the --sg-* chrome vars
+   aliased to the local --t- and --a- names here, and the --sg- chrome vars
    resolve from :root so hero + tour stay in lockstep. */
 
 .tour {
