@@ -884,6 +884,57 @@
   .site-footer__brand {
     grid-column: 1 / -1;
   }
+
+  /* Un-pin the track + sticky so the window flows in normal document order. */
+  .tour--static .tour__track {
+    height: auto;
+  }
+
+  .tour--static .tour__sticky {
+    position: static;
+    height: auto;
+    padding-block: 2.5rem;
+    overflow: visible;
+  }
+
+  /* The .a-appwin chrome is aspect-ratio locked + overflow:hidden for the
+     morph. Un-lock it so the stacked board + grid are not clipped. */
+  .tour--static .tour__appwin {
+    aspect-ratio: auto;
+    overflow: visible;
+  }
+
+  /* Show the board scene AND the grid stacked (they normally share one grid
+     cell for the crossfade), so the whole story reads without scroll-morphing. */
+  .tour--static .tour__scene {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  /* Doubled `.tour.tour--static` ties the chapter-3 rules' (0,3,0) specificity
+     and wins on source order — force both scenes visible and still. */
+  .tour.tour--static .tour__board,
+  .tour.tour--static .tour__scenegrid {
+    position: static;
+    opacity: 1;
+    transform: none;
+  }
+
+  .tour.tour--static .tour__scenegrid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Present the three chapter blurbs as a readable stacked list — the base
+     narrow rule scrolls the rail horizontally and hides the blurb bodies. */
+  .tour--static .tour__rail {
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .tour--static .tour__chaptext span {
+    display: block;
+  }
 }
 
 /* ---------- reduced motion ---------- */

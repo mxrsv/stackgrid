@@ -80,6 +80,29 @@ function mountWindowEntrance(section, reduceMotion) {
 }
 
 /**
+ * Below 768px, un-pin the window and freeze it in the chapter-3 payoff state
+ * (the CSS handles the static layout). Above it, hand control back to scroll.
+ */
+function mountResponsiveMode(section, update) {
+  const narrow = window.matchMedia("(max-width: 768px)");
+
+  function apply() {
+    if (narrow.matches) {
+      section.classList.add("tour--static");
+      section.dataset.chapter = "3";
+    } else {
+      section.classList.remove("tour--static");
+      update();
+    }
+  }
+
+  apply();
+  narrow.addEventListener("change", apply);
+
+  return () => narrow.removeEventListener("change", apply);
+}
+
+/**
  * Proof terminal: once scrolled into view, type each command, print its
  * output, and light the matching proof chip. Runs once, then rests on a
  * blinking prompt. Reduced motion renders the finished session instantly.
@@ -439,6 +462,10 @@ export function renderTour(copy) {
       function update() {
         rafId = null;
 
+        if (section.classList.contains("tour--static")) {
+          return;
+        }
+
         const rect = track.getBoundingClientRect();
         const progress = trackProgress(
           rect.top,
@@ -488,7 +515,7 @@ export function renderTour(copy) {
       window.addEventListener("scroll", schedule, { passive: true });
       window.addEventListener("resize", schedule, { passive: true });
       section.addEventListener("click", handleRailClick);
-      update();
+      const disposeResponsive = mountResponsiveMode(section, update);
 
       return () => {
         window.removeEventListener("scroll", schedule);
@@ -499,6 +526,7 @@ export function renderTour(copy) {
           cancelAnimationFrame(rafId);
         }
 
+        disposeResponsive();
         disposeEntrance();
         disposeProofTerm();
         disposeReveal();
