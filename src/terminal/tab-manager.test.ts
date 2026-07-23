@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneProcessInfo } from "../lib/process-info";
-import type { Pane, PaneEvents } from "./pane";
+import type { Pane, PaneEvents, PaneAttentionSignal } from "./pane";
 import type { CreatePaneFn } from "./pane-lifecycle";
-import { createMemoryPtyClient } from "./pty-client";
+import { createMemoryPtyClient, type PtyClient } from "./pty-client";
 import { createTabManager, type TabManager } from "./tab-manager";
 import { activeTabIndex, tabViews, statusInfo } from "./tabs-store";
 
@@ -41,8 +41,28 @@ function fakePane(id: number, events: PaneEvents): Pane {
   };
 }
 
-const createPane: CreatePaneFn = (id, _settings, events) =>
-  fakePane(id, events);
+/** An attention signal a real pane would emit — the tracker adds `observedAt`. */
+type EmitSignal = (id: number, signal: PaneAttentionSignal) => void;
+
+/**
+ * Build a TabManager on `pty` with a capturing pane factory: it records each
+ * pane's PaneEvents so a test can drive `onAttentionSignal` the way an OSC
+ * 9/777 notification or a bell would, straight through the manager wiring.
+ */
+function wire(pty: PtyClient): { tm: TabManager; emitSignal: EmitSignal } {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const eventsById = new Map<number, PaneEvents>();
+  const createPane: CreatePaneFn = (id, _settings, events) => {
+    eventsById.set(id, events);
+    return fakePane(id, events);
+  };
+  const tm = createTabManager(host, pty, { createPane });
+  const emitSignal: EmitSignal = (id, signal) => {
+    eventsById.get(id)?.onAttentionSignal?.(id, signal);
+  };
+  return { tm, emitSignal };
+}
 
 function setup(options: {
   infos?: ReadonlyMap<number, PaneProcessInfo>;
@@ -51,16 +71,40 @@ function setup(options: {
 }): {
   tm: TabManager;
   pty: ReturnType<typeof createMemoryPtyClient>;
+  emitSignal: EmitSignal;
 } {
-  const host = document.createElement("div");
-  document.body.appendChild(host);
   const pty = createMemoryPtyClient({
     nextId: 1,
     infos: options.infos,
     ...(options.dirs !== undefined ? { dirs: options.dirs } : {}),
   });
-  const tm = createTabManager(host, pty, { createPane });
-  return { tm, pty };
+  const { tm, emitSignal } = wire(pty);
+  return { tm, pty, emitSignal };
+}
+
+/**
+ * Like `setup`, but the foreground process of each pane is read live from
+ * `processByPane` on every poll (missing id = the poll returns nothing for
+ * it, i.e. never recognized). Mutating the map then advancing the poll
+ * interval drives the tracker's process gate open/closed deterministically.
+ */
+function setupControllable(processByPane: Map<number, string | null>): {
+  tm: TabManager;
+  pty: ReturnType<typeof createMemoryPtyClient>;
+  emitSignal: EmitSignal;
+} {
+  const base = createMemoryPtyClient({ nextId: 1 });
+  const pty = {
+    ...base,
+    async ptyInfo(ids: readonly number[]): Promise<PaneProcessInfo[]> {
+      return ids.flatMap((id) => {
+        const process = processByPane.get(id);
+        return process === undefined ? [] : [{ id, cwd: null, process }];
+      });
+    },
+  };
+  const { tm, emitSignal } = wire(pty);
+  return { tm, pty, emitSignal };
 }
 
 function flush(): Promise<void> {
@@ -389,5 +433,259 @@ describe("createTabManager close routing", () => {
     await tm.closeTab(0);
 
     expect(quitSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createTabManager attention tracker", () => {
+  it("keeps per-pane tracker unread independent within one tab", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "zsh" }],
+      [2, { id: 2, cwd: "/repo", process: "zsh" }],
+    ]);
+    const { tm, pty } = setup({ infos });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.splitActive("row"); // pane 2 is now the focused/active pane
+    await tm.init();
+    await flush();
+
+    // Output to the focused pane (2) is already seen — no per-pane unread.
+    pty.emitOutput(2, "visible");
+    // Output to the unfocused pane (1) flags only its own per-pane unread.
+    pty.emitOutput(1, "hidden");
+
+    // Exactly one of the two panes is unread → they track it independently.
+    expect(tabViews.value[0].attention?.unreadCount).toBe(1);
+
+    tm.dispose();
+  });
+
+  it("public selectTab clears legacy unread but does not acknowledge tracker attention", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/a", process: "claude" }],
+      [2, { id: 2, cwd: "/b", process: "zsh" }],
+    ]);
+    const { tm, pty } = setup({ infos });
+    await tm.materialize({ layout: null, cwds: ["/a"] }); // tab 0 → pane 1 (claude)
+    await tm.materialize({ layout: null, cwds: ["/b"] }); // tab 1 → pane 2 (active)
+    await tm.init();
+    await flush();
+
+    // The background agent errors — latched attention plus legacy unread.
+    pty.emitOutput(1, "\x1b]9;4;2\x07");
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+    expect(tabViews.value[0].unread).toBe(true);
+
+    // Opening the tab clears LEGACY unread but leaves the tracker attention
+    // latched — only pane focus acknowledges (wired in Task 11, not here).
+    tm.selectTab(0);
+    expect(tabViews.value[0].unread).toBe(false);
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+
+    tm.dispose();
+  });
+
+  it("aggregates a working→error→clear batch to error with a cleared phase", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { tm, pty } = setup({ infos });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+
+    // One PTY chunk carrying three ordered OSC 9;4 reports.
+    pty.emitOutput(1, "\x1b]9;4;1\x07mid\x1b]9;4;2\x07more\x1b]9;4;0\x07");
+
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+    expect(tabViews.value[0].attention?.actionableCount).toBe(1);
+    expect(tabViews.value[0].attention?.workingCount).toBe(0);
+
+    tm.dispose();
+  });
+
+  it("latches requested when a recognized agent pane signals", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { tm, emitSignal } = setup({ infos });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+
+    emitSignal(1, { kind: "requested", source: "osc-notification" });
+
+    expect(tabViews.value[0].attention?.kind).toBe("requested");
+    expect(tabViews.value[0].attention?.actionableCount).toBe(1);
+
+    tm.dispose();
+  });
+
+  it("clears the working badge when an agent pane exits", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { tm, pty } = setup({ infos });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+
+    pty.emitOutput(1, "\x1b]9;4;3\x07");
+    expect(tabViews.value[0].attention?.workingCount).toBe(1);
+
+    // Single-pane exit → exit limbo (no close/prune) → noteExit clears working.
+    pty.emitExit(1);
+    expect(tabViews.value[0].attention?.workingCount).toBe(0);
+    expect(tabViews.value[0].attention?.kind).not.toBe("working");
+
+    tm.dispose();
+  });
+
+  it("prunes tracker state on pane close so no ghost badge remains", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+      [2, { id: 2, cwd: "/repo", process: "zsh" }],
+    ]);
+    const { tm, pty } = setup({ infos });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.splitActive("row"); // pane 2 active; pane 1 is the background agent
+    await tm.init();
+    await flush();
+
+    pty.emitOutput(1, "\x1b]9;4;3\x07");
+    expect(tabViews.value[0].attention?.workingCount).toBe(1);
+
+    // Pane 1 exits → auto-closed (2 panes) → pruned; no lingering working badge.
+    pty.emitExit(1);
+    expect(tabViews.value[0].attention?.workingCount).toBe(0);
+    expect(tabViews.value[0].attention?.kind).not.toBe("working");
+
+    tm.dispose();
+  });
+
+  describe("process gate", () => {
+    it("ignores OSC 9;4 error from a shell pane", async () => {
+      const infos = new Map<number, PaneProcessInfo>([
+        [1, { id: 1, cwd: "/repo", process: "zsh" }],
+      ]);
+      const { tm, pty } = setup({ infos });
+      await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+        workspacePath: "/repo",
+      });
+      await tm.init();
+      await flush();
+
+      pty.emitOutput(1, "\x1b]9;4;2\x07");
+
+      expect(tabViews.value[0].attention?.actionableCount).toBe(0);
+      expect(tabViews.value[0].attention?.workingCount).toBe(0);
+      expect(tabViews.value[0].attention?.kind).not.toBe("error");
+
+      tm.dispose();
+    });
+
+    it("ignores sustained output from a shell pane", async () => {
+      vi.useFakeTimers();
+      try {
+        const infos = new Map<number, PaneProcessInfo>([
+          [1, { id: 1, cwd: "/repo", process: "zsh" }],
+        ]);
+        const { tm, pty } = setup({ infos });
+        await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+          workspacePath: "/repo",
+        });
+        await tm.init();
+        await vi.advanceTimersByTimeAsync(0);
+
+        pty.emitOutput(1, "building…");
+        await vi.advanceTimersByTimeAsync(500);
+        pty.emitOutput(1, "still building…");
+
+        expect(tabViews.value[0].attention?.workingCount).toBe(0);
+        expect(tabViews.value[0].attention?.actionableCount).toBe(0);
+
+        tm.dispose();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("ignores an attention signal from a shell pane", async () => {
+      const infos = new Map<number, PaneProcessInfo>([
+        [1, { id: 1, cwd: "/repo", process: "zsh" }],
+      ]);
+      const { tm, emitSignal } = setup({ infos });
+      await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+        workspacePath: "/repo",
+      });
+      await tm.init();
+      await flush();
+
+      emitSignal(1, { kind: "requested", source: "bell" });
+
+      expect(tabViews.value[0].attention?.actionableCount).toBe(0);
+      expect(tabViews.value[0].attention?.kind).not.toBe("requested");
+
+      tm.dispose();
+    });
+
+    it("ignores activity from a pane never recognized as an agent", async () => {
+      // No infos → the poll returns nothing for pane 1, so its gate never opens.
+      const { tm, pty } = setup({});
+      await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+        workspacePath: "/repo",
+      });
+      await tm.init();
+      await flush();
+
+      pty.emitOutput(1, "\x1b]9;4;2\x07");
+
+      expect(tabViews.value[0].attention?.actionableCount).toBe(0);
+      expect(tabViews.value[0].attention?.workingCount).toBe(0);
+
+      tm.dispose();
+    });
+
+    it("infers one completion on agent→shell then ignores shell activity", async () => {
+      vi.useFakeTimers();
+      try {
+        const processByPane = new Map<number, string | null>([[1, "claude"]]);
+        const { tm, pty } = setupControllable(processByPane);
+        await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+          workspacePath: "/repo",
+        });
+        await tm.init();
+        await vi.advanceTimersByTimeAsync(0); // materialize poll → gate open (claude)
+
+        pty.emitOutput(1, "\x1b]9;4;1\x07");
+        expect(tabViews.value[0].attention?.workingCount).toBe(1);
+
+        // The foreground process becomes the shell; the next poll closes the
+        // gate and infers exactly one completion.
+        processByPane.set(1, "zsh");
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(tabViews.value[0].attention?.kind).toBe("completed");
+        expect(tabViews.value[0].attention?.actionableCount).toBe(1);
+        expect(tabViews.value[0].attention?.workingCount).toBe(0);
+
+        // Shell activity after the gate closed adds nothing (would be `error`).
+        pty.emitOutput(1, "\x1b]9;4;2\x07");
+        expect(tabViews.value[0].attention?.kind).toBe("completed");
+        expect(tabViews.value[0].attention?.actionableCount).toBe(1);
+
+        tm.dispose();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

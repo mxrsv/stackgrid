@@ -23,6 +23,8 @@ import {
 } from "./terminal-manager";
 import { createPaneInfoPoller } from "./pane-info-poller";
 import { createAgentActivity } from "./agent-activity";
+import { createAgentAttentionTracker } from "./agent-attention";
+import type { PaneAttentionSignal } from "./pane";
 import {
   popClosedTab,
   pushClosedTab,
@@ -126,10 +128,20 @@ export function createTabManager(
   // In-memory only (like busy) — a background pane's output lights the badge,
   // opening the tab clears it.
   const unread = new Set<number>();
+  // One shared clock behind both the activity tracker and the attention
+  // tracker: activity-transition `observedAt` and the attention gate's
+  // `gateOpenedAt` are compared directly, so they must read the same time
+  // source (production = Date.now).
+  const now = () => Date.now();
   // Per-pane "actually working" signal (OSC 9;4 progress reports from the
   // agent, else sustained non-echo output) — gates the sidebar spinner so an
   // agent sitting idle at its prompt doesn't spin forever.
-  const activity = createAgentActivity();
+  const activity = createAgentActivity({ now });
+  // TabManager is the SOLE owner of the Agent Attention Rail tracker. It is
+  // fed from the same output / process-poll / exit paths as `activity`, but
+  // every input passes a process gate: activity and signals only count once a
+  // poll has recognised the pane's foreground process as an agent.
+  const tracker = createAgentAttentionTracker({ now });
   // Working→idle can expire with no event attached (3s of silence). The 2s
   // poll usually resyncs, but a one-shot timer per pane makes the transition
   // self-sufficient even if pty_info is failing — keyed by pane so a chatty
@@ -199,6 +211,9 @@ export function createTabManager(
           workspacePath: tab.workspacePath,
           agentBusy,
           unread: unread.has(tab.key),
+          // Additive Attention Rail summary; `agentBusy`/`unread` above keep
+          // their existing semantics untouched.
+          attention: tracker.summarize(paneIds),
         },
         overrides.get(tab.key),
       );
@@ -227,9 +242,24 @@ export function createTabManager(
       const live = allPaneIds();
       launcher.prune(live);
       activity.prune(live);
+      tracker.prune(live);
       // Every pane of every tab is polled now, so a long session would
       // otherwise leave one cache entry behind per pane ever opened.
       poller.prune(live);
+    },
+    onAttentionSignal(id: number, signal: PaneAttentionSignal): void {
+      // Structured OSC 9/777 notification or bell from a pane. Stamp it with
+      // the shared clock and hand it to the tracker; the gate drops it for
+      // shell / pre-poll panes, and a real change triggers a re-render.
+      if (
+        tracker.noteSignal(id, {
+          kind: "requested",
+          source: signal.source,
+          observedAt: now(),
+        }) !== null
+      ) {
+        syncViews();
+      }
     },
   };
 
@@ -466,6 +496,7 @@ export function createTabManager(
     const live = allPaneIds();
     launcher.prune(live);
     activity.prune(live);
+    tracker.prune(live);
     poller.prune(live);
     if (tabs.length === 0) {
       // Closing the last tab quits the app (ADR 0002). CloseCoordinator
@@ -510,6 +541,12 @@ export function createTabManager(
     activePaneId: () => activeManager()?.activePaneId() ?? null,
     onUpdate(infos) {
       activeManager()?.updatePaneInfo(infos, home);
+      // Reconcile the tracker's process gate before this cycle's state is
+      // aggregated: opening/closing the gate and the agent→shell inferred
+      // completion both key off the last polled process.
+      for (const info of infos) {
+        tracker.noteProcess(info.id, info.process, isAgent(info.process));
+      }
       syncViews();
     },
   });
@@ -609,15 +646,39 @@ export function createTabManager(
         // The launcher waits for a pane's first byte before typing its agent;
         // route every chunk to it before fanning out to the tabs.
         launcher.noteOutput(id);
-        const workingChanged = activity.noteOutput(id, data);
+        // Legacy agentBusy semantics ride on the working()-flip. Read it around
+        // the additive event feed rather than double-parsing the chunk: both
+        // `noteOutput` and `noteOutputEvents` mutate the same record, so
+        // calling `noteOutputEvents` alone preserves the exact flip signal.
+        const before = activity.working(id);
+        const transitions = activity.noteOutputEvents(id, data);
+        const workingChanged = activity.working(id) !== before;
         for (const tab of tabs) {
           tab.manager.handleOutput(id, data);
         }
-        // Output to a background tab lights its unread badge. Only sync on a
-        // transition (unread false→true, or the pane's working state flips) —
-        // every other chunk is a no-op, so this stays off the hot per-chunk
-        // path.
         const owner = tabs.find((t) => t.manager.paneIds().includes(id));
+        // Feed every ordered transition into the tracker, in order — the
+        // process gate drops them when the pane isn't a recognized agent, so
+        // never pre-filter here (the tracker owns the gate). A non-null return
+        // means a visible change worth re-rendering for.
+        let trackerChanged = false;
+        for (const transition of transitions) {
+          if (tracker.noteActivity(id, transition) !== null) {
+            trackerChanged = true;
+          }
+        }
+        // Per-pane visibility for THIS step only: the focused pane of the
+        // active tab. SEAM: Task 11 additionally ANDs the window being
+        // foreground and DOM focus actually resting inside the pane element.
+        const visible =
+          owner === tabs[active] && id === activeManager()?.activePaneId();
+        if (tracker.noteOutputVisibility(id, visible) !== null) {
+          trackerChanged = true;
+        }
+        // Output to a background tab lights its LEGACY unread badge. Only sync
+        // on a transition (legacy unread false→true, the pane's working state
+        // flips, or a tracker change) — every other chunk is a no-op, so this
+        // stays off the hot per-chunk path.
         const unreadChanged =
           owner !== undefined &&
           owner !== tabs[active] &&
@@ -625,11 +686,15 @@ export function createTabManager(
         if (unreadChanged) {
           unread.add(owner.key);
         }
-        if (unreadChanged || workingChanged) {
+        if (unreadChanged || workingChanged || trackerChanged) {
           syncViews();
         }
-        // Re-sync once shortly after this pane's recency window can expire,
-        // so the fallback's working→idle flip renders without the poller.
+        // Re-sync once shortly after this pane's recency window can expire, so
+        // the fallback's working→idle flip renders without the poller. In pure
+        // silence the tracker never sees an idle event of its own, so when
+        // activity has decayed to idle while the tracker still reads working,
+        // feed it one synthetic idle transition so it can emit `completed`.
+        // OSC-driven panes already go idle via their explicit clear event.
         const pending = activityResync.get(id);
         if (pending !== undefined) {
           clearTimeout(pending);
@@ -638,6 +703,18 @@ export function createTabManager(
           id,
           setTimeout(() => {
             activityResync.delete(id);
+            if (
+              !activity.working(id) &&
+              tracker.snapshot(id)?.phase === "working"
+            ) {
+              tracker.noteActivity(id, {
+                phase: "idle",
+                source: "output-heuristic",
+                severity: null,
+                oscState: null,
+                observedAt: now(),
+              });
+            }
             syncViews();
           }, 3200),
         );
@@ -645,8 +722,16 @@ export function createTabManager(
     );
     await registerUnlisten(
       pty.listenExit((id) => {
+        // Note the exit BEFORE fanning out: a multi-pane tab auto-closes the
+        // pane inside handleExit, which prunes it from the tracker — running
+        // noteExit first updates the live record instead of re-creating one
+        // that prune already dropped.
+        const exitChanged = tracker.noteExit(id) !== null;
         for (const tab of tabs) {
           tab.manager.handleExit(id);
+        }
+        if (exitChanged) {
+          syncViews();
         }
       }),
     );
