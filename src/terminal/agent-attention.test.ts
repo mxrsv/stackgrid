@@ -221,6 +221,15 @@ describe("AgentAttentionTracker — per-pane unread", () => {
     tracker.noteProcess(1, "zsh", false);
     expect(tracker.snapshot(1)?.unread).toBe(true);
   });
+
+  it("making the pane visible again preserves a prior unread — only acknowledge clears it", () => {
+    const { tracker } = setup();
+    tracker.noteProcess(1, "claude", true);
+    tracker.noteOutputVisibility(1, false);
+    expect(tracker.snapshot(1)?.unread).toBe(true);
+    tracker.noteOutputVisibility(1, true);
+    expect(tracker.snapshot(1)?.unread).toBe(true);
+  });
 });
 
 describe("AgentAttentionTracker — exit & prune", () => {
