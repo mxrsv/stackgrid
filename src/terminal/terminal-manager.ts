@@ -35,8 +35,11 @@ export interface ManagerCallbacks {
   /** Fired when a pane requests attention (OSC 9/777 notification or bell). */
   onAttentionSignal?(id: number, signal: PaneAttentionSignal): void;
   /**
-   * Fired once per focus action — click/focusin and programmatic focus
-   * (e.g. `focusPane`) both converge on the lifecycle `onFocus` handler.
+   * Acknowledges a pane as the focus target. `focusPane` guarantees exactly
+   * one call, deterministically, regardless of whether DOM focus actually
+   * moves. A raw user click/focusin may call this more than once for the
+   * same pane (mousedown + focusin both route through it) — downstream
+   * `acknowledge` handling is idempotent, so that's fine.
    */
   onPaneFocus?(id: number): void;
 }
@@ -113,6 +116,11 @@ export function createTerminalManager(
 ): TerminalManager {
   let tree: TreeNode | null = null;
   let activeId: number | null = null;
+  // Guards the onFocus-driven ack while focusPane runs its own deterministic
+  // one — pane.focus() may or may not bubble a native `focusin` (a no-op on
+  // an element that already holds DOM focus never fires one), so the
+  // lifecycle handler must not double- or zero-emit around it.
+  let inProgrammaticFocus = false;
 
   // Pane bar visibility is CSS-only: pane.ts always builds and populates the
   // bar (the drag ghost and anchor still read its cwd) — this class hides it.
@@ -129,7 +137,11 @@ export function createTerminalManager(
     },
     onFocus(id) {
       setActive(id);
-      callbacks.onPaneFocus?.(id);
+      // While focusPane is driving this focus, it owns the single ack —
+      // suppress the bubbled-event ack so the two don't stack.
+      if (!inProgrammaticFocus) {
+        callbacks.onPaneFocus?.(id);
+      }
     },
     onAttentionSignal(id, signal) {
       callbacks.onAttentionSignal?.(id, signal);
@@ -483,9 +495,18 @@ export function createTerminalManager(
       if (!pane) {
         return false;
       }
-      setActive(id);
-      // → focusin → lifecycle onFocus(id) → callbacks.onPaneFocus?.(id) once.
-      pane.focus();
+      inProgrammaticFocus = true;
+      try {
+        setActive(id);
+        // May or may not bubble a native `focusin` (none fires when `id`
+        // already holds DOM focus) — either way the ack below is the only
+        // one that counts, since the lifecycle handler suppresses its own
+        // while this flag is set.
+        pane.focus();
+      } finally {
+        inProgrammaticFocus = false;
+      }
+      callbacks.onPaneFocus?.(id);
       return true;
     },
     clearActive() {

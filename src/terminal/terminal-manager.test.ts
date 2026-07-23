@@ -9,7 +9,13 @@ import {
   type TerminalManager,
 } from "./terminal-manager";
 
-function fakePane(id: number, events: PaneEvents): Pane {
+/**
+ * `emitFocusEvent` models real DOM `focusin` semantics: native `.focus()`
+ * fires no event when the element already holds DOM focus. Default `true`
+ * matches the common case (element not yet focused); pass `false` to
+ * reproduce the already-focused-element case.
+ */
+function fakePane(id: number, events: PaneEvents, emitFocusEvent = true): Pane {
   const element = document.createElement("div");
   return {
     id,
@@ -21,7 +27,9 @@ function fakePane(id: number, events: PaneEvents): Pane {
     fit() {},
     clear() {},
     focus() {
-      events.onFocus(id);
+      if (emitFocusEvent) {
+        events.onFocus(id);
+      }
     },
     applySettings() {},
     setHeaderInfo() {},
@@ -35,8 +43,12 @@ function fakePane(id: number, events: PaneEvents): Pane {
 
 /** Builds a TerminalManager wired to a fake createPane that records the
  * PaneEvents handed to each spawned pane, so a test can invoke
- * `onAttentionSignal` as if the pane itself raised it. */
-function setup(): {
+ * `onAttentionSignal` as if the pane itself raised it.
+ *
+ * `emitFocusEvent` (default `true`) is forwarded to every spawned
+ * `fakePane` — pass `false` to model a manager whose panes behave like an
+ * already-DOM-focused element (native `.focus()` fires no `focusin`). */
+function setup(emitFocusEvent = true): {
   tm: TerminalManager;
   container: HTMLElement;
   onAttentionSignal: ReturnType<typeof vi.fn>;
@@ -49,7 +61,7 @@ function setup(): {
   const eventsById = new Map<number, PaneEvents>();
   const createPane: CreatePaneFn = (id, _settings, events) => {
     eventsById.set(id, events);
-    return fakePane(id, events);
+    return fakePane(id, events, emitFocusEvent);
   };
   const onAttentionSignal = vi.fn();
   const onPaneFocus = vi.fn();
@@ -161,7 +173,10 @@ describe("createTerminalManager focusPane", () => {
     expect(tm.activePaneId()).toBe(first);
   });
 
-  it("fires onPaneFocus exactly once per focusPane call (setActive + pane.focus() converge on one ack)", async () => {
+  it("fires onPaneFocus exactly once per focusPane call when pane.focus() DOES bubble onFocus (suppression guard prevents a double)", async () => {
+    // Default fakePane routes focus() through events.onFocus — without the
+    // inProgrammaticFocus guard this would double-fire: once from the
+    // bubbled onFocus, once from focusPane's own deterministic ack.
     const { tm, onPaneFocus } = setup();
     await tm.initFresh();
     await tm.splitActive("row");
@@ -177,5 +192,25 @@ describe("createTerminalManager focusPane", () => {
     onPaneFocus.mockClear();
     tm.focusPane(first!);
     expect(onPaneFocus).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires onPaneFocus exactly once per focusPane call when pane.focus() does NOT bubble onFocus (already-DOM-focused pane — proves the zero-emit is fixed)", async () => {
+    // emitFocusEvent: false models a pane that already holds DOM focus:
+    // native .focus() is then a no-op and fires no focusin, so
+    // events.onFocus never runs. Before the fix this left focusPane's
+    // caller with zero acks for the target; focusPane's own deterministic
+    // emit now covers it regardless.
+    const { tm, onPaneFocus } = setup(false);
+    await tm.initFresh();
+    await tm.splitActive("row");
+    const [first] = tm.paneIds();
+    onPaneFocus.mockClear();
+
+    const ok = tm.focusPane(first!);
+
+    expect(ok).toBe(true);
+    expect(tm.activePaneId()).toBe(first);
+    expect(onPaneFocus).toHaveBeenCalledTimes(1);
+    expect(onPaneFocus).toHaveBeenCalledWith(first);
   });
 });
