@@ -48,16 +48,16 @@ describe("pickNormalizationWinner", () => {
 
   it("for next, prefers the non-wrapped hit when the other wrapped", () => {
     const origin = at(5, 0);
-    expect(
-      pickNormalizationWinner("next", origin, at(1, 0), at(8, 0)),
-    ).toBe("nfd");
+    expect(pickNormalizationWinner("next", origin, at(1, 0), at(8, 0))).toBe(
+      "nfd",
+    );
   });
 
   it("for next, prefers the earlier hit when neither wrapped", () => {
     const origin = at(5, 0);
-    expect(
-      pickNormalizationWinner("next", origin, at(10, 0), at(8, 0)),
-    ).toBe("nfd");
+    expect(pickNormalizationWinner("next", origin, at(10, 0), at(8, 0))).toBe(
+      "nfd",
+    );
   });
 
   it("for previous, prefers the later hit when neither wrapped", () => {
@@ -110,8 +110,8 @@ describe("search term normalization", () => {
           }
           return hit;
         }),
-        findPrevious: vi.fn((term: string) =>
-          options?.findPrevious?.(term) ?? false,
+        findPrevious: vi.fn(
+          (term: string) => options?.findPrevious?.(term) ?? false,
         ),
         clearDecorations: vi.fn(),
         onDidChangeResults: vi.fn(() => ({ dispose: vi.fn() })),
@@ -187,9 +187,7 @@ describe("search term normalization", () => {
     nfdIndex = 1;
     bar.nextButton.click();
 
-    const nfdCalls = bar.findNext.mock.calls.filter(
-      ([term]: [string]) => term === NFD,
-    );
+    const nfdCalls = bar.findNext.mock.calls.filter(([term]) => term === NFD);
     expect(nfdCalls.length).toBeGreaterThanOrEqual(2);
     // Origin was restored before the second NFD probe (not left cleared).
     expect(bar.restoreSelection).toHaveBeenCalled();
@@ -199,22 +197,19 @@ describe("search term normalization", () => {
   });
 
   it("probes NFD even when NFC already matched (mixed buffer)", () => {
-    const bar = mountBar(
-      (term) => term === NFC || term === NFD,
-      {
-        selectionsAfterFind: [
-          { col: 0, row: 1, length: NFC.length }, // NFC hit
-          { col: 0, row: 0, length: NFD.length }, // NFD hit earlier → wins
-          { col: 0, row: 0, length: NFD.length }, // re-apply winner
-        ],
-      },
-    );
+    const bar = mountBar((term) => term === NFC || term === NFD, {
+      selectionsAfterFind: [
+        { col: 0, row: 1, length: NFC.length }, // NFC hit
+        { col: 0, row: 0, length: NFD.length }, // NFD hit earlier → wins
+        { col: 0, row: 0, length: NFD.length }, // re-apply winner
+      ],
+    });
     type(bar.input, NFC);
 
-    const terms = bar.findNext.mock.calls.map(([term]: [string]) => term);
+    const terms = bar.findNext.mock.calls.map(([term]) => term);
     expect(terms).toContain(NFC);
     expect(terms).toContain(NFD);
     // Winner re-applied: last call is NFD (earlier row).
-    expect(terms.at(-1)).toBe(NFD);
+    expect(terms[terms.length - 1]).toBe(NFD);
   });
 });
