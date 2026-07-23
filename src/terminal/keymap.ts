@@ -21,6 +21,7 @@ export type ShortcutAction =
   | "focus-down"
   | "reopen-tab"
   | "save-preset"
+  | "focus-next-attention"
   | `select-tab-${number}`;
 
 export interface KeyBinding {
@@ -68,6 +69,10 @@ export const DEFAULT_KEYMAP: readonly KeyBinding[] = [
   { key: "t", meta: true, shift: true, action: "reopen-tab" },
   // Capture the live layout as a preset (UX §3) — also in the Window menu
   { key: "s", meta: true, shift: true, action: "save-preset" },
+  // Jump to the highest-severity actionable Attention Rail candidate; routed
+  // through an app-level seam so it can share the overlay preflight with a
+  // status-dot click (Task 15) instead of focusing directly.
+  { key: "a", meta: true, shift: true, action: "focus-next-attention" },
   // event.key for arrows is "ArrowLeft" etc. — lowercased by matchBinding
   { key: "arrowleft", meta: true, alt: true, action: "focus-left" },
   { key: "arrowright", meta: true, alt: true, action: "focus-right" },

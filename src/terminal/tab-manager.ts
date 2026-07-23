@@ -71,6 +71,19 @@ export interface OpenFromPresetOptions {
   readonly agent?: AgentChoice;
 }
 
+/**
+ * Optional seams for TabManager, layered flat over TerminalManagerDeps so
+ * every existing `{ createPane }` (or omitted) caller keeps compiling.
+ */
+export interface TabManagerDeps extends TerminalManagerDeps {
+  /**
+   * Cmd+Shift+A routes here instead of calling `focusNextAttention`
+   * directly, so the app can run the same overlay preflight as a status-dot
+   * click (Task 15) before any pane is actually focused. Missing = no-op.
+   */
+  onRequestAttentionFocus?: (tabIndex?: number) => void;
+}
+
 /** Owns all tabs: routing, keyboard, agent launch; info polling lives in PaneInfoPoller. */
 export interface TabManager {
   /** Install listeners + start polling. The app always opens on the board. */
@@ -108,6 +121,22 @@ export interface TabManager {
    * acknowledged. Unknown/dead candidate → complete no-op.
    */
   activateForAttention(index: number, paneId: number): void;
+  /**
+   * Jump to the next actionable Attention Rail candidate — highest severity
+   * first, then oldest `changedAt` (matches `tracker.actionable()`'s sort).
+   * Omitted `tabIndex` scans every tab; a given `tabIndex` scopes the scan to
+   * that tab only. Routes through `activateForAttention`, which acks exactly
+   * the chosen candidate. A dead/unowned candidate is skipped in favor of the
+   * next one; an empty scan (or an unknown `tabIndex`) is a complete no-op.
+   */
+  focusNextAttention(tabIndex?: number): void;
+  /**
+   * Pure query mirroring `focusNextAttention`'s candidate scan (same
+   * ordering, same optional `tabIndex` scoping) without touching any
+   * UI/tracker state — the app-level overlay preflight (Task 15) uses this
+   * to decide whether the shortcut/click has anything to do.
+   */
+  hasActionableAttention(tabIndex?: number): boolean;
   /** Set or clear (null) a custom tab name; overrides the process label. */
   renameTab(index: number, name: string | null): void;
   /** Set or clear (null) a custom tab dot color token. */
@@ -126,7 +155,7 @@ export interface TabManager {
 export function createTabManager(
   host: HTMLElement,
   pty: PtyClient = defaultPtyClient,
-  deps: TerminalManagerDeps = {},
+  deps: TabManagerDeps = {},
 ): TabManager {
   const tabs: TabEntry[] = [];
   const unlisteners: UnlistenFn[] = [];
@@ -357,6 +386,39 @@ export function createTabManager(
     target.manager.show({ focus: false }); // display + fit only, no focus/ack
     target.manager.focusPane(paneId); // acks ONLY the candidate
     syncViews();
+  }
+
+  /**
+   * `tracker.actionable()` is already sorted highest-severity-first then
+   * oldest-`changedAt`-first; this walks it in order and returns the first
+   * candidate that (a) still owns a live pane and (b) matches the optional
+   * `tabIndex` scope. A candidate whose owning tab closed mid-scan (dead
+   * pane) is skipped in favor of the next one rather than aborting the scan.
+   */
+  function nextAttentionCandidate(
+    tabIndex?: number,
+  ): { owningIndex: number; paneId: number } | null {
+    for (const cand of tracker.actionable()) {
+      const owningIndex = tabs.findIndex((t) =>
+        t.manager.paneIds().includes(cand.id),
+      );
+      if (owningIndex === -1) continue; // pane gone
+      if (tabIndex !== undefined && owningIndex !== tabIndex) continue; // scoped to one tab
+      return { owningIndex, paneId: cand.id };
+    }
+    return null; // no candidate → caller no-ops
+  }
+
+  function focusNextAttention(tabIndex?: number): void {
+    const next = nextAttentionCandidate(tabIndex);
+    if (next === null) {
+      return; // no candidate anywhere in scope — complete no-op
+    }
+    activateForAttention(next.owningIndex, next.paneId); // acks exactly that pane
+  }
+
+  function hasActionableAttention(tabIndex?: number): boolean {
+    return nextAttentionCandidate(tabIndex) !== null;
   }
 
   function setOverride(index: number, patch: TabOverride): void {
@@ -634,6 +696,11 @@ export function createTabManager(
     "focus-up": () => activeManager()?.focusDirection("up"),
     "focus-down": () => activeManager()?.focusDirection("down"),
     "reopen-tab": () => void reopenTab(),
+    // Never calls `focusNextAttention` directly — routes the request through
+    // the optional app seam so the app can run the overlay preflight (Task
+    // 15) first. Missing `onRequestAttentionFocus` = safe no-op, never a
+    // direct focus/ack.
+    "focus-next-attention": () => deps.onRequestAttentionFocus?.(),
     find: () => activeManager()?.openSearch(),
     "save-preset": () => {
       if (tabs.length > 0 && !boardOpen.value) {
@@ -863,6 +930,8 @@ export function createTabManager(
     closeTab: (index) => close.closeTab(index),
     selectTab,
     activateForAttention,
+    focusNextAttention,
+    hasActionableAttention,
     renameTab(index, name) {
       const trimmed = name?.trim() ?? "";
       setOverride(index, { name: trimmed === "" ? undefined : trimmed });

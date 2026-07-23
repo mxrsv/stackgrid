@@ -4,7 +4,11 @@ import type { PaneProcessInfo } from "../lib/process-info";
 import type { Pane, PaneEvents, PaneAttentionSignal } from "./pane";
 import type { CreatePaneFn } from "./pane-lifecycle";
 import { createMemoryPtyClient, type PtyClient } from "./pty-client";
-import { createTabManager, type TabManager } from "./tab-manager";
+import {
+  createTabManager,
+  type TabManager,
+  type TabManagerDeps,
+} from "./tab-manager";
 import { activeTabIndex, tabViews, statusInfo } from "./tabs-store";
 
 // init() installs the file-drop listener, which reaches into the Tauri window
@@ -103,7 +107,13 @@ type FocusPaneDirectly = (id: number) => void;
  * both moves real DOM focus (for the visibility predicate) and fires
  * `onFocus` (for the acknowledge path), exactly like a real click would.
  */
-function wire(pty: PtyClient): {
+function wire(
+  pty: PtyClient,
+  // Task 12: lets a test add `onRequestAttentionFocus` (or any other future
+  // seam) on top of the fake `createPane` below — merged flat, matching
+  // TabManagerDeps extending TerminalManagerDeps.
+  extraDeps: Partial<TabManagerDeps> = {},
+): {
   tm: TabManager;
   emitSignal: EmitSignal;
   focusPaneDirectly: FocusPaneDirectly;
@@ -118,7 +128,7 @@ function wire(pty: PtyClient): {
     panesById.set(id, pane);
     return pane;
   };
-  const tm = createTabManager(host, pty, { createPane });
+  const tm = createTabManager(host, pty, { createPane, ...extraDeps });
   const emitSignal: EmitSignal = (id, signal) => {
     eventsById.get(id)?.onAttentionSignal?.(id, signal);
   };
@@ -132,6 +142,8 @@ function setup(options: {
   infos?: ReadonlyMap<number, PaneProcessInfo>;
   /** Directories that still exist; omitted = every path exists. */
   dirs?: readonly string[];
+  /** Extra TabManagerDeps (e.g. `onRequestAttentionFocus`) on top of the fake pane. */
+  deps?: Partial<TabManagerDeps>;
 }): {
   tm: TabManager;
   pty: ReturnType<typeof createMemoryPtyClient>;
@@ -143,7 +155,7 @@ function setup(options: {
     infos: options.infos,
     ...(options.dirs !== undefined ? { dirs: options.dirs } : {}),
   });
-  const { tm, emitSignal, focusPaneDirectly } = wire(pty);
+  const { tm, emitSignal, focusPaneDirectly } = wire(pty, options.deps);
   return { tm, pty, emitSignal, focusPaneDirectly };
 }
 
@@ -1136,6 +1148,242 @@ describe("createTabManager activateForAttention (Task 11B)", () => {
     expect(activeTabIndex.value).toBe(1); // no tab switch (still tab 1)
     expect(tabViews.value[0].attention?.kind).toBe("error"); // untouched
     expect(tabViews.value[1].attention?.kind).toBe("error"); // pane 2 NOT acked
+
+    tm.dispose();
+  });
+});
+
+// Task 12: Cmd+Shift+A / focus-next-attention. `focusNextAttention` walks
+// `tracker.actionable()` (already sorted highest-severity, then oldest-first)
+// and routes the first in-scope live candidate through `activateForAttention`.
+describe("createTabManager focusNextAttention / hasActionableAttention (Task 12)", () => {
+  it("global: severity order wins over insertion order, oldest-first breaks ties, and repeated calls advance through every candidate", async () => {
+    vi.useFakeTimers();
+    try {
+      const infos = new Map<number, PaneProcessInfo>([
+        [1, { id: 1, cwd: "/a", process: "claude" }], // → requested
+        [2, { id: 2, cwd: "/b", process: "claude" }], // → error (older)
+        [3, { id: 3, cwd: "/b", process: "claude" }], // → error (newer, same tab)
+        [4, { id: 4, cwd: "/c", process: "claude" }], // → warning
+      ]);
+      const { tm, pty, emitSignal } = setup({ infos });
+      await tm.init();
+      await tm.materialize({ layout: null, cwds: ["/a"] }); // tab 0 → pane 1
+      await tm.materialize({ layout: null, cwds: ["/b"] }); // tab 1 → pane 2
+      await tm.splitActive("row"); // tab 1 → pane 3 added
+      await tm.materialize({ layout: null, cwds: ["/c"] }); // tab 2 → pane 4 (active)
+      await vi.advanceTimersByTimeAsync(2000); // every pane's agent gate opens
+
+      // Inserted out of severity order on purpose: requested first, error last.
+      emitSignal(1, { kind: "requested", source: "osc-notification" });
+      await vi.advanceTimersByTimeAsync(10);
+      pty.emitOutput(2, "\x1b]9;4;2\x07"); // older error
+      await vi.advanceTimersByTimeAsync(10);
+      pty.emitOutput(3, "\x1b]9;4;2\x07"); // newer error, same tab as pane 2
+      await vi.advanceTimersByTimeAsync(10);
+      pty.emitOutput(4, "\x1b]9;4;4\x07"); // warning
+
+      expect(tm.hasActionableAttention()).toBe(true);
+
+      // 1st: the OLDER of the two errors (pane 2) — severity beats insertion
+      // order, and the tie between pane 2/3 breaks oldest-first.
+      tm.focusNextAttention();
+      expect(activeTabIndex.value).toBe(1);
+      expect(tabViews.value[1].attention?.actionableCount).toBe(1); // pane 3 still latched
+
+      // 2nd: the remaining error (pane 3), same tab — same-tab ack path.
+      tm.focusNextAttention();
+      expect(activeTabIndex.value).toBe(1);
+      expect(tabViews.value[1].attention?.actionableCount).toBe(0);
+
+      // 3rd: warning (pane 4) outranks the still-pending requested (pane 1).
+      tm.focusNextAttention();
+      expect(activeTabIndex.value).toBe(2);
+      expect(tabViews.value[2].attention?.kind).not.toBe("warning");
+
+      // 4th: only requested (pane 1) is left.
+      tm.focusNextAttention();
+      expect(activeTabIndex.value).toBe(0);
+      expect(tabViews.value[0].attention?.kind).not.toBe("requested");
+
+      // Queue now empty — a 5th call is a complete no-op.
+      expect(tm.hasActionableAttention()).toBe(false);
+      tm.focusNextAttention();
+      expect(activeTabIndex.value).toBe(0);
+
+      tm.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cross-tab: the global jump acks only the winning candidate, never the target tab's own active pane", async () => {
+    vi.useFakeTimers();
+    try {
+      const infos = new Map<number, PaneProcessInfo>([
+        [1, { id: 1, cwd: "/a", process: "claude" }],
+        [2, { id: 2, cwd: "/b", process: "claude" }],
+        [3, { id: 3, cwd: "/b", process: "claude" }],
+      ]);
+      const { tm, pty } = setup({ infos });
+      await tm.init();
+      await tm.materialize({ layout: null, cwds: ["/a"] }); // tab 0 → pane 1
+      await tm.materialize({ layout: null, cwds: ["/b"] }); // tab 1 → pane 2
+      await tm.splitActive("row"); // tab 1 → pane 3, becomes tab 1's own active pane
+      tm.selectTab(0); // back to tab 0
+      await vi.advanceTimersByTimeAsync(2000);
+
+      pty.emitOutput(3, "\x1b]9;4;4\x07"); // tab 1's own active pane: warning
+      pty.emitOutput(2, "\x1b]9;4;2\x07"); // tab 1's background pane: error (wins globally)
+      expect(tabViews.value[1].attention?.actionableCount).toBe(2);
+      expect(tabViews.value[1].attention?.kind).toBe("error");
+
+      tm.focusNextAttention(); // no tabIndex — global scan
+
+      expect(activeTabIndex.value).toBe(1); // switched into tab 1
+      expect(tabViews.value[1].attention?.actionableCount).toBe(1); // only pane 2 acked
+      expect(tabViews.value[1].attention?.kind).toBe("warning"); // pane 3's warning survives
+
+      tm.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("scoped: a tabIndex restricts the scan to that tab even when a higher-severity candidate exists elsewhere", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/a", process: "claude" }],
+      [2, { id: 2, cwd: "/b", process: "claude" }],
+    ]);
+    const { tm, pty } = setup({ infos });
+    await tm.materialize({ layout: null, cwds: ["/a"] }); // tab 0 → pane 1
+    await tm.materialize({ layout: null, cwds: ["/b"] }); // tab 1 → pane 2 (active)
+    await tm.init();
+    await flush();
+
+    pty.emitOutput(1, "\x1b]9;4;2\x07"); // tab 0: error — globally highest severity
+    pty.emitOutput(2, "\x1b]9;4;4\x07"); // tab 1: warning
+    expect(tm.hasActionableAttention(1)).toBe(true);
+
+    tm.focusNextAttention(1); // scoped to tab 1 — must not jump to tab 0's error
+
+    expect(activeTabIndex.value).toBe(1); // stayed put (same-tab ack)
+    expect(tabViews.value[1].attention?.kind).not.toBe("warning"); // tab 1's candidate acked
+    expect(tabViews.value[0].attention?.kind).toBe("error"); // tab 0 untouched
+
+    tm.dispose();
+  });
+
+  it("unknown tabIndex: an out-of-range scope finds nothing and is a complete no-op", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/a", process: "claude" }],
+    ]);
+    const { tm, pty } = setup({ infos });
+    await tm.materialize({ layout: null, cwds: ["/a"] });
+    await tm.init();
+    await flush();
+
+    pty.emitOutput(1, "\x1b]9;4;2\x07");
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+    expect(tm.hasActionableAttention(5)).toBe(false);
+
+    tm.focusNextAttention(5); // tab 5 does not exist
+
+    expect(activeTabIndex.value).toBe(0); // no tab change
+    expect(tabViews.value[0].attention?.kind).toBe("error"); // untouched — no ack
+
+    tm.dispose();
+  });
+
+  it("no candidate anywhere: focusNextAttention is a complete no-op", async () => {
+    const { tm } = setup({});
+    await tm.materialize({ layout: null, cwds: ["/a"] });
+    await tm.init();
+    await flush();
+
+    expect(tm.hasActionableAttention()).toBe(false);
+    expect(() => tm.focusNextAttention()).not.toThrow();
+    expect(activeTabIndex.value).toBe(0);
+
+    tm.dispose();
+  });
+
+  it("does not hijack an unread-only pane — only tracker.actionable() candidates ever count", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/a", process: "claude" }],
+    ]);
+    const { tm, pty } = setup({ infos });
+    await tm.materialize({ layout: null, cwds: ["/a"] }); // tab 0 → pane 1 (background)
+    await tm.materialize({ layout: null, cwds: ["/b"] }); // tab 1 (active)
+    await tm.init();
+    await flush();
+
+    // Plain background output: lights legacy `unread`, but a single isolated
+    // chunk never crosses the sustained-output heuristic, so it is not
+    // actionable — the tracker's `actionable()` must not contain it.
+    pty.emitOutput(1, "plain agent output, no OSC markers");
+    expect(tabViews.value[0].unread).toBe(true);
+    expect(tabViews.value[0].attention?.actionableCount).toBe(0);
+
+    expect(tm.hasActionableAttention()).toBe(false);
+    tm.focusNextAttention();
+
+    expect(activeTabIndex.value).toBe(1); // untouched — no hijack into tab 0
+
+    tm.dispose();
+  });
+});
+
+describe("createTabManager Cmd+Shift+A shortcut routing (Task 12)", () => {
+  function attentionKeydown(): KeyboardEvent {
+    return new KeyboardEvent("keydown", {
+      key: "a",
+      metaKey: true,
+      shiftKey: true,
+      bubbles: true,
+    });
+  }
+
+  it("with an onRequestAttentionFocus dep: routes the request exactly once and does not focus/ack directly", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const onRequestAttentionFocus = vi.fn();
+    const { tm, pty } = setup({ infos, deps: { onRequestAttentionFocus } });
+    await tm.materialize({ layout: null, cwds: ["/repo"] });
+    await tm.init();
+    await flush();
+
+    // An actionable candidate exists, but the shortcut must still go through
+    // the seam instead of calling focusNextAttention/activateForAttention.
+    pty.emitOutput(1, "\x1b]9;4;2\x07");
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+
+    window.dispatchEvent(attentionKeydown());
+
+    expect(onRequestAttentionFocus).toHaveBeenCalledTimes(1);
+    expect(onRequestAttentionFocus).toHaveBeenCalledWith();
+    // NOT acked — routing through the seam must not focus/ack the pane itself.
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+
+    tm.dispose();
+  });
+
+  it("without the dep: Cmd+Shift+A is a safe no-op — no throw, no direct focus/ack", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { tm, pty } = setup({ infos }); // no onRequestAttentionFocus
+    await tm.materialize({ layout: null, cwds: ["/repo"] });
+    await tm.init();
+    await flush();
+
+    pty.emitOutput(1, "\x1b]9;4;2\x07");
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+
+    expect(() => window.dispatchEvent(attentionKeydown())).not.toThrow();
+
+    expect(tabViews.value[0].attention?.kind).toBe("error"); // untouched
 
     tm.dispose();
   });

@@ -116,9 +116,31 @@ describe("matchBinding", () => {
   });
 
   it("matches Cmd+Shift+S as save-preset", () => {
+    expect(matchBinding(keyEvent("s", { metaKey: true, shiftKey: true }))).toBe(
+      "save-preset",
+    );
+  });
+
+  it("matches Cmd+Shift+A as focus-next-attention", () => {
+    expect(matchBinding(keyEvent("a", { metaKey: true, shiftKey: true }))).toBe(
+      "focus-next-attention",
+    );
+  });
+
+  it("does not collide with other Cmd/Cmd+Shift bindings on the A key", () => {
+    expect(matchBinding(keyEvent("a"))).toBeNull();
+    expect(matchBinding(keyEvent("a", { metaKey: true }))).toBeNull();
+    expect(matchBinding(keyEvent("a", { shiftKey: true }))).toBeNull();
     expect(
-      matchBinding(keyEvent("s", { metaKey: true, shiftKey: true })),
-    ).toBe("save-preset");
+      matchBinding(keyEvent("a", { metaKey: true, altKey: true })),
+    ).toBeNull();
+    // Cmd+Shift+A must not accidentally match any other action's binding.
+    expect(matchBinding(keyEvent("s", { metaKey: true, shiftKey: true }))).toBe(
+      "save-preset",
+    );
+    expect(matchBinding(keyEvent("w", { metaKey: true, shiftKey: true }))).toBe(
+      "close-tab",
+    );
   });
 });
 
