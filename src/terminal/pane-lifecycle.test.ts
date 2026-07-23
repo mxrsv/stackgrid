@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { leaf } from "../lib/split-tree";
 import { DEFAULT_SETTINGS, type Settings } from "../settings/settings-schema";
 import { createPaneLifecycle } from "./pane-lifecycle";
-import type { Pane, PaneEvents } from "./pane";
+import type { Pane, PaneAttentionSignal, PaneEvents } from "./pane";
 import { createMemoryPtyClient } from "./pty-client";
 import { persistError } from "../chrome/events";
 
@@ -104,6 +104,57 @@ describe("createPaneLifecycle write failures", () => {
     await vi.waitFor(() => {
       expect(persistError.value).toContain("input");
     });
+  });
+});
+
+describe("createPaneLifecycle attention signals", () => {
+  it("forwards a signal from the pane's events to deps.onAttentionSignal with the same pane id", async () => {
+    const pty = createMemoryPtyClient({ nextId: 1 });
+    const onAttentionSignal = vi.fn();
+    let capturedEvents: PaneEvents | null = null;
+    const life = createPaneLifecycle({
+      pty,
+      getSettings: () => DEFAULT_SETTINGS as Settings,
+      onWriteWhileExited() {},
+      onFocus() {},
+      onAttentionSignal,
+      createPane(id, _settings, events) {
+        capturedEvents = events;
+        return fakePane(id, events);
+      },
+    });
+
+    const pane = await life.spawnPane();
+    const signal: PaneAttentionSignal = {
+      kind: "requested",
+      source: "osc-notification",
+    };
+    capturedEvents!.onAttentionSignal?.(pane.id, signal);
+
+    expect(onAttentionSignal).toHaveBeenCalledWith(pane.id, signal);
+  });
+
+  it("is a safe no-op when no onAttentionSignal dep is provided", async () => {
+    const pty = createMemoryPtyClient({ nextId: 1 });
+    let capturedEvents: PaneEvents | null = null;
+    const life = createPaneLifecycle({
+      pty,
+      getSettings: () => DEFAULT_SETTINGS as Settings,
+      onWriteWhileExited() {},
+      onFocus() {},
+      createPane(id, _settings, events) {
+        capturedEvents = events;
+        return fakePane(id, events);
+      },
+    });
+
+    const pane = await life.spawnPane();
+    expect(() =>
+      capturedEvents!.onAttentionSignal?.(pane.id, {
+        kind: "requested",
+        source: "bell",
+      }),
+    ).not.toThrow();
   });
 });
 

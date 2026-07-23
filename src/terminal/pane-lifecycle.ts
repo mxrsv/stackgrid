@@ -1,7 +1,12 @@
 import type { Settings } from "../settings/settings-schema";
 import { reportPersistError } from "../chrome/events";
 import { leaf, leafIds, replaceLeaf, type TreeNode } from "../lib/split-tree";
-import { createPane, type Pane, type PaneEvents } from "./pane";
+import {
+  createPane,
+  type Pane,
+  type PaneAttentionSignal,
+  type PaneEvents,
+} from "./pane";
 import { clearPaneCwd, setPaneCwd } from "./pane-cwd";
 import type { PtyClient } from "./pty-client";
 
@@ -45,6 +50,7 @@ export function createPaneLifecycle(deps: {
   getSettings: () => Settings;
   onWriteWhileExited: (id: number, data: string) => void;
   onFocus: (id: number) => void;
+  onAttentionSignal?: (id: number, signal: PaneAttentionSignal) => void;
   /** Test seam — defaults to real createPane (xterm). */
   createPane?: CreatePaneFn;
 }): PaneLifecycle {
@@ -75,6 +81,9 @@ export function createPaneLifecycle(deps: {
     },
     onFocus(id) {
       deps.onFocus(id);
+    },
+    onAttentionSignal(id, signal) {
+      deps.onAttentionSignal?.(id, signal);
     },
   };
 

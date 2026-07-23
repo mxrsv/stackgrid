@@ -10,11 +10,19 @@ import type { PaneHeaderInfo } from "../lib/process-info";
 import { createLinkProvider } from "./link-provider";
 import { createOscLinkHandler } from "./osc-link-handler";
 import { paneCwd } from "./pane-cwd";
+import { classifyOscNotification } from "../lib/osc-notification";
+
+/** Structured attention signal a pane can emit — never a native notification. */
+export interface PaneAttentionSignal {
+  kind: "requested";
+  source: "osc-notification" | "bell";
+}
 
 export interface PaneEvents {
   onData(id: number, data: string): void;
   onResize(id: number, cols: number, rows: number): void;
   onFocus(id: number): void;
+  onAttentionSignal?(id: number, signal: PaneAttentionSignal): void;
 }
 
 /** Single-line selection snapshot for search probes across NFC/NFD forms. */
@@ -131,6 +139,27 @@ export function createPane(
   const linkProvider = term.registerLinkProvider(
     createLinkProvider(term, { getCwd: () => paneCwd(id) }),
   );
+
+  // Structured attention signals only — no native/OS notification here.
+  // OSC 9;4 progress payloads classify to null and stay handled by the
+  // separate raw-output path in osc-progress.ts.
+  const osc9Handler = term.parser.registerOscHandler(9, (payload) => {
+    const signal = classifyOscNotification(9, payload);
+    if (signal) {
+      events.onAttentionSignal?.(id, signal);
+    }
+    return true;
+  });
+  const osc777Handler = term.parser.registerOscHandler(777, (payload) => {
+    const signal = classifyOscNotification(777, payload);
+    if (signal) {
+      events.onAttentionSignal?.(id, signal);
+    }
+    return true;
+  });
+  const bellHandler = term.onBell(() => {
+    events.onAttentionSignal?.(id, { kind: "requested", source: "bell" });
+  });
 
   // xterm core measures cell width with a Unicode 6 table and no grapheme
   // clustering, so Vietnamese combining marks (NFD "ố" = o + ◌̂ + ◌́) are
@@ -257,6 +286,9 @@ export function createPane(
     }
     observer.disconnect();
     linkProvider.dispose();
+    osc9Handler.dispose();
+    osc777Handler.dispose();
+    bellHandler.dispose();
     term.dispose();
     element.remove();
   }
