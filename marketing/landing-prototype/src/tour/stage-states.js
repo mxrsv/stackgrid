@@ -10,7 +10,7 @@ import { deepFreeze } from "../product-stage.js";
 export const AGENTS = deepFreeze({
   claude: { monogram: "C", tint: "#bb9af7" },
   codex: { monogram: "X", tint: "#9ece6a" },
-  gemini: { monogram: "G", tint: "#7dcfff" },
+  opencode: { monogram: "O", tint: "#7dcfff" },
 });
 
 /** Open board recent rows — the top one carries the remembered combo. */
@@ -21,7 +21,7 @@ export const boardRecents = deepFreeze([
     path: "…rkspace/stackgrid",
     highlighted: true,
     preset: "trio",
-    agents: ["claude", "codex", "gemini"],
+    agents: ["claude", "codex", "opencode"],
   },
   {
     id: "glowarena",
