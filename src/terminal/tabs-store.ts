@@ -1,5 +1,17 @@
 import { signal } from "@preact/signals";
 import type { TabDotColor } from "../lib/tab-colors";
+import type { AgentAttentionSummary } from "./agent-attention";
+
+/** Shared with UI consumers so they can import it from tabs-store. */
+export type { AgentAttentionSummary } from "./agent-attention";
+
+/** Fallback summary for a `TabView` whose `attention` is not yet populated. */
+export const IDLE_ATTENTION_SUMMARY: AgentAttentionSummary = {
+  kind: "idle",
+  actionableCount: 0,
+  workingCount: 0,
+  unreadCount: 0,
+};
 
 /** What the tab bar needs to render one tab. */
 export interface TabView {
@@ -17,6 +29,11 @@ export interface TabView {
   readonly agentBusy: boolean;
   /** New output arrived in this tab while it was not active; cleared on open. */
   readonly unread: boolean;
+  /**
+   * Per-tab Agent Attention Rail summary — undefined until the tracker has a
+   * value for this tab; consumers fall back to `IDLE_ATTENTION_SUMMARY`.
+   */
+  readonly attention?: AgentAttentionSummary;
 }
 
 /** User overrides for one tab; absent fields fall back to derived values. */

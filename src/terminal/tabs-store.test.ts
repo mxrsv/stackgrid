@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { applyTabOverride, type TabView } from "./tabs-store";
+import {
+  applyTabOverride,
+  IDLE_ATTENTION_SUMMARY,
+  type AgentAttentionSummary,
+  type TabView,
+} from "./tabs-store";
 import { isTabDotColor } from "../lib/tab-colors";
 
 const base: TabView = {
@@ -10,6 +15,18 @@ const base: TabView = {
   workspacePath: "/Users/k/dev/stackgrid",
   agentBusy: true,
   unread: false,
+};
+
+const attentionSummary: AgentAttentionSummary = {
+  kind: "working",
+  actionableCount: 0,
+  workingCount: 1,
+  unreadCount: 0,
+};
+
+const withAttention: TabView = {
+  ...base,
+  attention: attentionSummary,
 };
 
 describe("applyTabOverride", () => {
@@ -43,6 +60,40 @@ describe("applyTabOverride", () => {
     expect(merged.workspacePath).toBe("/Users/k/dev/stackgrid");
     expect(merged.agentBusy).toBe(true);
     expect(merged.unread).toBe(false);
+  });
+
+  it("never touches workspacePath, agentBusy, unread or attention summary", () => {
+    const merged = applyTabOverride(withAttention, {
+      name: "api",
+      dotColor: "cyan",
+    });
+    expect(merged.workspacePath).toBe(withAttention.workspacePath);
+    expect(merged.agentBusy).toBe(withAttention.agentBusy);
+    expect(merged.unread).toBe(withAttention.unread);
+    expect(merged.attention).toBe(attentionSummary);
+    expect(merged.attention).toEqual(attentionSummary);
+  });
+});
+
+describe("TabView.attention", () => {
+  it("carries the AgentAttentionSummary shape when present", () => {
+    expect(withAttention.attention).toEqual({
+      kind: "working",
+      actionableCount: 0,
+      workingCount: 1,
+      unreadCount: 0,
+    });
+  });
+
+  it("falls back to IDLE_ATTENTION_SUMMARY when absent", () => {
+    expect(base.attention).toBeUndefined();
+    const resolved = base.attention ?? IDLE_ATTENTION_SUMMARY;
+    expect(resolved).toEqual({
+      kind: "idle",
+      actionableCount: 0,
+      workingCount: 0,
+      unreadCount: 0,
+    });
   });
 });
 
