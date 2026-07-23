@@ -32,6 +32,22 @@ _Avoid_: Grid, arrangement, split count
 A pane whose foreground process is something other than an idle shell (e.g. `claude`, `vim`). A pane at an idle shell prompt or in session-ended limbo (no foreground process) is not busy.
 _Avoid_: Running, active, has output
 
+**Agent phase**:
+The per-pane runtime work signal for the Attention Rail: `unknown` (no signal yet), `idle` (recognized agent, not working), `working` (recognized agent producing output/progress), or `exited` (PTY gone). Explicit OSC 9;4/notification/bell signals and the sustained-output heuristic both feed phase, but only after the pane's foreground process is confirmed to be an agent. Distinct from **Busy**: Busy is the foreground-process guard for the close flow and covers any non-idle-shell process (e.g. `vim`), not just agents; a pane can be Busy without ever leaving `unknown` phase. Acknowledging a pane never changes its phase.
+_Avoid_: Busy, running, active
+
+**Attention**:
+The latched, actionable per-pane state — `none`, `completed`, `requested`, `warning`, or `error` — layered on top of **Agent phase** as a separate axis; a pane can be `working` while still carrying a latched `warning`. Explicit signals (OSC 9;4 severity, OSC 9/777 notification, terminal bell) always outrank the sustained-output heuristic, which may only ever produce `completed`, never `warning`/`error`/`requested`. Drives the status mark precedence and `Cmd+Shift+A` navigation across panes.
+_Avoid_: Busy, notification, unread
+
+**Unread** (per-pane):
+Whether a pane's output has been seen since it last changed, tracked independently per pane and cleared only when that specific pane gets real DOM focus while the window is foreground. Distinct from the legacy tab-level unread flag on `TabView`, which is unchanged: it still marks "this background tab has new output" and is cleared by public `selectTab()` regardless of which pane inside the tab gets focus.
+_Avoid_: TabView unread, tab unread
+
+**Acknowledge**:
+Focusing a pane, which clears that pane's own **Attention** and per-pane **Unread**. Never clears **Agent phase** — a pane still `working` keeps showing working after being acknowledged. Distinct from opening/selecting a tab, which only clears the tab's legacy unread flag and does not by itself acknowledge any individual pane's attention.
+_Avoid_: selectTab, tab focus, dismiss
+
 **CWD**:
 The current working directory of a pane's shell, as reported by the PTY. New panes and new tabs inherit the focused pane's CWD at spawn time; missing or invalid paths fall back to `$HOME`.
 _Avoid_: Directory, path, folder
