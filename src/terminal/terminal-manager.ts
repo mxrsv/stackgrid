@@ -34,6 +34,11 @@ export interface ManagerCallbacks {
   onLayoutChange(): void;
   /** Fired when a pane requests attention (OSC 9/777 notification or bell). */
   onAttentionSignal?(id: number, signal: PaneAttentionSignal): void;
+  /**
+   * Fired once per focus action — click/focusin and programmatic focus
+   * (e.g. `focusPane`) both converge on the lifecycle `onFocus` handler.
+   */
+  onPaneFocus?(id: number): void;
 }
 
 /** Optional seams forwarded to PaneLifecycle — production uses the defaults. */
@@ -67,6 +72,11 @@ export interface TerminalManager {
   /** Maximize the active pane over the whole tab; call again to restore. */
   toggleZoom(): void;
   focusActive(): void;
+  /**
+   * Focus a specific pane by id (keeps zoom restore, focus-expand and active
+   * classes via `setActive`). Unknown/dead id → no-op, returns `false`.
+   */
+  focusPane(id: number): boolean;
   /** Clear the active pane's buffer, keeping the prompt line (Cmd+K). */
   clearActive(): void;
   /** Open the search bar on the active pane (Cmd+F). */
@@ -119,6 +129,7 @@ export function createTerminalManager(
     },
     onFocus(id) {
       setActive(id);
+      callbacks.onPaneFocus?.(id);
     },
     onAttentionSignal(id, signal) {
       callbacks.onAttentionSignal?.(id, signal);
@@ -466,6 +477,16 @@ export function createTerminalManager(
       if (activeId !== null) {
         life.panes.get(activeId)?.focus();
       }
+    },
+    focusPane(id) {
+      const pane = life.panes.get(id);
+      if (!pane) {
+        return false;
+      }
+      setActive(id);
+      // → focusin → lifecycle onFocus(id) → callbacks.onPaneFocus?.(id) once.
+      pane.focus();
+      return true;
     },
     clearActive() {
       if (activeId !== null) {

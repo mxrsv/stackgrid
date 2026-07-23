@@ -38,7 +38,9 @@ function fakePane(id: number, events: PaneEvents): Pane {
  * `onAttentionSignal` as if the pane itself raised it. */
 function setup(): {
   tm: TerminalManager;
+  container: HTMLElement;
   onAttentionSignal: ReturnType<typeof vi.fn>;
+  onPaneFocus: ReturnType<typeof vi.fn>;
   eventsById: Map<number, PaneEvents>;
 } {
   const container = document.createElement("div");
@@ -50,12 +52,14 @@ function setup(): {
     return fakePane(id, events);
   };
   const onAttentionSignal = vi.fn();
+  const onPaneFocus = vi.fn();
   const callbacks: ManagerCallbacks = {
     onLayoutChange() {},
     onAttentionSignal,
+    onPaneFocus,
   };
   const tm = createTerminalManager(container, callbacks, pty, { createPane });
-  return { tm, onAttentionSignal, eventsById };
+  return { tm, container, onAttentionSignal, onPaneFocus, eventsById };
 }
 
 beforeEach(() => {
@@ -106,5 +110,72 @@ describe("createTerminalManager attention signal routing", () => {
 
     expect(a.onAttentionSignal).toHaveBeenCalledTimes(1);
     expect(b.onAttentionSignal).not.toHaveBeenCalled();
+  });
+});
+
+describe("createTerminalManager focusPane", () => {
+  it("focuses a known pane: returns true, updates activePaneId, fires onPaneFocus once", async () => {
+    const { tm, onPaneFocus } = setup();
+    await tm.initFresh();
+    await tm.splitActive("row");
+    const [first, second] = tm.paneIds();
+    expect(second).not.toBeUndefined();
+    onPaneFocus.mockClear();
+
+    const ok = tm.focusPane(first!);
+
+    expect(ok).toBe(true);
+    expect(tm.activePaneId()).toBe(first);
+    expect(onPaneFocus).toHaveBeenCalledTimes(1);
+    expect(onPaneFocus).toHaveBeenCalledWith(first);
+  });
+
+  it("unknown pane id is a no-op: returns false, active id unchanged, no callback", async () => {
+    const { tm, onPaneFocus } = setup();
+    await tm.initFresh();
+    const activeBefore = tm.activePaneId();
+    onPaneFocus.mockClear();
+
+    const ok = tm.focusPane(999999);
+
+    expect(ok).toBe(false);
+    expect(tm.activePaneId()).toBe(activeBefore);
+    expect(onPaneFocus).not.toHaveBeenCalled();
+  });
+
+  it("focusing a different pane while zoomed restores the layout (tmux behavior)", async () => {
+    const { tm, container } = setup();
+    await tm.initFresh();
+    await tm.splitActive("row");
+    const [first, second] = tm.paneIds();
+    expect(second).not.toBeUndefined();
+    // splitActive left `second` active — zoom it.
+    expect(tm.activePaneId()).toBe(second);
+    tm.toggleZoom();
+    expect(container.classList.contains("is-zoomed")).toBe(true);
+
+    const ok = tm.focusPane(first!);
+
+    expect(ok).toBe(true);
+    expect(container.classList.contains("is-zoomed")).toBe(false);
+    expect(tm.activePaneId()).toBe(first);
+  });
+
+  it("fires onPaneFocus exactly once per focusPane call (setActive + pane.focus() converge on one ack)", async () => {
+    const { tm, onPaneFocus } = setup();
+    await tm.initFresh();
+    await tm.splitActive("row");
+    const [first] = tm.paneIds();
+    onPaneFocus.mockClear();
+
+    tm.focusPane(first!);
+
+    expect(onPaneFocus).toHaveBeenCalledTimes(1);
+
+    // Re-focusing the already-active pane still fires exactly once — setActive
+    // early-returns (idempotent) but pane.focus() still bubbles onFocus.
+    onPaneFocus.mockClear();
+    tm.focusPane(first!);
+    expect(onPaneFocus).toHaveBeenCalledTimes(1);
   });
 });
