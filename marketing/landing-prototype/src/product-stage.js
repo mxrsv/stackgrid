@@ -5,7 +5,7 @@
  * the released app regardless of the landing locale (see the 2026-07-16 spec).
  */
 
-const deepFreeze = (value) => {
+export const deepFreeze = (value) => {
   if (value === null || typeof value !== "object") {
     return value;
   }
