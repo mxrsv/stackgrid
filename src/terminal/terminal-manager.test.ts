@@ -14,8 +14,17 @@ import {
  * fires no event when the element already holds DOM focus. Default `true`
  * matches the common case (element not yet focused); pass `false` to
  * reproduce the already-focused-element case.
+ *
+ * `fitCounts`, when given, records one increment per `fit()` call for this
+ * pane's id — lets a test assert every pane was fit without caring about
+ * focus.
  */
-function fakePane(id: number, events: PaneEvents, emitFocusEvent = true): Pane {
+function fakePane(
+  id: number,
+  events: PaneEvents,
+  emitFocusEvent = true,
+  fitCounts?: Map<number, number>,
+): Pane {
   const element = document.createElement("div");
   return {
     id,
@@ -24,7 +33,9 @@ function fakePane(id: number, events: PaneEvents, emitFocusEvent = true): Pane {
     mount() {},
     write() {},
     writeln() {},
-    fit() {},
+    fit() {
+      fitCounts?.set(id, (fitCounts.get(id) ?? 0) + 1);
+    },
     clear() {},
     focus() {
       if (emitFocusEvent) {
@@ -54,14 +65,16 @@ function setup(emitFocusEvent = true): {
   onAttentionSignal: ReturnType<typeof vi.fn>;
   onPaneFocus: ReturnType<typeof vi.fn>;
   eventsById: Map<number, PaneEvents>;
+  fitCounts: Map<number, number>;
 } {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const pty = createMemoryPtyClient({ nextId: 1 });
   const eventsById = new Map<number, PaneEvents>();
+  const fitCounts = new Map<number, number>();
   const createPane: CreatePaneFn = (id, _settings, events) => {
     eventsById.set(id, events);
-    return fakePane(id, events, emitFocusEvent);
+    return fakePane(id, events, emitFocusEvent, fitCounts);
   };
   const onAttentionSignal = vi.fn();
   const onPaneFocus = vi.fn();
@@ -71,7 +84,14 @@ function setup(emitFocusEvent = true): {
     onPaneFocus,
   };
   const tm = createTerminalManager(container, callbacks, pty, { createPane });
-  return { tm, container, onAttentionSignal, onPaneFocus, eventsById };
+  return {
+    tm,
+    container,
+    onAttentionSignal,
+    onPaneFocus,
+    eventsById,
+    fitCounts,
+  };
 }
 
 beforeEach(() => {
@@ -212,5 +232,48 @@ describe("createTerminalManager focusPane", () => {
     expect(tm.activePaneId()).toBe(first);
     expect(onPaneFocus).toHaveBeenCalledTimes(1);
     expect(onPaneFocus).toHaveBeenCalledWith(first);
+  });
+});
+
+describe("createTerminalManager show", () => {
+  it("show() with no args displays the container, fits every pane, and focuses the active pane exactly once", async () => {
+    const { tm, container, onPaneFocus, fitCounts } = setup();
+    await tm.initFresh();
+    await tm.splitActive("row");
+    const activeId = tm.activePaneId();
+    expect(activeId).not.toBeNull();
+    tm.hide();
+    expect(container.style.display).toBe("none");
+    fitCounts.clear();
+    onPaneFocus.mockClear();
+
+    tm.show();
+
+    expect(container.style.display).toBe("");
+    for (const id of tm.paneIds()) {
+      expect(fitCounts.get(id)).toBe(1);
+    }
+    expect(onPaneFocus).toHaveBeenCalledTimes(1);
+    expect(onPaneFocus).toHaveBeenCalledWith(activeId);
+  });
+
+  it("show({ focus: false }) displays and fits every pane but focuses none, and leaves the active id unchanged", async () => {
+    const { tm, container, onPaneFocus, fitCounts } = setup();
+    await tm.initFresh();
+    await tm.splitActive("row");
+    const activeBefore = tm.activePaneId();
+    expect(activeBefore).not.toBeNull();
+    tm.hide();
+    fitCounts.clear();
+    onPaneFocus.mockClear();
+
+    tm.show({ focus: false });
+
+    expect(container.style.display).toBe("");
+    for (const id of tm.paneIds()) {
+      expect(fitCounts.get(id)).toBe(1);
+    }
+    expect(onPaneFocus).not.toHaveBeenCalled();
+    expect(tm.activePaneId()).toBe(activeBefore);
   });
 });

@@ -63,7 +63,13 @@ export interface TerminalManager {
     layout: SerializedNode,
     cwds?: readonly (string | null)[],
   ): Promise<void>;
-  show(): void;
+  /**
+   * Displays the container and fits every pane. `focus` defaults to `true`
+   * (focuses the active pane, matching the historical behavior); internal
+   * attention navigation passes `{ focus: false }` to display/fit without
+   * stealing focus.
+   */
+  show(options?: { focus?: boolean }): void;
   hide(): void;
   splitActive(dir: Direction): Promise<void>;
   closeActive(): Promise<void>;
@@ -461,12 +467,12 @@ export function createTerminalManager(
   return {
     initFresh,
     initFromLayout,
-    show() {
+    show(options) {
       container.style.display = "";
       for (const pane of life.panes.values()) {
         pane.fit();
       }
-      if (activeId !== null) {
+      if ((options?.focus ?? true) && activeId !== null) {
         life.panes.get(activeId)?.focus();
       }
     },
