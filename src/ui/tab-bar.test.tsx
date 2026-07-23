@@ -98,6 +98,40 @@ describe("TabBar", () => {
     expect(host.querySelector(".tab-popover")).toBeNull();
   });
 
+  it("clicking the status mark on an INACTIVE tab calls onFocusAttention(index) and does not leak into onSelectTab", () => {
+    // Regression guard: on the active tab the row's own onClick can never
+    // reach onSelectTab, so that case alone can't prove stopPropagation is
+    // doing anything. Here the marked tab (index 1) is inactive — without
+    // the .tab__attn wrapper's stopPropagation, this click would bubble to
+    // the tab and call onSelectTab(1).
+    tabViews.value = [
+      tab({ key: 1, name: "Alpha" }),
+      tab({
+        key: 2,
+        name: "Beta",
+        attention: actionable({ kind: "error", actionableCount: 2 }),
+      }),
+    ];
+    activeTabIndex.value = 0;
+    const props = baseProps();
+    mount(props);
+
+    const tabs = host.querySelectorAll(".tab");
+    const button = tabs[1].querySelector(
+      ".tab__attn button",
+    ) as HTMLButtonElement;
+    expect(button).not.toBeNull();
+
+    act(() => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(props.onFocusAttention).toHaveBeenCalledTimes(1);
+    expect(props.onFocusAttention).toHaveBeenCalledWith(1);
+    expect(props.onSelectTab).not.toHaveBeenCalled();
+    expect(host.querySelector(".tab-popover")).toBeNull();
+  });
+
   it("clicking an inactive tab calls onSelectTab", () => {
     tabViews.value = [
       tab({ key: 1, name: "Alpha" }),

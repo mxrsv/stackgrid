@@ -131,6 +131,40 @@ describe("WorkspaceSidebar", () => {
     expect(host.querySelector(".tab-popover")).toBeNull();
   });
 
+  it("clicking the status mark on an INACTIVE row calls onFocusAttention(index) and does not leak into onSelectTab", () => {
+    // Regression guard: on the active row the row's own onClick can never
+    // reach onSelectTab, so that case alone can't prove stopPropagation is
+    // doing anything. Here the marked tab (index 1) is inactive — without
+    // the .wsitem__logo-attn wrapper's stopPropagation, this click would
+    // bubble to the row and call onSelectTab(1).
+    tabViews.value = [
+      tab({ key: 1, name: "Alpha" }),
+      tab({
+        key: 2,
+        name: "Beta",
+        attention: actionable({ kind: "error", actionableCount: 2 }),
+      }),
+    ];
+    activeTabIndex.value = 0;
+    const props = baseProps();
+    mount(props);
+
+    const rows = host.querySelectorAll(".wsitem");
+    const button = rows[1].querySelector(
+      ".wsitem__logo-attn button",
+    ) as HTMLButtonElement;
+    expect(button).not.toBeNull();
+
+    act(() => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(props.onFocusAttention).toHaveBeenCalledTimes(1);
+    expect(props.onFocusAttention).toHaveBeenCalledWith(1);
+    expect(props.onSelectTab).not.toHaveBeenCalled();
+    expect(host.querySelector(".tab-popover")).toBeNull();
+  });
+
   it("clicking the row (not the mark) calls onSelectTab for an inactive tab", () => {
     tabViews.value = [
       tab({
