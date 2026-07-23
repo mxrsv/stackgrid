@@ -50,6 +50,35 @@ function mountFinaleReveal(section) {
   return () => observer.disconnect();
 }
 
+/** One-shot scale/opacity-in the first time the tour window enters view. */
+function mountWindowEntrance(section, reduceMotion) {
+  const figure = section.querySelector(".tour__appwin");
+
+  if (!figure) {
+    throw new Error("Tour window markup is missing.");
+  }
+
+  if (reduceMotion.matches) {
+    figure.classList.add("is-entered");
+    return () => {};
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-entered");
+          observer.disconnect();
+        }
+      }
+    },
+    { threshold: 0.3 },
+  );
+  observer.observe(figure);
+
+  return () => observer.disconnect();
+}
+
 /**
  * Proof terminal: once scrolled into view, type each command, print its
  * output, and light the matching proof chip. Runs once, then rests on a
@@ -235,7 +264,7 @@ function renderStage() {
   const [claudePane, codexPane, opencodePane] = stagePanes;
 
   return `
-    <figure class="a-appwin tour__appwin" role="img" aria-label="Stackgrid app window tour preview">
+    <figure class="a-appwin tour__appwin" data-enter role="img" aria-label="Stackgrid app window tour preview">
       ${renderStageTitlebar()}
       <div class="a-appwin__body" aria-hidden="true">
         ${renderStageSidebar(SIDEBAR_STATUS)}
@@ -403,6 +432,7 @@ export function renderTour(copy) {
       );
       const disposeReveal = mountFinaleReveal(section);
       const disposeProofTerm = mountProofTerm(section, reduceMotion);
+      const disposeEntrance = mountWindowEntrance(section, reduceMotion);
 
       let rafId = null;
 
@@ -469,6 +499,7 @@ export function renderTour(copy) {
           cancelAnimationFrame(rafId);
         }
 
+        disposeEntrance();
         disposeProofTerm();
         disposeReveal();
         disposeStream();

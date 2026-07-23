@@ -192,6 +192,20 @@
     0 0 90px rgb(var(--t-accent-rgb) / 8%);
 }
 
+/* Window entrance — scale/opacity-in on first view (Task 3). */
+.tour__appwin[data-enter] {
+  opacity: 0;
+  transform: translateY(2.2rem) scale(0.965);
+  transition:
+    opacity 760ms ease,
+    transform 760ms cubic-bezier(0.22, 0.78, 0.18, 1);
+}
+
+.tour__appwin[data-enter].is-entered {
+  opacity: 1;
+  transform: none;
+}
+
 .tour__scene {
   position: relative;
   display: grid;
