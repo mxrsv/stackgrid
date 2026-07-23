@@ -76,7 +76,7 @@ SCENARIO="${1:-all}"
 POLL_GATE_WAIT=2.5   # > one 2000ms pty_info poll interval
 STEP_PAUSE=2         # pause between observable transitions in "all"
 SPLIT_DELAY=0.05     # gap between the two writes in "split"
-IDLE_CHUNK=3600       # sleep granularity while holding the fg group alive
+IDLE_CHUNK=3600      # sleep granularity while holding the fg group alive
 
 # --- Raw signal emitters (printf interprets \033 and \a for us) --------
 
@@ -147,6 +147,10 @@ case "$SCENARIO" in
     label "requested — OSC 9 notification + bell"
     osc9_notify "fixture: attention requested"
     bell
+    sleep "$STEP_PAUSE"
+
+    label "requested — OSC 777 notify (title + body)"
+    osc777_notify "Stackgrid" "Needs your input"
     sleep "$STEP_PAUSE"
 
     hold_foreground
