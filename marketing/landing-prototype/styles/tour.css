@@ -21,6 +21,7 @@
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   --a-font-mono:
     "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
+  position: relative;
   color: var(--t-ink);
   font-family: var(--a-font-display);
   background:
@@ -28,10 +29,46 @@
     linear-gradient(180deg, #090b0a 0%, #0c0e0c 55%, #0a0c0b 100%);
 }
 
+/* Drifting colour blooms rising behind the closing band + footer so the page
+   does not end on flat black. CSS-only (no third WebGL canvas); Tokyo Night
+   blue/violet/cyan. Anchored to the bottom, faded out at the top so it never
+   reaches the sticky tour above. */
+.tour::after {
+  position: absolute;
+  z-index: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 130svh;
+  background:
+    radial-gradient(
+      42rem 30rem at 16% 86%,
+      rgb(122 162 247 / 15%),
+      transparent 68%
+    ),
+    radial-gradient(
+      40rem 30rem at 82% 96%,
+      rgb(187 154 247 / 17%),
+      transparent 70%
+    ),
+    radial-gradient(
+      30rem 24rem at 52% 76%,
+      rgb(125 207 255 / 10%),
+      transparent 70%
+    );
+  content: "";
+  mask-image: linear-gradient(180deg, transparent 0%, #000 26%);
+  pointer-events: none;
+  will-change: transform;
+  animation: tour-enddrift 22s ease-in-out infinite alternate;
+}
+
 /* ---------- sticky scaffold ---------- */
 
+/* z-index lifts the whole scroll track above the bloom band below. */
 .tour__track {
   position: relative;
+  z-index: 1;
   height: 340svh;
 }
 
@@ -672,6 +709,117 @@
   background: color-mix(in srgb, var(--t-accent) 88%, #ffffff);
 }
 
+/* ---------- site footer ---------- */
+
+.site-footer {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  border-top: 1px solid var(--t-line);
+  background: rgb(9 11 10 / 55%);
+  backdrop-filter: blur(2px);
+}
+
+/* A soft violet pool anchored to the footer's own corner, gently pulsing. */
+.site-footer__glow {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background:
+    radial-gradient(
+      36rem 22rem at 88% 120%,
+      rgb(187 154 247 / 16%),
+      transparent 70%
+    ),
+    radial-gradient(
+      30rem 20rem at 8% -10%,
+      rgb(122 162 247 / 12%),
+      transparent 72%
+    );
+  pointer-events: none;
+  animation: tour-footerpulse 9s ease-in-out infinite alternate;
+}
+
+.site-footer__inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(2rem, 5vw, 5rem);
+  width: min(78rem, 100% - var(--t-gutter) * 2);
+  margin-inline: auto;
+  padding-block: clamp(3rem, 6vw, 5rem) 2.5rem;
+}
+
+.site-footer__mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.site-footer__tagline {
+  max-width: 24rem;
+  margin: 1rem 0 0;
+  color: var(--t-ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.site-footer__col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.site-footer__coltitle {
+  margin-bottom: 0.3rem;
+  color: var(--t-ink-faint);
+  font-family: var(--a-font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.site-footer__col a,
+.site-footer__link {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t-ink-soft);
+  font: inherit;
+  font-size: 0.92rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 180ms ease;
+}
+
+.site-footer__col a:hover,
+.site-footer__link:hover {
+  color: var(--t-accent);
+}
+
+.site-footer__base {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.5rem;
+  align-items: center;
+  justify-content: space-between;
+  width: min(78rem, 100% - var(--t-gutter) * 2);
+  margin-inline: auto;
+  padding-block: 1.4rem 2.2rem;
+  border-top: 1px solid var(--t-line);
+  color: var(--t-ink-faint);
+  font-size: 0.82rem;
+}
+
+.site-footer__built {
+  font-family: var(--a-font-mono);
+  font-size: 0.76rem;
+}
+
 /* ---------- narrow screens ---------- */
 
 @media (max-width: 768px) {
@@ -713,11 +861,23 @@
   .tour__proofterm-body {
     min-height: 11rem;
   }
+
+  .site-footer__inner {
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+  }
+
+  .site-footer__brand {
+    grid-column: 1 / -1;
+  }
 }
 
 /* ---------- reduced motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {
+  .tour,
+  .tour::before,
+  .tour::after,
   .tour *,
   .tour *::before,
   .tour *::after {
@@ -752,5 +912,27 @@
 
   50% {
     box-shadow: 0 0 42px rgb(var(--t-accent-rgb) / 34%);
+  }
+}
+
+@keyframes tour-enddrift {
+  from {
+    transform: translate3d(-2%, 1.5%, 0) scale(1.02);
+  }
+
+  to {
+    transform: translate3d(2.5%, -2%, 0) scale(1.1);
+  }
+}
+
+@keyframes tour-footerpulse {
+  from {
+    opacity: 0.7;
+    transform: translateY(1.5%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(-1.5%);
   }
 }

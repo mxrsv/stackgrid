@@ -326,6 +326,41 @@ function renderFinale(copy) {
   `;
 }
 
+const REPO = "https://github.com/mxrsv/stackgrid";
+
+function renderFooter(copy) {
+  return `
+    <footer class="site-footer">
+      <div class="site-footer__glow" aria-hidden="true"></div>
+      <div class="site-footer__inner">
+        <div class="site-footer__brand">
+          <span class="site-footer__mark">
+            <img src="${STACKGRID_ICON_SRC}" alt="" width="30" height="30" />
+            <strong data-copy="navProduct">${copy.navProduct}</strong>
+          </span>
+          <p class="site-footer__tagline" data-copy="footerTagline">${copy.footerTagline}</p>
+        </div>
+        <nav class="site-footer__col" aria-label="${copy.footerColProduct}">
+          <span class="site-footer__coltitle" data-copy="footerColProduct">${copy.footerColProduct}</span>
+          <a href="${REPO}/releases/latest" target="_blank" rel="noreferrer" data-copy="finaleDownload">${copy.finaleDownload}</a>
+          <button type="button" class="site-footer__link" data-open-demo data-copy="primaryCta">${copy.primaryCta}</button>
+        </nav>
+        <nav class="site-footer__col" aria-label="${copy.footerColProject}">
+          <span class="site-footer__coltitle" data-copy="footerColProject">${copy.footerColProject}</span>
+          <a href="${REPO}" target="_blank" rel="noreferrer" data-copy="navGithub">${copy.navGithub}</a>
+          <a href="${REPO}/releases" target="_blank" rel="noreferrer" data-copy="footerReleases">${copy.footerReleases}</a>
+          <a href="${REPO}/issues" target="_blank" rel="noreferrer" data-copy="footerIssues">${copy.footerIssues}</a>
+          <a href="${REPO}/blob/main/LICENSE" target="_blank" rel="noreferrer" data-copy="footerLicense">${copy.footerLicense}</a>
+        </nav>
+      </div>
+      <div class="site-footer__base">
+        <span>© 2026 mxrsv</span>
+        <span class="site-footer__built" data-copy="footerBuilt">${copy.footerBuilt}</span>
+      </div>
+    </footer>
+  `;
+}
+
 export function renderTour(copy) {
   return {
     markup: `
@@ -340,6 +375,7 @@ export function renderTour(copy) {
           </div>
         </div>
         ${renderFinale(copy)}
+        ${renderFooter(copy)}
       </section>
     `,
     mount(root) {

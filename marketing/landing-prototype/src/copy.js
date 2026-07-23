@@ -35,6 +35,14 @@ export const messages = {
     scFind: "find",
     scClear: "clear",
     finaleDownload: "Download for macOS",
+    footerTagline:
+      "A native macOS terminal for running AI agent CLIs side by side.",
+    footerColProduct: "Product",
+    footerColProject: "Project",
+    footerReleases: "Releases",
+    footerIssues: "Issues",
+    footerLicense: "MIT License",
+    footerBuilt: "Built with Tauri 2 · xterm.js · Preact",
   },
   vi: {
     navProduct: "Stackgrid",
@@ -72,6 +80,14 @@ export const messages = {
     scFind: "tìm kiếm",
     scClear: "xoá buffer",
     finaleDownload: "Tải cho macOS",
+    footerTagline:
+      "Terminal macOS native để chạy song song nhiều AI agent CLI.",
+    footerColProduct: "Sản phẩm",
+    footerColProject: "Dự án",
+    footerReleases: "Bản phát hành",
+    footerIssues: "Báo lỗi",
+    footerLicense: "Giấy phép MIT",
+    footerBuilt: "Xây bằng Tauri 2 · xterm.js · Preact",
   },
 };
 
