@@ -1,3 +1,4 @@
+import { useSignal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
 import {
   resetSettings,
@@ -21,6 +22,8 @@ import { ColorRow } from "./controls/color-row";
 import { FontRow } from "./controls/font-row";
 import { EditorRow } from "./controls/editor-row";
 import { LogoRow } from "./controls/logo-row";
+import { reportPersistError } from "../chrome/events";
+import { requestAgentNotificationPermission } from "../lib/native-notification";
 
 const TAB_BAR_CHOICES: readonly TabBarPosition[] = ["left", "top"];
 
@@ -40,6 +43,9 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const current = settings.value;
   const preset = getPreset(current.themeId);
   const escRef = useRef<HTMLButtonElement>(null);
+  // Guards the native OS permission prompt: true while a request from THIS
+  // click is in flight, so a second click can't fire a second prompt.
+  const requesting = useSignal(false);
 
   // Move focus into the panel on open, so Escape reaches the handler below
   // instead of being swallowed by the terminal that had focus. preventScroll:
@@ -114,6 +120,34 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       return `${n / 1000}k lines`;
     }
     return `${n} lines`;
+  };
+
+  // Disabling is immediate and never prompts. Enabling requests OS
+  // permission from THIS click only — never at mount/startup/reset — and
+  // only flips the setting to true when the user actually grants it.
+  const handleAgentNotificationsToggle = async (): Promise<void> => {
+    if (requesting.value) {
+      // Local guard: blocks re-entry synchronously, before the `requesting`
+      // signal write has propagated to a re-rendered (disabled) button.
+      return;
+    }
+    if (current.agentNotifications) {
+      updateSettings({ agentNotifications: false });
+      return;
+    }
+    requesting.value = true;
+    try {
+      const granted = await requestAgentNotificationPermission();
+      if (granted) {
+        updateSettings({ agentNotifications: true });
+      } else {
+        reportPersistError("Notification permission was denied.");
+      }
+    } catch {
+      reportPersistError("Couldn't request notification permission.");
+    } finally {
+      requesting.value = false;
+    }
   };
 
   return (
@@ -223,6 +257,13 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           desc="pane name bar inside splits"
           checked={current.showPaneBar}
           onToggle={() => updateSettings({ showPaneBar: !current.showPaneBar })}
+        />
+        <ToggleRow
+          label="agent notifications"
+          desc="native alert when a background agent finishes or needs you"
+          checked={current.agentNotifications}
+          disabled={requesting.value}
+          onToggle={handleAgentNotificationsToggle}
         />
         <ConfigRow label="Scrollback" desc="lines kept per pane">
           <button
