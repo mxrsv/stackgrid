@@ -1,0 +1,27 @@
+/* Shared design tokens for the landing prototype. Values lifted verbatim
+   from direction-a.css so the hero renders identically; tour.css consumes
+   the same set to stay in lockstep. */
+
+:root {
+  /* Violet signal colour (CTA, focus, live status). */
+  --accent: #b98cff;
+  --accent-rgb: 185 140 255;
+
+  /* Font language — one system sans for text + chrome, mono for terminal. */
+  --font-display:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-mono:
+    "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
+
+  /* Tokyo Night app-window chrome (shared by .a-appwin in hero + tour). */
+  --sg-bg: #16161e;
+  --sg-fg: #c0caf5;
+  --sg-fg-dim: color-mix(in srgb, #c0caf5 62%, transparent);
+  --sg-fg-faint: color-mix(in srgb, #c0caf5 40%, transparent);
+  --sg-accent: #7aa2f7;
+  --sg-green: #9ece6a;
+  --sg-yellow: #e0af68;
+  --sg-purple: #bb9af7;
+  --sg-hairline: color-mix(in srgb, #c0caf5 14%, transparent);
+  --sg-hairline-soft: color-mix(in srgb, #c0caf5 8%, transparent);
+}

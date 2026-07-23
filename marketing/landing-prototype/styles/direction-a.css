@@ -359,16 +359,6 @@
    proportionally. Flat by design: hairlines only, no drop shadows. */
 
 .a-appwin {
-  --sg-bg: #16161e;
-  --sg-fg: #c0caf5;
-  --sg-fg-dim: color-mix(in srgb, #c0caf5 62%, transparent);
-  --sg-fg-faint: color-mix(in srgb, #c0caf5 40%, transparent);
-  --sg-accent: #7aa2f7;
-  --sg-green: #9ece6a;
-  --sg-yellow: #e0af68;
-  --sg-purple: #bb9af7;
-  --sg-hairline: color-mix(in srgb, #c0caf5 14%, transparent);
-  --sg-hairline-soft: color-mix(in srgb, #c0caf5 8%, transparent);
   position: relative;
   z-index: 2;
   display: flex;
