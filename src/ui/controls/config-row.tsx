@@ -36,10 +36,18 @@ interface ToggleRowProps {
   desc?: string;
   checked: boolean;
   onToggle: () => void;
+  /** Disables the native button (real enforcement, not just styling); default false. */
+  disabled?: boolean;
 }
 
 /** toggle value kind: `on` (green) / `off` (faint), click flips (DL-6). */
-export function ToggleRow({ label, desc, checked, onToggle }: ToggleRowProps) {
+export function ToggleRow({
+  label,
+  desc,
+  checked,
+  onToggle,
+  disabled,
+}: ToggleRowProps) {
   return (
     <ConfigRow label={label} desc={desc}>
       <button
@@ -47,7 +55,8 @@ export function ToggleRow({ label, desc, checked, onToggle }: ToggleRowProps) {
         role="switch"
         aria-checked={checked}
         aria-label={label}
-        class={`cfg-btn ${checked ? "cfg-btn--on" : "cfg-btn--off"}`}
+        class={`cfg-btn ${checked ? "cfg-btn--on" : "cfg-btn--off"} ${disabled ? "cfg-btn--disabled" : ""}`}
+        disabled={disabled}
         onClick={onToggle}
       >
         {checked ? "on" : "off"}
