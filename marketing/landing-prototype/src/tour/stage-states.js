@@ -79,8 +79,8 @@ export const PROOF_TERM_STEPS = deepFreeze([
     chip: "Pty",
   },
   {
-    cmd: 'echo "Tiếng Việt · 漢字 · └─ box drawing ✓"',
-    out: ["Tiếng Việt · 漢字 · └─ box drawing ✓"],
+    cmd: 'echo "box-drawing ├─┬─┐ │ └─┴─┘ renders clean ✓"',
+    out: ["box-drawing ├─┬─┐ │ └─┴─┘ renders clean ✓"],
     chip: "Pty",
   },
   {
