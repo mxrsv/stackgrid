@@ -9,9 +9,52 @@ import { activeTabIndex, tabViews, statusInfo } from "./tabs-store";
 
 // init() installs the file-drop listener, which reaches into the Tauri window
 // and webview. Stub them so init() can register the pty output listener the
-// unread tracking hangs off of.
+// unread tracking hangs off of. `getCurrentWindow` is also how Task 11 reads
+// initial focus + subscribes to focus changes — the controller below lets
+// each test steer `isFocused()`/`onFocusChanged()` (resolve, reject, or fire
+// a focus change) without re-mocking the module per test.
+interface WindowFocusController {
+  /** What `isFocused()` resolves to when it doesn't reject. */
+  initialFocused: boolean;
+  /** Set to make `isFocused()` reject this tick. */
+  isFocusedError: Error | null;
+  /** Set to make `onFocusChanged()` registration reject this tick. */
+  onFocusChangedError: Error | null;
+  /** Captured by `onFocusChanged()` — a test calls this to emit a change. */
+  emitFocusChanged: ((focused: boolean) => void) | null;
+  /** The unlisten fn returned from `onFocusChanged()` — asserted by dispose(). */
+  unlistenFocus: ReturnType<typeof vi.fn>;
+}
+
+function freshWindowFocusController(): WindowFocusController {
+  return {
+    initialFocused: true,
+    isFocusedError: null,
+    onFocusChangedError: null,
+    emitFocusChanged: null,
+    unlistenFocus: vi.fn(),
+  };
+}
+
+let windowFocus = freshWindowFocusController();
+
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ scaleFactor: async () => 1 }),
+  getCurrentWindow: () => ({
+    scaleFactor: async () => 1,
+    isFocused: async () => {
+      if (windowFocus.isFocusedError) {
+        throw windowFocus.isFocusedError;
+      }
+      return windowFocus.initialFocused;
+    },
+    onFocusChanged: async (handler: (event: { payload: boolean }) => void) => {
+      if (windowFocus.onFocusChangedError) {
+        throw windowFocus.onFocusChangedError;
+      }
+      windowFocus.emitFocusChanged = (focused) => handler({ payload: focused });
+      return windowFocus.unlistenFocus;
+    },
+  }),
 }));
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
@@ -19,6 +62,11 @@ vi.mock("@tauri-apps/api/webview", () => ({
 
 function fakePane(id: number, events: PaneEvents): Pane {
   const element = document.createElement("div");
+  // Focusable + real DOM focus movement (like xterm's textarea would): the
+  // Task 11 visibility predicate checks `element.contains(document.activeElement)`,
+  // so the fake must actually move `document.activeElement`, not just fire
+  // the synthetic event below (which mirrors production's `focusin` listener).
+  element.tabIndex = -1;
   return {
     id,
     element,
@@ -29,6 +77,7 @@ function fakePane(id: number, events: PaneEvents): Pane {
     fit() {},
     clear() {},
     focus() {
+      element.focus();
       events.onFocus(id);
     },
     applySettings() {},
@@ -43,25 +92,40 @@ function fakePane(id: number, events: PaneEvents): Pane {
 
 /** An attention signal a real pane would emit — the tracker adds `observedAt`. */
 type EmitSignal = (id: number, signal: PaneAttentionSignal) => void;
+/** Simulates a real focusin/mousedown/keyboard-driven focus landing on a pane. */
+type FocusPaneDirectly = (id: number) => void;
 
 /**
  * Build a TabManager on `pty` with a capturing pane factory: it records each
  * pane's PaneEvents so a test can drive `onAttentionSignal` the way an OSC
- * 9/777 notification or a bell would, straight through the manager wiring.
+ * 9/777 notification or a bell would, straight through the manager wiring —
+ * and keeps the `Pane` itself so a test can call `.focus()` directly, which
+ * both moves real DOM focus (for the visibility predicate) and fires
+ * `onFocus` (for the acknowledge path), exactly like a real click would.
  */
-function wire(pty: PtyClient): { tm: TabManager; emitSignal: EmitSignal } {
+function wire(pty: PtyClient): {
+  tm: TabManager;
+  emitSignal: EmitSignal;
+  focusPaneDirectly: FocusPaneDirectly;
+} {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const eventsById = new Map<number, PaneEvents>();
+  const panesById = new Map<number, Pane>();
   const createPane: CreatePaneFn = (id, _settings, events) => {
     eventsById.set(id, events);
-    return fakePane(id, events);
+    const pane = fakePane(id, events);
+    panesById.set(id, pane);
+    return pane;
   };
   const tm = createTabManager(host, pty, { createPane });
   const emitSignal: EmitSignal = (id, signal) => {
     eventsById.get(id)?.onAttentionSignal?.(id, signal);
   };
-  return { tm, emitSignal };
+  const focusPaneDirectly: FocusPaneDirectly = (id) => {
+    panesById.get(id)?.focus();
+  };
+  return { tm, emitSignal, focusPaneDirectly };
 }
 
 function setup(options: {
@@ -72,14 +136,15 @@ function setup(options: {
   tm: TabManager;
   pty: ReturnType<typeof createMemoryPtyClient>;
   emitSignal: EmitSignal;
+  focusPaneDirectly: FocusPaneDirectly;
 } {
   const pty = createMemoryPtyClient({
     nextId: 1,
     infos: options.infos,
     ...(options.dirs !== undefined ? { dirs: options.dirs } : {}),
   });
-  const { tm, emitSignal } = wire(pty);
-  return { tm, pty, emitSignal };
+  const { tm, emitSignal, focusPaneDirectly } = wire(pty);
+  return { tm, pty, emitSignal, focusPaneDirectly };
 }
 
 /**
@@ -115,6 +180,7 @@ beforeEach(() => {
   document.body.innerHTML = "";
   tabViews.value = [];
   activeTabIndex.value = 0;
+  windowFocus = freshWindowFocusController();
 });
 
 describe("createTabManager materialize (through the createPane seam)", () => {
@@ -461,7 +527,15 @@ describe("createTabManager attention tracker", () => {
     tm.dispose();
   });
 
-  it("public selectTab clears legacy unread but does not acknowledge tracker attention", async () => {
+  it("selectTab clears legacy unread; showing the tab also acknowledges its focused pane", async () => {
+    // Pre-Task-11 this asserted selectTab did NOT touch tracker attention,
+    // because `callbacks.onPaneFocus` didn't exist yet — `show()`'s internal
+    // `pane.focus()` call (unchanged by Task 11; see plan §Task 11A) was a
+    // no-op for the tracker. Task 11 wires `onPaneFocus` to `acknowledge`, so
+    // that same `show()` focus call now acknowledges the tab's active pane as
+    // a side effect of regaining DOM focus — not a direct selectTab→ack wire.
+    // Task 11A/11B later add a non-focusing `show()` path for attention
+    // navigation specifically; plain `selectTab` keeps this behavior.
     const infos = new Map<number, PaneProcessInfo>([
       [1, { id: 1, cwd: "/a", process: "claude" }],
       [2, { id: 2, cwd: "/b", process: "zsh" }],
@@ -477,11 +551,11 @@ describe("createTabManager attention tracker", () => {
     expect(tabViews.value[0].attention?.kind).toBe("error");
     expect(tabViews.value[0].unread).toBe(true);
 
-    // Opening the tab clears LEGACY unread but leaves the tracker attention
-    // latched — only pane focus acknowledges (wired in Task 11, not here).
+    // Opening the tab clears LEGACY unread, and its `show()`-driven pane
+    // focus acknowledges pane 1's latched tracker attention too.
     tm.selectTab(0);
     expect(tabViews.value[0].unread).toBe(false);
-    expect(tabViews.value[0].attention?.kind).toBe("error");
+    expect(tabViews.value[0].attention?.kind).not.toBe("error");
 
     tm.dispose();
   });
@@ -730,5 +804,206 @@ describe("createTabManager attention tracker", () => {
         vi.useRealTimers();
       }
     });
+  });
+});
+
+describe("createTabManager window focus (Task 11)", () => {
+  it("acknowledges a pane's latched attention when the window starts focused", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { tm, pty, focusPaneDirectly } = setup({ infos });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init(); // isFocused() resolves true by default
+    await flush();
+
+    pty.emitOutput(1, "\x1b]9;4;2\x07");
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+
+    // A fresh focus event on the pane (click/focusin/keyboard) acknowledges it.
+    focusPaneDirectly(1);
+    expect(tabViews.value[0].attention?.kind).not.toBe("error");
+
+    tm.dispose();
+  });
+
+  it("does not acknowledge a pane focus while the window starts unfocused", async () => {
+    windowFocus.initialFocused = false;
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { tm, pty, focusPaneDirectly } = setup({ infos });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+
+    pty.emitOutput(1, "\x1b]9;4;2\x07");
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+
+    // The pane regains DOM focus, but the window itself is still backgrounded
+    // (e.g. focus bounced inside an inactive app) — no acknowledge.
+    focusPaneDirectly(1);
+    expect(tabViews.value[0].attention?.kind).toBe("error");
+
+    tm.dispose();
+  });
+
+  it("treats a rejected isFocused() as focused and keeps the in-app rail working", async () => {
+    windowFocus.isFocusedError = new Error("no window handle");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const infos = new Map<number, PaneProcessInfo>([
+        [1, { id: 1, cwd: "/repo", process: "claude" }],
+      ]);
+      const { tm, pty, focusPaneDirectly } = setup({ infos });
+      await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+        workspacePath: "/repo",
+      });
+      await tm.init();
+      await flush();
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("isFocused"),
+        windowFocus.isFocusedError,
+      );
+
+      // Fail-safe = focused: acknowledge still works.
+      pty.emitOutput(1, "\x1b]9;4;2\x07");
+      focusPaneDirectly(1);
+      expect(tabViews.value[0].attention?.kind).not.toBe("error");
+
+      tm.dispose();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("still works when onFocusChanged registration rejects (native notifications suppressed)", async () => {
+    windowFocus.onFocusChangedError = new Error("event API unavailable");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const infos = new Map<number, PaneProcessInfo>([
+        [1, { id: 1, cwd: "/repo", process: "claude" }],
+      ]);
+      const { tm, pty, focusPaneDirectly } = setup({ infos });
+      await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+        workspacePath: "/repo",
+      });
+      await tm.init();
+      await flush();
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("onFocusChanged"),
+        windowFocus.onFocusChangedError,
+      );
+
+      // isFocused() itself still resolved (true), so the in-app rail works —
+      // only the ability to react to LATER focus changes is lost.
+      pty.emitOutput(1, "\x1b]9;4;2\x07");
+      focusPaneDirectly(1);
+      expect(tabViews.value[0].attention?.kind).not.toBe("error");
+
+      tm.dispose();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("marks output unread while backgrounded and only acknowledges pane focus once the window returns", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { tm, pty, focusPaneDirectly } = setup({ infos });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+
+    windowFocus.emitFocusChanged?.(false); // OS reports the window lost focus
+
+    pty.emitOutput(1, "hi from the agent");
+    expect(tabViews.value[0].attention?.unreadCount).toBe(1);
+
+    // Focus lands back on the pane while the window is still backgrounded —
+    // no acknowledge yet.
+    focusPaneDirectly(1);
+    expect(tabViews.value[0].attention?.unreadCount).toBe(1);
+
+    windowFocus.emitFocusChanged?.(true); // the window returns to foreground
+    focusPaneDirectly(1); // terminal focus now acknowledges
+    expect(tabViews.value[0].attention?.unreadCount).toBe(0);
+
+    tm.dispose();
+  });
+
+  it("does not mark output seen when a Settings-like element holds DOM focus", async () => {
+    const infos = new Map<number, PaneProcessInfo>([
+      [1, { id: 1, cwd: "/repo", process: "claude" }],
+    ]);
+    const { tm, pty, focusPaneDirectly } = setup({ infos });
+    await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+      workspacePath: "/repo",
+    });
+    await tm.init();
+    await flush();
+    focusPaneDirectly(1); // window foreground, tab active, pane DOM-focused
+
+    // A Settings-like overlay steals DOM focus without the tab/window
+    // changing — the pane stays "active" in the split tree the whole time.
+    const settingsField = document.createElement("input");
+    document.body.appendChild(settingsField);
+    settingsField.focus();
+
+    pty.emitOutput(1, "output while the settings panel is open");
+    expect(tabViews.value[0].attention?.unreadCount).toBe(1); // NOT seen
+
+    settingsField.remove();
+    tm.dispose();
+  });
+
+  it("acknowledges only the focused pane in a multi-pane tab", async () => {
+    vi.useFakeTimers();
+    try {
+      const infos = new Map<number, PaneProcessInfo>([
+        [1, { id: 1, cwd: "/repo", process: "claude" }],
+        [2, { id: 2, cwd: "/repo", process: "claude" }],
+      ]);
+      const { tm, pty, focusPaneDirectly } = setup({ infos });
+      await tm.init();
+      await tm.openFromPreset({ type: "leaf" }, ["/repo"], {
+        workspacePath: "/repo",
+      });
+      await tm.splitActive("row"); // pane 2 is now the focused/active pane
+      // Pane 2 was spawned after materialize's one-shot poll, so its gate is
+      // still closed — advance past the periodic poll (covers every live
+      // pane) so both panes' agent gate is open before emitting OSC 9;4.
+      await vi.advanceTimersByTimeAsync(2000);
+
+      pty.emitOutput(1, "\x1b]9;4;2\x07"); // background pane errors
+      pty.emitOutput(2, "\x1b]9;4;2\x07"); // focused pane errors too
+      expect(tabViews.value[0].attention?.actionableCount).toBe(2);
+
+      focusPaneDirectly(2); // re-focus only pane 2
+      expect(tabViews.value[0].attention?.actionableCount).toBe(1); // pane 1's stays latched
+
+      tm.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("disposes the window-focus listener via unlisteners", async () => {
+    const { tm } = setup({});
+    await tm.init();
+    expect(windowFocus.unlistenFocus).not.toHaveBeenCalled();
+
+    tm.dispose();
+
+    expect(windowFocus.unlistenFocus).toHaveBeenCalledTimes(1);
   });
 });

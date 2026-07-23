@@ -1,4 +1,5 @@
 import { homeDir } from "@tauri-apps/api/path";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   clampFontSize,
@@ -161,6 +162,10 @@ export function createTabManager(
   let nextKey = 1;
   let active = -1;
   let home = "";
+  // Fail-safe = focused: an unanswerable/unregisterable window-focus check
+  // must never suppress the in-app rail — only native notifications (Task
+  // 23) key off this beyond `onPaneFocus`'s ack gate.
+  let windowFocused = true;
   // dispose() can run while init()'s `await listen(...)` is still in flight
   // (e.g. a remount mid-init) — guards against pushing a listener into an
   // `unlisteners` array that's already been drained, which would leak it.
@@ -260,6 +265,10 @@ export function createTabManager(
       ) {
         syncViews();
       }
+    },
+    onPaneFocus(id: number): void {
+      if (!windowFocused) return; // only ack when the window is foreground
+      if (tracker.acknowledge(id)) syncViews(); // acknowledge clears attention+unread, not phase
     },
   };
 
@@ -641,6 +650,28 @@ export function createTabManager(
   }
 
   async function init(): Promise<void> {
+    try {
+      windowFocused = await getCurrentWindow().isFocused();
+    } catch (err) {
+      console.warn(
+        "attention: window isFocused() failed; assuming focused",
+        err,
+      );
+      windowFocused = true;
+    }
+    try {
+      const unlistenFocus = await getCurrentWindow().onFocusChanged(
+        ({ payload }) => {
+          windowFocused = payload;
+        },
+      );
+      unlisteners.push(unlistenFocus);
+    } catch (err) {
+      console.warn(
+        "attention: onFocusChanged registration failed; native notifications suppressed",
+        err,
+      );
+    }
     await registerUnlisten(
       pty.listenOutput((id, data) => {
         // The launcher waits for a pane's first byte before typing its agent;
@@ -667,11 +698,14 @@ export function createTabManager(
             trackerChanged = true;
           }
         }
-        // Per-pane visibility for THIS step only: the focused pane of the
-        // active tab. SEAM: Task 11 additionally ANDs the window being
-        // foreground and DOM focus actually resting inside the pane element.
-        const visible =
-          owner === tabs[active] && id === activeManager()?.activePaneId();
+        // Per-pane visibility for THIS step only: the window must be
+        // foreground, the owner must be the active tab, AND DOM focus must
+        // actually rest inside the pane's element — `activePaneId()` alone
+        // isn't enough, since a Settings-like overlay can hold DOM focus
+        // while a pane stays "active" in the split tree.
+        const el = activeManager()?.paneElement(id);
+        const domFocused = el != null && el.contains(document.activeElement);
+        const visible = windowFocused && owner === tabs[active] && domFocused;
         if (tracker.noteOutputVisibility(id, visible) !== null) {
           trackerChanged = true;
         }
