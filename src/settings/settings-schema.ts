@@ -17,6 +17,7 @@ export interface Settings {
   colorOverrides: Partial<TerminalColors>;
   focusExpand: boolean;
   showPaneBar: boolean;
+  agentNotifications: boolean;
   tabBarPosition: TabBarPosition;
   /** Editor launched by Cmd+click on a file path in a terminal. */
   editorId: EditorId;
@@ -51,6 +52,7 @@ export const DEFAULT_SETTINGS: Settings = {
   colorOverrides: {},
   focusExpand: false,
   showPaneBar: false,
+  agentNotifications: false,
   tabBarPosition: "left",
   editorId: "vscode",
   editorCommand: "",
@@ -74,10 +76,7 @@ export function clampFontSize(size: number): number {
 }
 
 export function clampScrollback(n: number): number {
-  return Math.min(
-    SCROLLBACK_MAX,
-    Math.max(SCROLLBACK_MIN, Math.round(n)),
-  );
+  return Math.min(SCROLLBACK_MAX, Math.max(SCROLLBACK_MIN, Math.round(n)));
 }
 
 function validateColorOverrides(raw: unknown): Partial<TerminalColors> {
@@ -123,6 +122,10 @@ export function validateSettings(raw: unknown): Settings {
       typeof source.showPaneBar === "boolean"
         ? source.showPaneBar
         : DEFAULT_SETTINGS.showPaneBar,
+    agentNotifications:
+      typeof source.agentNotifications === "boolean"
+        ? source.agentNotifications
+        : DEFAULT_SETTINGS.agentNotifications,
     tabBarPosition: isTabBarPosition(source.tabBarPosition)
       ? source.tabBarPosition
       : DEFAULT_SETTINGS.tabBarPosition,
@@ -134,7 +137,8 @@ export function validateSettings(raw: unknown): Settings {
         ? source.editorCommand
         : DEFAULT_SETTINGS.editorCommand,
     scrollback:
-      typeof source.scrollback === "number" && Number.isFinite(source.scrollback)
+      typeof source.scrollback === "number" &&
+      Number.isFinite(source.scrollback)
         ? clampScrollback(source.scrollback)
         : DEFAULT_SETTINGS.scrollback,
   };

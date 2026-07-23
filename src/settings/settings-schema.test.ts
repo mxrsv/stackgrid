@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_SETTINGS,
-  validateSettings,
-} from "./settings-schema";
+import { DEFAULT_SETTINGS, validateSettings } from "./settings-schema";
 
 describe("validateSettings", () => {
   it("silently drops the legacy restoreTabs field", () => {
@@ -64,6 +61,34 @@ describe("focusExpand", () => {
     expect(
       validateSettings({ ...DEFAULT_SETTINGS, focusExpand: "yes" }).focusExpand,
     ).toBe(false);
+  });
+});
+
+describe("agentNotifications", () => {
+  it("defaults to false", () => {
+    expect(DEFAULT_SETTINGS.agentNotifications).toBe(false);
+    expect(validateSettings({}).agentNotifications).toBe(false);
+  });
+
+  it("accepts true", () => {
+    expect(
+      validateSettings({ agentNotifications: true }).agentNotifications,
+    ).toBe(true);
+  });
+
+  it("accepts false", () => {
+    expect(
+      validateSettings({ agentNotifications: false }).agentNotifications,
+    ).toBe(false);
+  });
+
+  it("falls back to false on invalid types (string, number)", () => {
+    expect(
+      validateSettings({ agentNotifications: "yes" }).agentNotifications,
+    ).toBe(false);
+    expect(validateSettings({ agentNotifications: 1 }).agentNotifications).toBe(
+      false,
+    );
   });
 });
 
