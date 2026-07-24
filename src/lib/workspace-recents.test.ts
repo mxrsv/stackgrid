@@ -4,11 +4,37 @@ import {
   formatRelativeTime,
   MAX_RECENTS,
   pushRecent,
+  resolveAgentChoice,
   validateWorkspaces,
   WORKSPACES_VERSION,
 } from "./workspace-recents";
 
 const NOW = 1_800_000_000_000;
+
+describe("resolveAgentChoice", () => {
+  const agents = [{ name: "claude" }, { name: "codex" }];
+
+  it("defaults to the first detected agent when nothing was picked", () => {
+    expect(resolveAgentChoice(undefined, agents)).toBe("claude");
+  });
+
+  it("keeps a picked agent that is still detected", () => {
+    expect(resolveAgentChoice("codex", agents)).toBe("codex");
+  });
+
+  it("falls back to the first agent when the memory is stale", () => {
+    expect(resolveAgentChoice("gemini", agents)).toBe("claude");
+  });
+
+  it("returns Shell only on an explicit null pick", () => {
+    expect(resolveAgentChoice(null, agents)).toBeNull();
+  });
+
+  it("degrades to Shell only when no agent is detected", () => {
+    expect(resolveAgentChoice(undefined, [])).toBeNull();
+    expect(resolveAgentChoice("claude", [])).toBeNull();
+  });
+});
 
 describe("pushRecent", () => {
   it("puts the newest entry first", () => {

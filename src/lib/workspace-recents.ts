@@ -102,6 +102,26 @@ export function pushRecent(
   return [head, ...rest].slice(0, MAX_RECENTS);
 }
 
+/**
+ * Resolve a remembered/selected agent against what is actually on `$PATH`.
+ * Shell is opt-in: only an explicit `null` (the user clicked Shell only this
+ * session) yields Shell. No pick (`undefined`), a remembered choice, or a
+ * stale memory all fall back to the first detected agent — an empty detect
+ * result still degrades to Shell only (FR-025).
+ */
+export function resolveAgentChoice(
+  choice: AgentChoice | undefined,
+  agents: readonly { readonly name: string }[],
+): AgentChoice {
+  if (choice === null) {
+    return null;
+  }
+  if (choice !== undefined && agents.some((agent) => agent.name === choice)) {
+    return choice;
+  }
+  return agents[0]?.name ?? null;
+}
+
 export function folderName(path: string): string {
   const trimmed = path.endsWith("/") && path !== "/" ? path.slice(0, -1) : path;
   const segment = trimmed.slice(trimmed.lastIndexOf("/") + 1);

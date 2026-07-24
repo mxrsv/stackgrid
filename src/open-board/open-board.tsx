@@ -5,7 +5,11 @@ import { useEffect, useRef } from "preact/hooks";
 import { open } from "@tauri-apps/plugin-dialog";
 import { countLeaves } from "../lib/split-tree";
 import { isBuiltIn, type Preset } from "../lib/preset-schema";
-import { folderName, formatRelativeTime } from "../lib/workspace-recents";
+import {
+  folderName,
+  formatRelativeTime,
+  resolveAgentChoice,
+} from "../lib/workspace-recents";
 import type { AgentChoice, RecentWorkspace } from "../lib/workspace-recents";
 import { tildify } from "../lib/process-info";
 import { defaultPtyClient, type DetectedAgent } from "../terminal/pty-client";
@@ -58,17 +62,6 @@ function agentLogo(name: string): string | undefined {
   return AGENT_LOGOS[name];
 }
 
-/** Resolve a remembered/selected agent against what is actually on `$PATH`. */
-function resolveAgentChoice(
-  choice: AgentChoice | undefined,
-  agents: readonly DetectedAgent[],
-): AgentChoice {
-  if (choice == null) {
-    return null; // undefined (never recorded) or explicit Shell only
-  }
-  return agents.some((agent) => agent.name === choice) ? choice : null;
-}
-
 export function OpenBoard({
   canCancel,
   onCancel,
@@ -85,10 +78,14 @@ export function OpenBoard({
       ? first.lastPresetId
       : presetsData.value.lastUsedId) ?? presets[0].id,
   );
-  // Raw remembered/selected choice; the *effective* agent is this resolved
+  // Raw selected choice this session; the *effective* agent is this resolved
   // against detected agents, so a late detect() or a stale memory can't launch
-  // something that is not on $PATH.
-  const selectedAgent = useSignal<AgentChoice>(first?.lastAgent ?? null);
+  // something that is not on $PATH. `undefined` = no explicit pick, which
+  // resolves to the first detected agent; a remembered Shell (`null`) is
+  // deliberately not preloaded — Shell is only ever an explicit click.
+  const selectedAgent = useSignal<AgentChoice | undefined>(
+    typeof first?.lastAgent === "string" ? first.lastAgent : undefined,
+  );
   const agents = useSignal<readonly DetectedAgent[]>([]);
   const section = useSignal<BoardSection>("workspace");
   const missing = useSignal<ReadonlySet<string>>(new Set());
@@ -161,7 +158,8 @@ export function OpenBoard({
     ) {
       selectedPresetId.value = entry.lastPresetId;
     }
-    selectedAgent.value = entry?.lastAgent ?? null;
+    selectedAgent.value =
+      typeof entry?.lastAgent === "string" ? entry.lastAgent : undefined;
   }
 
   async function pickFolder(): Promise<void> {
@@ -169,7 +167,7 @@ export function OpenBoard({
       const picked = await open({ directory: true, multiple: false });
       if (typeof picked === "string") {
         selectedPath.value = picked;
-        selectedAgent.value = null; // a fresh folder has no remembered agent
+        selectedAgent.value = undefined; // fresh folder → first-agent default
       }
     } catch (err: unknown) {
       console.warn("Folder picker failed:", err);
@@ -358,6 +356,7 @@ export function OpenBoard({
                       class={`workspace-row ${recent.path === selectedPath.value ? "is-selected" : ""} ${gone ? "is-missing" : ""}`}
                       disabled={gone}
                       onClick={() => selectWorkspace(recent.path)}
+                      onDblClick={() => void confirmOpen()}
                     >
                       <span class="workspace-row__head">
                         <span class="workspace-row__name">
@@ -499,6 +498,7 @@ export function OpenBoard({
                       selectedAgent.value = agent.name;
                       section.value = "agent";
                     }}
+                    onDblClick={() => void confirmOpen()}
                   >
                     <kbd>{index + 1}</kbd>
                     {logo && <img class="agent-chip__logo" src={logo} alt="" />}
@@ -512,6 +512,7 @@ export function OpenBoard({
                   selectedAgent.value = null;
                   section.value = "agent";
                 }}
+                onDblClick={() => void confirmOpen()}
               >
                 <kbd>0</kbd>Shell only
               </button>
