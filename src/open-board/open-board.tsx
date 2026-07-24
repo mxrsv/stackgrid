@@ -373,15 +373,20 @@ export function OpenBoard({
                             ? recent.path
                             : tildify(recent.path, home.value)}
                         </span>
-                        {preset || recent.lastAgent !== undefined ? (
+                        {/* A remembered Shell (`null`) is not shown: it no
+                            longer preselects anything, so labeling the row
+                            "Shell" would contradict the first-agent default. */}
+                        {preset || typeof recent.lastAgent === "string" ? (
                           <span
                             class={`workspace-row__combo ${agentGone ? "is-stale" : ""}`}
                           >
                             {preset ? preset.name : "—"}
-                            {" · "}
-                            {recent.lastAgent == null
-                              ? "Shell"
-                              : agentLabel(recent.lastAgent)}
+                            {typeof recent.lastAgent === "string" ? (
+                              <>
+                                {" · "}
+                                {agentLabel(recent.lastAgent)}
+                              </>
+                            ) : null}
                           </span>
                         ) : null}
                       </span>

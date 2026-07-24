@@ -19,6 +19,7 @@ import {
   savePreset,
 } from "../presets/presets-store";
 import { recordWorkspaceOpen } from "../open-board/workspaces-store";
+import { resolveAgentChoice } from "../lib/workspace-recents";
 import type { AgentChoice } from "../lib/workspace-recents";
 import { boardOpen, editorRequest, saveDialogOpen } from "../chrome/events";
 import { OpenBoard } from "../open-board/open-board";
@@ -215,8 +216,19 @@ export function App() {
       if (request.workspace === null) {
         return; // gated like Open — board stays up showing the new card
       }
-      // A preset created from the board carries no agent choice — Shell only.
-      await handleOpen(request.workspace, preset, null);
+      // A preset created from the board opens like Open does: first detected
+      // agent by default (Shell is opt-in, and only the board offers the opt).
+      const agents = await defaultPtyClient
+        .detectAgents()
+        .catch((err: unknown) => {
+          console.warn("detect_agents failed:", err);
+          return [];
+        });
+      await handleOpen(
+        request.workspace,
+        preset,
+        resolveAgentChoice(undefined, agents),
+      );
       return;
     }
     // Live window: inherit panes resolve to the focused pane's CWD (BF-Rule 8);
