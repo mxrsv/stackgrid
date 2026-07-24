@@ -44,7 +44,7 @@ Every pane is backed by a real PTY running your **login shell** (`$SHELL -l`) vi
 
 - A **workspace** is a folder you pick as the working root — and it maps 1:1 to a tab. Reopening a workspace focuses its existing tab instead of creating a duplicate.
 - The **Open board** is the app's single entry point (also shown on New Tab, ⌘T): a three-column screen — the workspace sidebar, a logo panel, and a stack of **recent workspaces → layout preset → agent**.
-- Each recent row **remembers your last layout + agent combo** and preselects them, so reopening a project is a keystroke away.
+- Each recent row **remembers your last layout + agent combo** and preselects them, so reopening a project is a keystroke away — or **double-click** any workspace, layout, or agent chip to open immediately.
 - Switch between a vertical **workspace sidebar** and a horizontal **tab bar** in Settings.
 - **Workspace logos** — each workspace auto-detects a favicon from the repo as its icon, or drag-drop your own image onto it.
 - **Agent status at a glance** — in the vertical workspace sidebar, each avatar shows a spinning ring while an agent is **actively working on a prompt** (not merely open at its prompt — Stackgrid reads the agent's own OSC 9;4 progress reports, the same signal Ghostty renders as a progress bar), a **yellow dot** when a background tab has printed new output you haven't seen yet, and nothing when it's idle — so you can track every workspace without switching to it. Opening a tab clears its unread dot.
@@ -61,7 +61,7 @@ v1 uses one generic "needs attention" label — it doesn't yet distinguish a pro
 ### 🤖 Launch agents into every pane
 
 - Pick an agent once on the Open board and Stackgrid launches it in **every pane** of the new tab — four panes, four agents running in parallel.
-- Agents are auto-discovered through the **same interactive login shell your panes run** (Claude Code, Codex, Gemini CLI) — so anything runnable in a pane, including CLIs put on `PATH` by `.zshrc`/`.bashrc`, shows up in the picker — each with its **brand logo** (Claude, Codex, Gemini) for a quick read; pick **Shell only** to skip.
+- Agents are auto-discovered through the **same interactive login shell your panes run** (Claude Code, Codex, Gemini CLI) — so anything runnable in a pane, including CLIs put on `PATH` by `.zshrc`/`.bashrc`, shows up in the picker — each with its **brand logo** (Claude, Codex, Gemini) for a quick read. The **first detected agent is preselected by default** — Shell is opt-in via the **Shell only** chip (or `0`), never the silent default.
 - Running agents get **chrome**: the pane header, status bar, and busy dot are colored by process — Claude magenta, Codex green, Gemini cyan — so you can read the state of every pane in one glance.
 
 ### 💾 Layout presets
